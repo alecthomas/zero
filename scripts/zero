@@ -1,0 +1,6 @@
+#!/bin/bash
+set -euo pipefail
+name="$(basename "$0")"
+dir="$(dirname "$0")/.."
+dest="${TMPDIR:-/tmp}/$name"
+(cd "${dir}/cmd/${name}" ; go build -o "${dest}" .) && exec "${dest}" "$@"

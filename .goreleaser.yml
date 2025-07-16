@@ -1,0 +1,32 @@
+version: 2
+project_name: zero
+release:
+  github:
+    owner: alecthomas
+    name: zero
+env:
+  - CGO_ENABLED=0
+builds:
+  - goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - arm64
+      - amd64
+    goarm:
+      - "6"
+    dir: ./cmd/zero
+    main: .
+    ldflags: -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    binary: zero
+archives:
+  - formats: ["tar.gz"]
+    name_template: "{{ .Binary }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    files:
+      - COPYING
+      - README*
+snapshot:
+  version_template: SNAPSHOT-{{ .Commit }}
+checksum:
+  name_template: "{{ .ProjectName }}-{{ .Version }}-checksums.txt"
