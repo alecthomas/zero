@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"hash/fnv"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -54,6 +55,7 @@ type graphOptions struct {
 	pick []string
 	// Additional package patterns to search for annotations.
 	patterns []string
+	debug    bool
 }
 
 type Option func(*graphOptions) error
@@ -78,6 +80,26 @@ func WithProviders(pick ...string) Option {
 func WithPatterns(patterns ...string) Option {
 	return func(o *graphOptions) error {
 		o.patterns = patterns
+		return nil
+	}
+}
+
+// WithDebug enables debug logging.
+func WithDebug(enable bool) Option {
+	return func(o *graphOptions) error {
+		o.debug = enable
+		return nil
+	}
+}
+
+func WithOptions(options ...Option) Option {
+	return func(o *graphOptions) error {
+		for _, opt := range options {
+			err := opt(o)
+			if err != nil {
+				return errors.WithStack(err)
+			}
+		}
 		return nil
 	}
 }
@@ -112,9 +134,14 @@ func Analyse(dest string, options ...Option) (*Graph, error) {
 		return nil, errors.Errorf("failed to determine import path for destination directory %s: %w", dest, err)
 	}
 
+	var logf func(string, ...any)
+	if opts.debug {
+		logf = log.Printf
+	}
+
 	cfg := &packages.Config{
+		Logf: logf,
 		Fset: fset,
-		Dir:  filepath.Dir(dest),
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedTypes | packages.NeedSyntax |
 			packages.NeedTypesInfo,

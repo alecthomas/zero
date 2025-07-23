@@ -1,6 +1,6 @@
 module github.com/alecthomas/zero
 
-go 1.24.5
+go 1.24
 
 require (
 	github.com/alecthomas/assert/v2 v2.11.0

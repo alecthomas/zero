@@ -13,8 +13,8 @@ import (
 
 // Config contains combined Kong configuration for all types in [Construct].
 type ZeroConfig struct {
-	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:""`
 	Config9c6b7595816de4c ServiceConfig `embed:""`
+	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:""`
 }
 
 // Construct an instance of T.

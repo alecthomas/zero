@@ -12,20 +12,31 @@ import (
 )
 
 var cli struct {
-	Tags     string   `help:"Tags to enable during type analysis."          placeholder:"TAG"`
+	Chdir    string   `help:"Change to this directory before running." placeholder:"DIR" short:"C" type:"existingdir"`
+	Debug    bool     `help:"Enable debug logging."`
+	Tags     string   `help:"Tags to enable during type analysis." placeholder:"TAG"`
 	Resolve  []string `help:"Resolve an ambiguous type with this provider." placeholder:"REF"`
-	List     bool     `help:"List all dependencies."                        xor:"action"`
-	Root     []string `help:"Prune dependencies outside these root types."  placeholder:"REF"                                         short:"r"`
-	Dest     string   `arg:""                                               help:"Destination package directory for generated files." type:"existingdir"`
-	Patterns []string `arg:""                                               help:"Additional packages pattern to scan."               optional:""`
+	List     bool     `help:"List all dependencies." xor:"action"`
+	Root     []string `help:"Prune dependencies outside these root types."  placeholder:"REF" short:"r"`
+	Dest     string   `help:"Destination package directory for generated files." arg:"" type:"existingdir"`
+	Patterns []string `help:"Additional packages pattern to scan." arg:"" optional:""`
 }
 
 func main() {
 	kctx := kong.Parse(&cli)
+	if cli.Chdir != "" {
+		err := os.Chdir(cli.Chdir)
+		kctx.FatalIfErrorf(err, "failed to change directory")
+	}
+	extraOptions := []depgraph.Option{}
+	if cli.Debug {
+		extraOptions = append(extraOptions, depgraph.WithDebug(true))
+	}
 	graph, err := depgraph.Analyse(cli.Dest,
 		depgraph.WithRoots(cli.Root...),
 		depgraph.WithPatterns(cli.Patterns...),
 		depgraph.WithProviders(cli.Resolve...),
+		depgraph.WithOptions(extraOptions...),
 	)
 	kctx.FatalIfErrorf(err)
 	if len(graph.Missing) > 0 {

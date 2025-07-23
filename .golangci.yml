@@ -52,6 +52,7 @@ linters:
     - wsl_v5
     - funcorder
     - noinlineerr
+    - tagalign
   settings:
     dupl:
       threshold: 100
