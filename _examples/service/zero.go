@@ -13,8 +13,8 @@ import (
 
 // Config contains combined Kong configuration for all types in [Construct].
 type ZeroConfig struct {
-	Config9c6b7595816de4c ServiceConfig `embed:""`
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:""`
+	Config9c6b7595816de4c ServiceConfig `embed:""`
 }
 
 // Construct an instance of T.
@@ -32,17 +32,17 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 	case context.Context:
 		return any(ctx).(T), nil
 
-	case *impc24ab568b6f3f934.Config: // Handle pointer to config.
-		return any(&config.Config6fab5aa5f9534d38).(T), nil
-
-	case impc24ab568b6f3f934.Config:
-		return any(config.Config6fab5aa5f9534d38).(T), nil
-
 	case *ServiceConfig: // Handle pointer to config.
 		return any(&config.Config9c6b7595816de4c).(T), nil
 
 	case ServiceConfig:
 		return any(config.Config9c6b7595816de4c).(T), nil
+
+	case *impc24ab568b6f3f934.Config: // Handle pointer to config.
+		return any(&config.Config6fab5aa5f9534d38).(T), nil
+
+	case impc24ab568b6f3f934.Config:
+		return any(config.Config6fab5aa5f9534d38).(T), nil
 
 	case *Service:
 		if p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons); err != nil {

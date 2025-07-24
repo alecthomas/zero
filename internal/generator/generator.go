@@ -134,6 +134,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 					w.L("r%d, err := ZeroConstructSingletons[%s](ctx, config, singletons)", index, receiver.Typ)
 					w.L("if err != nil {")
 					w.In(func(w *codewriter.Writer) {
+						w.Import("fmt")
 						w.L(`return out, fmt.Errorf("*http.ServeMux: %%w", err)`)
 					})
 					w.L("}")

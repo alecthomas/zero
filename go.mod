@@ -5,6 +5,7 @@ go 1.24
 require (
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.12.0
+	github.com/alecthomas/participle/v2 v2.1.4
 	github.com/dyninc/qstring v0.0.0-20160719172318-ab5840a88e81
 	github.com/thnxdev/happy v0.1.6
 	golang.org/x/mod v0.26.0
@@ -12,7 +13,6 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
-	github.com/alecthomas/participle/v2 v2.1.4 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect

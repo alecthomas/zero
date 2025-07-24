@@ -20,6 +20,13 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// Ref represents a reference to a symbol.
+type Ref struct {
+	Pkg    string // database/sql
+	Import string // "database/sql"
+	Ref    string // *sql.DB
+}
+
 type Provider struct {
 	// Position is the position of the function declaration.
 	Position  token.Position

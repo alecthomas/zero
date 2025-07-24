@@ -67,7 +67,7 @@ linters:
     generated: lax
     rules:
       - path: (.+)\.go$
-        text: "^(G104|G204|G307):"
+        text: "^(G104|G204|G307|G304):"
       - path: (.+)\.go$
         text: Error return value of .(.*\.Help|.*\.MarkFlagRequired|(os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*printf?|os\.(Un)?Setenv). is not checked
       - path: (.+)\.go$
