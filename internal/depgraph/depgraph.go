@@ -1064,10 +1064,8 @@ func pickProvider(providers []*Provider, pick []string) *Provider {
 			strong = append(strong, provider)
 		}
 		key := provider.Function.FullName()
-		for _, pick := range pick {
-			if key == pick {
-				return provider
-			}
+		if slices.Contains(pick, key) {
+			return provider
 		}
 	}
 	if len(strong) == 1 {

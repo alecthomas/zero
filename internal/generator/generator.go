@@ -79,34 +79,40 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 					if reqRef.Import != "" {
 						w.Import(reqRef.Import)
 					}
-					w.L("if p%d, err := ZeroConstructSingletons[%s](ctx, config, singletons); err != nil {", i, reqRef.Ref)
+					w.L("p%d, err := ZeroConstructSingletons[%s](ctx, config, singletons)", i, reqRef.Ref)
+					w.L("if err != nil {")
 					w.In(func(w *codewriter.Writer) {
 						w.L(`return out, err`)
 					})
-					w.Indent()
-					w.W("} else ")
+					w.L("}")
 				}
 
 				functionRef := graph.FunctionRef(provider.Function)
 				if functionRef.Import != "" {
 					w.Import(functionRef.Import)
 				}
-				w.W("if o, err := %s(", functionRef.Ref)
+				returnsErr := provider.Function.Signature().Results().Len() == 2
+				w.Indent()
+				if returnsErr {
+					w.W("o, err := %s(", functionRef.Ref)
+				} else {
+					w.W("o := %s(", functionRef.Ref)
+				}
 				for i := range len(provider.Requires) {
 					w.W("p%d", i)
 					if i < len(provider.Requires)-1 {
 						w.W(", ")
 					}
 				}
-				w.W("); err != nil {\n")
-				w.In(func(w *codewriter.Writer) {
-					w.L(`return out, fmt.Errorf("%s: %%w", err)`, ref.Ref)
-				})
-				w.L("} else {")
-				w.In(func(w *codewriter.Writer) {
-					w.L("return any(o).(T), nil")
-				})
-				w.L("}")
+				w.W(")\n")
+				if returnsErr {
+					w.L("if err != nil {\n")
+					w.In(func(w *codewriter.Writer) {
+						w.L(`return out, fmt.Errorf("%s: %%w", err)`, ref.Ref)
+					})
+					w.L("}")
+				}
+				w.L("return any(o).(T), nil")
 			})
 			w.W("\n")
 		}

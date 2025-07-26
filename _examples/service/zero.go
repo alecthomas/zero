@@ -44,34 +44,41 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 	case ServiceConfig:
 		return any(config.Config9c6b7595816de4c).(T), nil
 
-	case *Service:
-		if p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons); err != nil {
+	case *sql.DB:
+		p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons)
+		if err != nil {
 			return out, err
-		} else 		if p1, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons); err != nil {
-			return out, err
-		} else if o, err := NewService(p0, p1); err != nil {
-			return out, fmt.Errorf("*Service: %w", err)
-		} else {
-			return any(o).(T), nil
 		}
+		o, err := impc24ab568b6f3f934.New(p0)
+		if err != nil {
+
+			return out, fmt.Errorf("*sql.DB: %w", err)
+		}
+		return any(o).(T), nil
+
+	case *Service:
+		p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p1, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := NewService(p0, p1)
+		if err != nil {
+
+			return out, fmt.Errorf("*Service: %w", err)
+		}
+		return any(o).(T), nil
 
 	case *DAL:
-		if p0, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons); err != nil {
+		p0, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
+		if err != nil {
 			return out, err
-		} else if o, err := NewDAL(p0); err != nil {
-			return out, fmt.Errorf("*DAL: %w", err)
-		} else {
-			return any(o).(T), nil
 		}
-
-	case *sql.DB:
-		if p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons); err != nil {
-			return out, err
-		} else if o, err := impc24ab568b6f3f934.New(p0); err != nil {
-			return out, fmt.Errorf("*sql.DB: %w", err)
-		} else {
-			return any(o).(T), nil
-		}
+		o := NewDAL(p0)
+		return any(o).(T), nil
 
 	case *http.ServeMux:
 		r0, err := ZeroConstructSingletons[*Service](ctx, config, singletons)

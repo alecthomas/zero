@@ -19,13 +19,13 @@ type DAL struct {
 }
 
 //zero:provider
-func NewDAL(db *sql.DB) (*DAL, error) {
+func NewDAL(db *sql.DB) *DAL {
 	return &DAL{
 		users: map[int]User{
 			1: {Name: gofakeit.Name(), BirthYear: gofakeit.Date().Year()},
 			2: {Name: gofakeit.Name(), BirthYear: gofakeit.Date().Year()},
 		},
-	}, nil
+	}
 }
 
 func (d *DAL) GetUsers() ([]User, error) {
