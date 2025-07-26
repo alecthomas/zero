@@ -2,22 +2,21 @@
 package main
 
 import (
-	"context"
-	"database/sql"
-	"fmt"
-	"net/http"
-	"reflect"
-
-	"github.com/alecthomas/zero"
-	imp9c34c006eb3c10fa "github.com/alecthomas/zero"
-	impef7a81aa222750b7 "github.com/alecthomas/zero/providers"
-	impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
+  "database/sql"
+  "context"
+  "fmt"
+  "github.com/alecthomas/zero"
+  imp9c34c006eb3c10fa "github.com/alecthomas/zero"
+  impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
+  impef7a81aa222750b7 "github.com/alecthomas/zero/providers"
+  "net/http"
+  "reflect"
 )
 
 // Config contains combined Kong configuration for all types in [Construct].
 type ZeroConfig struct {
+	Config9c6b7595816de4c ServiceConfig `embed:"" prefix:"server-"`
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:""`
-	Config9c6b7595816de4c  ServiceConfig              `embed:"" prefix:"server-"`
 }
 
 // Construct an instance of T.
@@ -35,17 +34,37 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 	case reflect.TypeOf((*context.Context)(nil)).Elem():
 		return any(ctx).(T), nil
 
+	case reflect.TypeOf((**ServiceConfig)(nil)).Elem(): // Handle pointer to config.
+		return any(&config.Config9c6b7595816de4c).(T), nil
+
+	case reflect.TypeOf((*ServiceConfig)(nil)).Elem():
+		return any(config.Config9c6b7595816de4c).(T), nil
+
 	case reflect.TypeOf((**impc24ab568b6f3f934.Config)(nil)).Elem(): // Handle pointer to config.
 		return any(&config.Config6fab5aa5f9534d38).(T), nil
 
 	case reflect.TypeOf((*impc24ab568b6f3f934.Config)(nil)).Elem():
 		return any(config.Config6fab5aa5f9534d38).(T), nil
 
-	case reflect.TypeOf((**ServiceConfig)(nil)).Elem(): // Handle pointer to config.
-		return any(&config.Config9c6b7595816de4c).(T), nil
+	case reflect.TypeOf((**sql.DB)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := impc24ab568b6f3f934.New(p0)
+		if err != nil {
 
-	case reflect.TypeOf((*ServiceConfig)(nil)).Elem():
-		return any(config.Config9c6b7595816de4c).(T), nil
+			return out, fmt.Errorf("*sql.DB: %w", err)
+		}
+		return any(o).(T), nil
+
+	case reflect.TypeOf((**DAL)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o := NewDAL(p0)
+		return any(o).(T), nil
 
 	case reflect.TypeOf((**Service)(nil)).Elem():
 		p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons)
@@ -67,36 +86,16 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		o := impef7a81aa222750b7.DefaultErrorHandler()
 		return any(o).(T), nil
 
-	case reflect.TypeOf((**DAL)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		o := NewDAL(p0)
-		return any(o).(T), nil
-
-	case reflect.TypeOf((**sql.DB)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		o, err := impc24ab568b6f3f934.New(p0)
-		if err != nil {
-
-			return out, fmt.Errorf("*sql.DB: %w", err)
-		}
-		return any(o).(T), nil
-
 	case reflect.TypeOf((**http.ServeMux)(nil)).Elem():
 		r0, err := ZeroConstructSingletons[*Service](ctx, config, singletons)
 		if err != nil {
 			return out, fmt.Errorf("*http.ServeMux: %w", err)
 		}
+		mux := http.NewServeMux()
 		errorHandler, err := ZeroConstructSingletons[zero.ErrorHandler](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		mux := http.NewServeMux()
 		_ = errorHandler
 		mux.Handle("GET /users", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			out, herr := r0.ListUsers()

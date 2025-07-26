@@ -2,10 +2,14 @@
 package generator
 
 import (
+	"cmp"
 	"fmt"
 	"go/types"
 	"hash/fnv"
 	"io"
+	"iter"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/alecthomas/errors"
@@ -43,7 +47,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 	w.L("// Config contains combined Kong configuration for all types in [Construct].")
 	w.L("type ZeroConfig struct {")
 	w.In(func(w *codewriter.Writer) {
-		for key, config := range graph.Configs {
+		for key, config := range stableMapIter(graph.Configs) {
 			alias := "Config" + hash(key)
 			ref := graph.TypeRef(config.Type)
 			w.Import(ref.Import)
@@ -81,7 +85,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 		})
 		w.W("\n")
 
-		for key, config := range graph.Configs {
+		for key, config := range stableMapIter(graph.Configs) {
 			alias := "Config" + hash(key)
 			ref := graph.TypeRef(config.Type)
 			w.Import(ref.Import)
@@ -97,7 +101,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.W("\n")
 		}
 
-		for _, provider := range graph.Providers {
+		for _, provider := range stableMapIter(graph.Providers) {
 			ref := graph.TypeRef(provider.Provides)
 			w.Import(ref.Import)
 			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
@@ -166,7 +170,10 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 						receiverIndex++
 					}
 				}
-				for receiver, index := range receivers {
+				for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b Receiver) int {
+					return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
+				}) {
+					index := receivers[receiver]
 					w.L("r%d, err := ZeroConstructSingletons[%s](ctx, config, singletons)", index, receiver.Typ)
 					w.L("if err != nil {")
 					w.In(func(w *codewriter.Writer) {
@@ -348,4 +355,14 @@ func hash(s string) string {
 	h := fnv.New64a()
 	h.Write([]byte(s))
 	return fmt.Sprintf("%x", h.Sum64())
+}
+
+func stableMapIter[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		for _, key := range slices.Sorted(maps.Keys(m)) {
+			if !yield(key, m[key]) {
+				break
+			}
+		}
+	}
 }
