@@ -279,8 +279,10 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 						if responseType != nil {
 							ref := graph.TypeRef(responseType)
 							w.Import(ref.Import)
+							w.Import("github.com/alecthomas/zero")
 							w.L(`_ = zero.EncodeResponse[%s](r, w, out, %s)`, ref.Ref, errorValue)
 						} else if hasError {
+							w.Import("github.com/alecthomas/zero")
 							w.L(`_ = zero.EncodeResponse[zero.EmptyResponse](r, w, nil, %s)`, errorValue)
 						}
 					})
