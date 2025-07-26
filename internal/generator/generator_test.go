@@ -47,7 +47,18 @@ func TestGenerator(t *testing.T) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err = cmd.Run()
+	assert.NoError(t, err, "zero.go:\n%s", readFile(t, "zero.go"))
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	assert.NoError(t, err)
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		lines[i] = fmt.Sprintf("%03d: %s", i+1, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func copyFile(t *testing.T, src, dest string) {

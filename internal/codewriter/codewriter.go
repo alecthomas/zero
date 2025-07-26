@@ -102,10 +102,11 @@ func (c *Writer) write(w io.Writer) {
 	imports := []string{}
 	seen := map[string]bool{}
 	for _, pkg := range *c.imports {
-		if pkg == "" || seen[pkg] {
+		key := strings.Trim(pkg, "\"")
+		if key == "" || seen[key] {
 			continue
 		}
-		seen[pkg] = true
+		seen[key] = true
 		imports = append(imports, pkg)
 	}
 	sort.Strings(imports)

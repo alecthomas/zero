@@ -172,7 +172,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 							case "string":
 								w.L(`p%d := r.PathValue("%s")`, i, paramName)
 							// Builtin types, just pass them through.
-							case "*http.Request", "http.ResponseWriter", "context.Context":
+							case "*net/http.Request", "net/http.ResponseWriter", "context.Context":
 							default: // Anything else is a request body/query parameters.
 								w.Import("github.com/alecthomas/zero")
 								w.L(`p%d, err := zero.DecodeRequest[%s]("%s", r)`, i, ref.Ref, api.Pattern.Method)
@@ -191,6 +191,8 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 						var responseType types.Type
 						hasError := true
 						switch results.Len() {
+						case 0:
+							hasError = false
 						case 1: // Either (error) or response body (T)
 							if results.At(0).Type().String() == "error" {
 								w.W("herr := ")
@@ -213,9 +215,9 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 							switch typeName {
 							case "context.Context":
 								w.W("r.Context()")
-							case "*http.Request":
+							case "*net/http.Request":
 								w.W("r")
-							case "http.ResponseWriter":
+							case "net/http.ResponseWriter":
 								w.W("w")
 							default:
 								w.W("p%d", i)

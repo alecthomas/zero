@@ -75,6 +75,11 @@ func (s *Service) GetUser(id string) (User, error) {
 	panic("not implemented")
 }
 
+//zero:api GET /users/{id}/avatar
+func (s *Service) GetAvatar(id string, w http.ResponseWriter, r *http.Request) {
+
+}
+
 // zero:subscribe
 func (s *Service) OnUserCreated(user zero.Event[UserCreatedEvent]) error {
 	panic("not implemented")
