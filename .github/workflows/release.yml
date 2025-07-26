@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
         with:
           repository: alecthomas/hermit-packages
-          ref: "main"
+          ref: "master"
           token: ${{ secrets.ALECTHOMAS_HERMIT_AUTOVERSION_TOKEN }}
       - name: Init Hermit
         uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # ratchet:cashapp/activate-hermit@v1.1.4
