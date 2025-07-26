@@ -4,12 +4,16 @@ package zero
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"runtime"
 	"time"
 
 	"github.com/alecthomas/errors"
 	"github.com/alecthomas/zero/internal/cloudevent"
 )
+
+// Middleware is a convenience type for Zero middleware.
+type Middleware func(http.Handler) http.Handler
 
 type EventPayload interface {
 	// ID returns the unique identifier for the event.

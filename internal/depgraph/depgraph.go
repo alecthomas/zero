@@ -981,6 +981,42 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 			delete(graph.Configs, key)
 		}
 	}
+
+	// Remove unused middleware
+	if len(graph.APIs) > 0 {
+		// Collect all labels used by APIs
+		usedLabels := make(map[string]bool)
+		for _, api := range graph.APIs {
+			if api.Pattern != nil && api.Pattern.Labels != nil {
+				for _, label := range api.Pattern.Labels {
+					usedLabels[label.Name] = true
+				}
+			}
+		}
+
+		// Filter middleware: keep if no labels (global) or if any label matches API labels
+		var filteredMiddleware []*Middleware
+		for _, mw := range graph.Middlewares {
+			if len(mw.Labels) == 0 {
+				// Global middleware (no labels) - always keep
+				filteredMiddleware = append(filteredMiddleware, mw)
+			} else {
+				// Check if any middleware label matches any API label
+				hasMatchingLabel := false
+				for _, label := range mw.Labels {
+					if usedLabels[label] {
+						hasMatchingLabel = true
+						break
+					}
+				}
+				if hasMatchingLabel {
+					filteredMiddleware = append(filteredMiddleware, mw)
+				}
+			}
+		}
+		graph.Middlewares = filteredMiddleware
+	}
+
 	return nil
 }
 
