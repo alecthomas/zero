@@ -28,35 +28,23 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		return singleton.(T), nil
 	}
 	defer func() { singletons[reflect.TypeFor[T]()] = out }()
-	switch any(out).(type) {
-	case context.Context:
+	switch reflect.TypeOf((*T)(nil)).Elem() {
+	case reflect.TypeOf((*context.Context)(nil)).Elem():
 		return any(ctx).(T), nil
 
-	case *impc24ab568b6f3f934.Config: // Handle pointer to config.
+	case reflect.TypeOf((**impc24ab568b6f3f934.Config)(nil)).Elem(): // Handle pointer to config.
 		return any(&config.Config6fab5aa5f9534d38).(T), nil
 
-	case impc24ab568b6f3f934.Config:
+	case reflect.TypeOf((*impc24ab568b6f3f934.Config)(nil)).Elem():
 		return any(config.Config6fab5aa5f9534d38).(T), nil
 
-	case *ServiceConfig: // Handle pointer to config.
+	case reflect.TypeOf((**ServiceConfig)(nil)).Elem(): // Handle pointer to config.
 		return any(&config.Config9c6b7595816de4c).(T), nil
 
-	case ServiceConfig:
+	case reflect.TypeOf((*ServiceConfig)(nil)).Elem():
 		return any(config.Config9c6b7595816de4c).(T), nil
 
-	case *sql.DB:
-		p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		o, err := impc24ab568b6f3f934.New(p0)
-		if err != nil {
-
-			return out, fmt.Errorf("*sql.DB: %w", err)
-		}
-		return any(o).(T), nil
-
-	case *Service:
+	case reflect.TypeOf((**Service)(nil)).Elem():
 		p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons)
 		if err != nil {
 			return out, err
@@ -72,7 +60,7 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		}
 		return any(o).(T), nil
 
-	case *DAL:
+	case reflect.TypeOf((**DAL)(nil)).Elem():
 		p0, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
 		if err != nil {
 			return out, err
@@ -80,7 +68,19 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		o := NewDAL(p0)
 		return any(o).(T), nil
 
-	case *http.ServeMux:
+	case reflect.TypeOf((**sql.DB)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := impc24ab568b6f3f934.New(p0)
+		if err != nil {
+
+			return out, fmt.Errorf("*sql.DB: %w", err)
+		}
+		return any(o).(T), nil
+
+	case reflect.TypeOf((**http.ServeMux)(nil)).Elem():
 		r0, err := ZeroConstructSingletons[*Service](ctx, config, singletons)
 		if err != nil {
 			return out, fmt.Errorf("*http.ServeMux: %w", err)

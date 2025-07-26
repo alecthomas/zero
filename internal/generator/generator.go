@@ -46,8 +46,9 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 		})
 		w.L("}")
 		w.L("defer func() { singletons[reflect.TypeFor[T]()] = out }()")
-		w.L("switch any(out).(type) {")
-		w.L("case context.Context:")
+		w.Import("reflect")
+		w.L("switch reflect.TypeOf((*T)(nil)).Elem() {")
+		w.L("case reflect.TypeOf((*context.Context)(nil)).Elem():")
 		w.In(func(w *codewriter.Writer) {
 			w.L("return any(ctx).(T), nil")
 		})
@@ -57,12 +58,12 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 			alias := "Config" + hash(key)
 			ref := graph.TypeRef(config)
 			w.Import(ref.Import)
-			w.L("case *%s: // Handle pointer to config.", ref.Ref)
+			w.L("case reflect.TypeOf((**%s)(nil)).Elem(): // Handle pointer to config.", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
 				w.L("return any(&config.%s).(T), nil", alias)
 			})
 			w.W("\n")
-			w.L("case %s:", ref.Ref)
+			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
 				w.L("return any(config.%s).(T), nil", alias)
 			})
@@ -72,7 +73,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 		for _, provider := range graph.Providers {
 			ref := graph.TypeRef(provider.Provides)
 			w.Import(ref.Import)
-			w.L("case %s:", ref.Ref)
+			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
 				for i, require := range provider.Requires {
 					reqRef := graph.TypeRef(require)
@@ -119,7 +120,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 
 		if len(graph.APIs) > 0 {
 			w.Import("net/http")
-			w.L("case *http.ServeMux:")
+			w.L("case reflect.TypeOf((**http.ServeMux)(nil)).Elem():")
 			w.In(func(w *codewriter.Writer) {
 				// First, collect the receiver types so we can construct them.
 				type Receiver struct {
