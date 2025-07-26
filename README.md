@@ -109,7 +109,7 @@ Alternatively, for middleware that requires injection, the annotated middleware 
 
 ```go
 //zero:middleware authenticated
-func Auth(dal *DAL) zero.Middleware {
+func Auth(dal *DAL) func(http.Handler) http.Handler {
   return func(next http.Handler) http.Handler {
     return func(w http.ResponseWriter, r *http.Request) {
       auth := r.Header().Get("Authorization")

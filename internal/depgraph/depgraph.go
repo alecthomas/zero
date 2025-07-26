@@ -55,6 +55,22 @@ type API struct {
 	Options map[string]string
 }
 
+// Middleware represents a function that is an HTTP middleware. Middleware functions are annotated like so:
+//
+//	//zero:middleware [<label>]
+type Middleware struct {
+	// Position is the position of the function declaration.
+	Position token.Position
+	// Directive is the parsed middleware directive
+	Directive *directiveparser.DirectiveMiddleware
+	// Function is the function that implements the middleware
+	Function *types.Func
+	// Package is the package that contains the function
+	Package *packages.Package
+	// Labels are the labels that this middleware applies to
+	Labels []string
+}
+
 type graphOptions struct {
 	// Roots of the graph, defaulting to service endpoint receivers if nil.
 	roots []string
@@ -112,21 +128,23 @@ func WithOptions(options ...Option) Option {
 }
 
 type Graph struct {
-	Dest      *types.Package
-	Providers map[string]*Provider
-	Configs   map[string]types.Type
-	APIs      []*API
-	Missing   map[*types.Func][]types.Type
+	Dest        *types.Package
+	Providers   map[string]*Provider
+	Configs     map[string]types.Type
+	APIs        []*API
+	Middlewares []*Middleware
+	Missing     map[*types.Func][]types.Type
 }
 
 // Analyse statically loads Go packages, then analyses them for //zero:... annotations in order to build the
 // Zero's dependency injection graph.
 func Analyse(dest string, options ...Option) (*Graph, error) {
 	graph := &Graph{
-		Providers: make(map[string]*Provider),
-		Configs:   make(map[string]types.Type),
-		APIs:      make([]*API, 0),
-		Missing:   make(map[*types.Func][]types.Type),
+		Providers:   make(map[string]*Provider),
+		Configs:     make(map[string]types.Type),
+		APIs:        make([]*API, 0),
+		Middlewares: make([]*Middleware, 0),
+		Missing:     make(map[*types.Func][]types.Type),
 	}
 	opts := &graphOptions{}
 	for _, opt := range options {
@@ -364,6 +382,15 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 					if api != nil {
 						graph.APIs = append(graph.APIs, api)
 					}
+
+				case *directiveparser.DirectiveMiddleware:
+					middleware, err := createMiddleware(decl, pkg, directive)
+					if err != nil {
+						return err
+					}
+					if middleware != nil {
+						graph.Middlewares = append(graph.Middlewares, middleware)
+					}
 				}
 
 			case *ast.GenDecl:
@@ -494,6 +521,86 @@ func createAPI(fn *ast.FuncDecl, pkg *packages.Package, directive *directivepars
 		Package:  pkg,
 		Position: fset.Position(fn.Pos()),
 	}, nil
+}
+
+func createMiddleware(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveMiddleware) (*Middleware, error) {
+	obj := pkg.TypesInfo.ObjectOf(fn.Name)
+	if obj == nil {
+		return nil, errors.Errorf("failed to retrieve object for function %s", fn.Name.Name)
+	}
+
+	funcObj, ok := obj.(*types.Func)
+	if !ok {
+		return nil, nil
+	}
+
+	signature := funcObj.Signature()
+
+	// Validate middleware function signature
+	// Middleware should be either:
+	// 1. func(http.Handler) http.Handler - direct middleware
+	// 2. func(...deps) func(http.Handler) http.Handler - middleware factory
+	// 3. func(...deps) zero.Middleware - middleware factory returning zero.Middleware type
+
+	if !isValidMiddlewareSignature(signature) {
+		return nil, errors.Errorf("invalid middleware function signature for %s: must be func(http.Handler) http.Handler or func(...deps) func(http.Handler) http.Handler", fn.Name.Name)
+	}
+
+	middleware := &Middleware{
+		Position:  fset.Position(fn.Pos()),
+		Directive: directive,
+		Function:  funcObj,
+		Package:   pkg,
+		Labels:    directive.Labels,
+	}
+
+	return middleware, nil
+}
+
+func isValidMiddlewareSignature(sig *types.Signature) bool {
+	results := sig.Results()
+
+	// Must return exactly one value
+	if results.Len() != 1 {
+		return false
+	}
+
+	returnType := results.At(0).Type()
+
+	// Check if it returns http.Handler (direct middleware)
+	if isHTTPHandlerType(returnType) {
+		params := sig.Params()
+		// Must take exactly one parameter of type http.Handler
+		return params.Len() == 1 && isHTTPHandlerType(params.At(0).Type())
+	}
+
+	// Check if it returns a function that returns http.Handler (middleware factory)
+	if funcSig, ok := returnType.(*types.Signature); ok {
+		funcResults := funcSig.Results()
+		if funcResults.Len() == 1 && isHTTPHandlerType(funcResults.At(0).Type()) {
+			funcParams := funcSig.Params()
+			// The returned function must take exactly one http.Handler parameter
+			return funcParams.Len() == 1 && isHTTPHandlerType(funcParams.At(0).Type())
+		}
+	}
+
+	// Check if it returns zero.Middleware type (if such a type exists)
+	if named, ok := returnType.(*types.Named); ok {
+		obj := named.Obj()
+		if obj.Name() == "Middleware" && obj.Pkg() != nil && obj.Pkg().Path() == "github.com/alecthomas/zero" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isHTTPHandlerType(t types.Type) bool {
+	if named, ok := t.(*types.Named); ok {
+		obj := named.Obj()
+		return obj.Name() == "Handler" && obj.Pkg() != nil && obj.Pkg().Path() == "net/http"
+	}
+	return false
 }
 
 func isValidAPIParameterType(paramType types.Type, paramName string, directive *directiveparser.DirectiveAPI, bodyParamCount *int) bool {

@@ -1919,3 +1919,125 @@ type Service struct{}
 	assert.Equal(t, "", serviceFuncRef.Import) // Same package
 	assert.Equal(t, "NewService", serviceFuncRef.Ref)
 }
+
+func TestAnalyseMiddlewareFunctions(t *testing.T) {
+	testCode := `
+package test
+
+import "net/http"
+
+//zero:middleware
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// logging logic
+		next.ServeHTTP(w, r)
+	})
+}
+
+//zero:middleware auth
+func AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// auth logic
+		next.ServeHTTP(w, r)
+	})
+}
+
+//zero:middleware cors ratelimit
+func CorsRateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// cors and rate limiting logic
+		next.ServeHTTP(w, r)
+	})
+}
+
+type DAL struct{}
+
+//zero:middleware authenticated
+func AuthMiddlewareFactory(dal *DAL) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// auth logic with DAL
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+//zero:provider
+func NewDAL() *DAL {
+	return &DAL{}
+}
+`
+	graph := analyseTestCode(t, testCode, []string{"*test.DAL"})
+
+	// Should find 4 middleware functions
+	assert.Equal(t, 4, len(graph.Middlewares))
+
+	// Test global middleware (no labels)
+	var globalMiddleware *Middleware
+	for _, mw := range graph.Middlewares {
+		if mw.Function.Name() == "LoggingMiddleware" {
+			globalMiddleware = mw
+			break
+		}
+	}
+	assert.NotZero(t, globalMiddleware)
+	assert.Equal(t, "LoggingMiddleware", globalMiddleware.Function.Name())
+	assert.Equal(t, 0, len(globalMiddleware.Labels))
+
+	// Test middleware with single label
+	var authMiddleware *Middleware
+	for _, mw := range graph.Middlewares {
+		if mw.Function.Name() == "AuthMiddleware" {
+			authMiddleware = mw
+			break
+		}
+	}
+	assert.NotZero(t, authMiddleware)
+	assert.Equal(t, "AuthMiddleware", authMiddleware.Function.Name())
+	assert.Equal(t, []string{"auth"}, authMiddleware.Labels)
+
+	// Test middleware with multiple labels
+	var corsRateLimitMiddleware *Middleware
+	for _, mw := range graph.Middlewares {
+		if mw.Function.Name() == "CorsRateLimitMiddleware" {
+			corsRateLimitMiddleware = mw
+			break
+		}
+	}
+	assert.NotZero(t, corsRateLimitMiddleware)
+	assert.Equal(t, "CorsRateLimitMiddleware", corsRateLimitMiddleware.Function.Name())
+	assert.Equal(t, []string{"cors", "ratelimit"}, corsRateLimitMiddleware.Labels)
+
+	// Test middleware factory with dependencies
+	var authFactoryMiddleware *Middleware
+	for _, mw := range graph.Middlewares {
+		if mw.Function.Name() == "AuthMiddlewareFactory" {
+			authFactoryMiddleware = mw
+			break
+		}
+	}
+	assert.NotZero(t, authFactoryMiddleware)
+	assert.Equal(t, "AuthMiddlewareFactory", authFactoryMiddleware.Function.Name())
+	assert.Equal(t, []string{"authenticated"}, authFactoryMiddleware.Labels)
+}
+
+func TestAnalyseInvalidMiddlewareFunction(t *testing.T) {
+	testCode := `
+package test
+
+//zero:middleware invalid
+func InvalidMiddleware() string {
+	return "not a middleware"
+}
+
+//zero:provider
+func NewService() *Service {
+	return &Service{}
+}
+
+type Service struct{}
+`
+	_, err := analyseTestCodeWithError(t, testCode, []string{"*test.Service"})
+	assert.Error(t, err)
+	assert.EqualError(t, err, "invalid middleware function signature for InvalidMiddleware: must be func(http.Handler) http.Handler or func(...deps) func(http.Handler) http.Handler")
+}
