@@ -14,7 +14,7 @@ import (
 // Config contains combined Kong configuration for all types in [Construct].
 type ZeroConfig struct {
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:""`
-	Config9c6b7595816de4c ServiceConfig `embed:""`
+	Config9c6b7595816de4c ServiceConfig `embed:"" prefix:"server-"`
 }
 
 // Construct an instance of T.
@@ -44,22 +44,6 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 	case reflect.TypeOf((*ServiceConfig)(nil)).Elem():
 		return any(config.Config9c6b7595816de4c).(T), nil
 
-	case reflect.TypeOf((**Service)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		p1, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		o, err := NewService(p0, p1)
-		if err != nil {
-
-			return out, fmt.Errorf("*Service: %w", err)
-		}
-		return any(o).(T), nil
-
 	case reflect.TypeOf((**DAL)(nil)).Elem():
 		p0, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
 		if err != nil {
@@ -77,6 +61,22 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 
 			return out, fmt.Errorf("*sql.DB: %w", err)
+		}
+		return any(o).(T), nil
+
+	case reflect.TypeOf((**Service)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p1, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := NewService(p0, p1)
+		if err != nil {
+
+			return out, fmt.Errorf("*Service: %w", err)
 		}
 		return any(o).(T), nil
 

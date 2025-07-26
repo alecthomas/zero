@@ -46,8 +46,9 @@ func Authenticate(role string) func(next http.Handler) http.Handler {
 	}
 }
 
-//zero:config
+//zero:config prefix="server-"
 type ServiceConfig struct {
+	Bind string `help:"The address to bind the service to"`
 }
 
 type Service struct {

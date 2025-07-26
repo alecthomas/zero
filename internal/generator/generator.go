@@ -45,9 +45,13 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 	w.In(func(w *codewriter.Writer) {
 		for key, config := range graph.Configs {
 			alias := "Config" + hash(key)
-			ref := graph.TypeRef(config)
+			ref := graph.TypeRef(config.Type)
 			w.Import(ref.Import)
-			w.L("%s %s `embed:\"\"`", alias, ref.Ref)
+			prefix := ""
+			if config.Directive.Prefix != "" {
+				prefix = fmt.Sprintf(" prefix:%q", config.Directive.Prefix)
+			}
+			w.L("%s %s `embed:\"\"%s`", alias, ref.Ref, prefix)
 		}
 	})
 	w.L("}")
@@ -79,7 +83,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 
 		for key, config := range graph.Configs {
 			alias := "Config" + hash(key)
-			ref := graph.TypeRef(config)
+			ref := graph.TypeRef(config.Type)
 			w.Import(ref.Import)
 			w.L("case reflect.TypeOf((**%s)(nil)).Elem(): // Handle pointer to config.", ref.Ref)
 			w.In(func(w *codewriter.Writer) {

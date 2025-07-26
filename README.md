@@ -21,7 +21,7 @@ This is somewhat similar to Google's Wire [project](https://github.com/google/wi
 
 ## Configuration
 
-A struct annotated with `//zero:config` will be used as embedded [Kong](https://github.com/alecthomas/kong)-annotated configuration, with corresponding config loading from JSON/YAML/HCL. These config structs can in turn be used during dependency injection.
+A struct annotated with `//zero:config [prefix="<prefix>"]` will be used as embedded [Kong](https://github.com/alecthomas/kong)-annotated configuration, with corresponding config loading from JSON/YAML/HCL. These config structs can in turn be used during dependency injection.
 
 ## Routes
 

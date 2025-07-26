@@ -17,14 +17,15 @@ var (
 		participle.Union[Segment](WildcardSegment{}, LiteralSegment{}, TrailingSegment{}),
 		participle.Elide("Whitespace"),
 		participle.CaseInsensitive("Method"),
+		participle.Unquote("String"),
 	)
 	patternLexer = lexer.MustSimple([]lexer.SimpleRule{
 		{"Method", `GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT|ANY`},
 		{"Ident", `[a-zA-Z_][a-zA-Z0-9_]*`},
 		{"Escape", `%[0-9a-fA-F][0-9a-fA-F]`},
-		{"Ellipsis", `\.\.\.`},
-		{"Other", `[-{}._~!$&'()*+,;=@/0-9:]`},
 		{"String", `"(\\.|[^"])*"`},
+		{"Ellipsis", `\.\.\.`},
+		{"Other", `[-{}._~!$&'()*+,%;=@/0-9:]`},
 		{"Whitespace", `\s+`},
 	})
 )
@@ -54,7 +55,7 @@ func (p *DirectiveProvider) String() string {
 func (p *DirectiveProvider) Validate() error { return nil }
 
 type DirectiveConfig struct {
-	Config bool `parser:"@'config'"` // Unused but necessary for Participle.
+	Prefix string `parser:"'config' ('prefix' '=' @String)?"`
 }
 
 func (d *DirectiveConfig) directive()      {}

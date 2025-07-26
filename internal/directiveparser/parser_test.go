@@ -192,9 +192,19 @@ func TestParse(t *testing.T) {
 		{
 			name:    "Config",
 			pattern: "zero:config",
+			want:    &DirectiveConfig{},
+		},
+		{
+			name:    "Config",
+			pattern: `zero:config prefix="prefix-"`,
 			want: &DirectiveConfig{
-				Config: true,
+				Prefix: "prefix-",
 			},
+		},
+		{
+			name:    "Config",
+			pattern: "zero:config invalid",
+			wantErr: true,
 		},
 		{
 			name:    "Middleware",
@@ -266,22 +276,6 @@ func TestPatternString(t *testing.T) {
 		{
 			name:    "TrailingSegment",
 			pattern: "zero:api /users/{id}/",
-		},
-		{
-			name:    "Provider",
-			pattern: "zero:provider",
-		},
-		{
-			name:    "ProviderWeak",
-			pattern: "zero:provider weak",
-		},
-		{
-			name:    "Config",
-			pattern: "zero:config",
-		},
-		{
-			name:    "Middleware",
-			pattern: "zero:middleware",
 		},
 	}
 

@@ -64,6 +64,16 @@ func (a *API) Label(name string) string {
 	return ""
 }
 
+// Config represents command-line/file configuration. Config structs are annotated like so:
+//
+//	//zero:config [prefix="<prefix>"]
+type Config struct {
+	// Position of the type declaration.
+	Position  token.Position
+	Type      types.Type
+	Directive *directiveparser.DirectiveConfig
+}
+
 // Middleware represents a function that is an HTTP middleware. Middleware functions are annotated like so:
 //
 //	//zero:middleware [<label>]
@@ -164,7 +174,7 @@ func WithTags(tags ...string) Option {
 type Graph struct {
 	Dest       *types.Package
 	Providers  map[string]*Provider
-	Configs    map[string]types.Type
+	Configs    map[string]*Config
 	APIs       []*API
 	Middleware []*Middleware
 	Missing    map[*types.Func][]types.Type
@@ -175,7 +185,7 @@ type Graph struct {
 func Analyse(dest string, options ...Option) (*Graph, error) {
 	graph := &Graph{
 		Providers:  make(map[string]*Provider),
-		Configs:    make(map[string]types.Type),
+		Configs:    make(map[string]*Config),
 		APIs:       make([]*API, 0),
 		Middleware: make([]*Middleware, 0),
 		Missing:    make(map[*types.Func][]types.Type),
@@ -445,7 +455,11 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 						configType := pkg.TypesInfo.TypeOf(typeSpec.Name)
 						if configType != nil {
 							key := types.TypeString(configType, nil)
-							graph.Configs[key] = configType
+							graph.Configs[key] = &Config{
+								Position:  fset.Position(typeSpec.Pos()),
+								Type:      configType,
+								Directive: directive,
+							}
 						}
 
 					default:
@@ -903,7 +917,7 @@ func findMissingDependencies(graph *Graph) {
 	}
 }
 
-func isProvidedByConfig(requiredType types.Type, configs map[string]types.Type) bool {
+func isProvidedByConfig(requiredType types.Type, configs map[string]*Config) bool {
 	// Check if the required type is directly provided as a config
 	key := types.TypeString(requiredType, nil)
 	if _, exists := configs[key]; exists {
