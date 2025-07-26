@@ -89,7 +89,7 @@ func NewPubSubTopic[T any](ctx context.Context, conn *kafka.Conn) (zero.Topic[T]
 
 A method annotated with `//zero:cron <schedule>` will be called on the given schedule.
 
-## Middleware (NOT IMPLEMENTED)
+## Middleware
 
 A function annotated with `//zero:middleware [<label>]` will be automatically used as HTTP middleware for any method matching the given `<label>` if provided, or applied globally if not. Option values can be retrieved from the request with `zero.HandlerOptions(r)`.
 
@@ -108,8 +108,8 @@ func Auth(next http.Handler) http.Handler {
 Alternatively, for middleware that requires injection, the annotated middleware function can instead be one that *returns* a middleware function:
 
 ```go
-//zero:middleware authenticated
-func Auth(dal *DAL) func(http.Handler) http.Handler {
+//zero:middleware authenticated role
+func Auth(role string, dal *DAL) func(http.Handler) http.Handler {
   return func(next http.Handler) http.Handler {
     return func(w http.ResponseWriter, r *http.Request) {
       auth := r.Header().Get("Authorization")

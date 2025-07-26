@@ -69,6 +69,8 @@ type Middleware struct {
 	Package *packages.Package
 	// Requires are the dependencies required by this middleware
 	Requires []types.Type
+	// Factory represents whether the middleware is a factory, or direct middleware function
+	Factory bool
 }
 
 func (m *Middleware) Match(api *API) bool {
@@ -142,23 +144,23 @@ func WithOptions(options ...Option) Option {
 }
 
 type Graph struct {
-	Dest        *types.Package
-	Providers   map[string]*Provider
-	Configs     map[string]types.Type
-	APIs        []*API
-	Middlewares []*Middleware
-	Missing     map[*types.Func][]types.Type
+	Dest       *types.Package
+	Providers  map[string]*Provider
+	Configs    map[string]types.Type
+	APIs       []*API
+	Middleware []*Middleware
+	Missing    map[*types.Func][]types.Type
 }
 
 // Analyse statically loads Go packages, then analyses them for //zero:... annotations in order to build the
 // Zero's dependency injection graph.
 func Analyse(dest string, options ...Option) (*Graph, error) {
 	graph := &Graph{
-		Providers:   make(map[string]*Provider),
-		Configs:     make(map[string]types.Type),
-		APIs:        make([]*API, 0),
-		Middlewares: make([]*Middleware, 0),
-		Missing:     make(map[*types.Func][]types.Type),
+		Providers:  make(map[string]*Provider),
+		Configs:    make(map[string]types.Type),
+		APIs:       make([]*API, 0),
+		Middleware: make([]*Middleware, 0),
+		Missing:    make(map[*types.Func][]types.Type),
 	}
 	opts := &graphOptions{}
 	for _, opt := range options {
@@ -403,7 +405,7 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 						return err
 					}
 					if middleware != nil {
-						graph.Middlewares = append(graph.Middlewares, middleware)
+						graph.Middleware = append(graph.Middleware, middleware)
 					}
 				}
 
@@ -571,7 +573,7 @@ func createMiddleware(fn *ast.FuncDecl, pkg *packages.Package, directive *direct
 			labelNames[label] = true
 		}
 
-		for i := 0; i < params.Len(); i++ {
+		for i := range params.Len() {
 			param := params.At(i)
 			paramType := param.Type()
 			paramName := param.Name()
@@ -594,6 +596,7 @@ func createMiddleware(fn *ast.FuncDecl, pkg *packages.Package, directive *direct
 		Function:  funcObj,
 		Package:   pkg,
 		Requires:  requires,
+		Factory:   !isDirectMiddleware(signature),
 	}
 
 	return middleware, nil
@@ -856,7 +859,7 @@ func findMissingDependencies(graph *Graph) {
 	}
 
 	// Check middleware dependencies
-	for _, middleware := range graph.Middlewares {
+	for _, middleware := range graph.Middleware {
 		for _, required := range middleware.Requires {
 			key := types.TypeString(required, nil)
 			if !provided[key] && !isProvidedByConfig(required, graph.Configs) {
@@ -1007,7 +1010,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 
 		// Filter middleware: keep if no labels (global) or if any label matches API labels
 		var filteredMiddleware []*Middleware
-		for _, mw := range graph.Middlewares {
+		for _, mw := range graph.Middleware {
 			if len(mw.Directive.Labels) == 0 {
 				// Global middleware (no labels) - always keep
 				filteredMiddleware = append(filteredMiddleware, mw)
@@ -1025,7 +1028,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 				}
 			}
 		}
-		graph.Middlewares = filteredMiddleware
+		graph.Middleware = filteredMiddleware
 	}
 
 	return nil

@@ -13,8 +13,8 @@ import (
 
 // Config contains combined Kong configuration for all types in [Construct].
 type ZeroConfig struct {
-	Config9c6b7595816de4c ServiceConfig `embed:""`
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:""`
+	Config9c6b7595816de4c ServiceConfig `embed:""`
 }
 
 // Construct an instance of T.
@@ -79,11 +79,11 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 			return out, fmt.Errorf("*http.ServeMux: %w", err)
 		}
 		mux := http.NewServeMux()
-		mux.HandleFunc("GET /users", func(w http.ResponseWriter, r *http.Request) {
+		mux.Handle("GET /users", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			out, herr := r0.ListUsers()
 			_ = zero.EncodeResponse[[]User](r, w, out, herr)
-		})
-		mux.HandleFunc("POST /users", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		mux.Handle("POST /users", Authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p0, err := zero.DecodeRequest[User]("POST", r)
 			if err != nil {
 				http.Error(w, fmt.Sprintf("Invalid request: %s", err), http.StatusBadRequest)
@@ -91,12 +91,12 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 			}
 			herr := r0.CreateUser(p0)
 			_ = zero.EncodeResponse[zero.EmptyResponse](r, w, nil, herr)
-		})
-		mux.HandleFunc("GET /users/{id}", func(w http.ResponseWriter, r *http.Request) {
+		})))
+		mux.Handle("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p0 := r.PathValue("id")
 			out, herr := r0.GetUser(p0)
 			_ = zero.EncodeResponse[User](r, w, out, herr)
-		})
+		}))
 		return any(mux).(T), nil
 
 	}

@@ -1970,11 +1970,11 @@ func NewDAL() *DAL {
 	graph := analyseTestCode(t, testCode, []string{"*test.DAL"})
 
 	// Should find 4 middleware functions
-	assert.Equal(t, 4, len(graph.Middlewares))
+	assert.Equal(t, 4, len(graph.Middleware))
 
 	// Test global middleware (no labels)
 	var globalMiddleware *Middleware
-	for _, mw := range graph.Middlewares {
+	for _, mw := range graph.Middleware {
 		if mw.Function.Name() == "LoggingMiddleware" {
 			globalMiddleware = mw
 			break
@@ -1986,7 +1986,7 @@ func NewDAL() *DAL {
 
 	// Test middleware with single label
 	var authMiddleware *Middleware
-	for _, mw := range graph.Middlewares {
+	for _, mw := range graph.Middleware {
 		if mw.Function.Name() == "AuthMiddleware" {
 			authMiddleware = mw
 			break
@@ -1998,7 +1998,7 @@ func NewDAL() *DAL {
 
 	// Test middleware with multiple labels
 	var corsRateLimitMiddleware *Middleware
-	for _, mw := range graph.Middlewares {
+	for _, mw := range graph.Middleware {
 		if mw.Function.Name() == "CorsRateLimitMiddleware" {
 			corsRateLimitMiddleware = mw
 			break
@@ -2010,7 +2010,7 @@ func NewDAL() *DAL {
 
 	// Test middleware factory with dependencies
 	var authFactoryMiddleware *Middleware
-	for _, mw := range graph.Middlewares {
+	for _, mw := range graph.Middleware {
 		if mw.Function.Name() == "AuthMiddlewareFactory" {
 			authFactoryMiddleware = mw
 			break

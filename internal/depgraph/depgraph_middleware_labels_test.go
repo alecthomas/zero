@@ -41,11 +41,11 @@ func AuthWithRole(admin string, moderator int, dal *DAL) func(http.Handler) http
 	graph := analyseTestCode(t, testCode, []string{"string"})
 
 	// Should have 2 middlewares
-	assert.Equal(t, 2, len(graph.Middlewares))
+	assert.Equal(t, 2, len(graph.Middleware))
 
 	// Find the Auth middleware
 	var authMiddleware *Middleware
-	for _, mw := range graph.Middlewares {
+	for _, mw := range graph.Middleware {
 		if mw.Function.Name() == "Auth" {
 			authMiddleware = mw
 			break
@@ -57,7 +57,7 @@ func AuthWithRole(admin string, moderator int, dal *DAL) func(http.Handler) http
 
 	// Find the AuthWithRole middleware
 	var authWithRoleMiddleware *Middleware
-	for _, mw := range graph.Middlewares {
+	for _, mw := range graph.Middleware {
 		if mw.Function.Name() == "AuthWithRole" {
 			authWithRoleMiddleware = mw
 			break
@@ -127,9 +127,9 @@ func ComplexAuth(authenticated string, level int, dal *DAL, logger *Logger) func
 	graph := analyseTestCode(t, testCode, []string{"string"})
 
 	// Should have 1 middleware
-	assert.Equal(t, 1, len(graph.Middlewares))
+	assert.Equal(t, 1, len(graph.Middleware))
 
-	mw := graph.Middlewares[0]
+	mw := graph.Middleware[0]
 	assert.Equal(t, "ComplexAuth", mw.Function.Name())
 	assert.Equal(t, []string{"authenticated", "level"}, mw.Directive.Labels)
 	assert.Equal(t, 2, len(mw.Requires)) // DAL and Logger, not the string/int parameters
@@ -176,9 +176,9 @@ func CORS(next http.Handler) http.Handler {
 	graph := analyseTestCode(t, testCode, []string{"string"})
 
 	// Should have 1 middleware
-	assert.Equal(t, 1, len(graph.Middlewares))
+	assert.Equal(t, 1, len(graph.Middleware))
 
-	mw := graph.Middlewares[0]
+	mw := graph.Middleware[0]
 	assert.Equal(t, "CORS", mw.Function.Name())
 	assert.Equal(t, []string{"cors"}, mw.Directive.Labels)
 	assert.Equal(t, 0, len(mw.Requires)) // Direct middleware has no dependencies
@@ -212,9 +212,9 @@ func CacheMiddleware(maxAge int, timeout int, cache *Cache) func(http.Handler) h
 	graph := analyseTestCode(t, testCode, []string{"string"})
 
 	// Should have 1 middleware
-	assert.Equal(t, 1, len(graph.Middlewares))
+	assert.Equal(t, 1, len(graph.Middleware))
 
-	mw := graph.Middlewares[0]
+	mw := graph.Middleware[0]
 	assert.Equal(t, "CacheMiddleware", mw.Function.Name())
 	assert.Equal(t, []string{"maxAge", "timeout"}, mw.Directive.Labels)
 	assert.Equal(t, 1, len(mw.Requires)) // Only Cache, not the int parameters

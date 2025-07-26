@@ -53,6 +53,7 @@ linters:
     - funcorder
     - noinlineerr
     - tagalign
+    - goconst
   settings:
     dupl:
       threshold: 100

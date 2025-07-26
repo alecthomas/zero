@@ -73,10 +73,10 @@ func (s *Service) DeleteUser() {}
 	// Should have pruned unused middleware
 	// Expected: GlobalMiddleware, AuthMiddleware, AdminMiddleware (3 total)
 	// Should be pruned: UnusedMiddleware, OrphanedMiddleware
-	assert.Equal(t, 3, len(graph.Middlewares))
+	assert.Equal(t, 3, len(graph.Middleware))
 
 	middlewareNames := make(map[string]bool)
-	for _, mw := range graph.Middlewares {
+	for _, mw := range graph.Middleware {
 		middlewareNames[mw.Function.Name()] = true
 	}
 
@@ -127,9 +127,9 @@ func (s *Service) GetData() {}
 	assert.Equal(t, 1, len(graph.APIs))
 
 	// Should have 1 middleware (CacheMiddleware kept, SpecialMiddleware pruned)
-	assert.Equal(t, 1, len(graph.Middlewares))
+	assert.Equal(t, 1, len(graph.Middleware))
 
-	mw := graph.Middlewares[0]
+	mw := graph.Middleware[0]
 	assert.Equal(t, "CacheMiddleware", mw.Function.Name())
 	assert.Equal(t, []string{"cache", "timeout"}, mw.Directive.Labels)
 }
@@ -160,7 +160,7 @@ func UnusedMiddleware() func(http.Handler) http.Handler {
 	graph := analyseTestCode(t, testCode, []string{"string"})
 
 	// When there are no APIs, all middleware should be kept
-	assert.Equal(t, 2, len(graph.Middlewares))
+	assert.Equal(t, 2, len(graph.Middleware))
 }
 
 func TestMiddlewarePruningEdgeCases(t *testing.T) {
@@ -208,10 +208,10 @@ func (s *Service) TestEndpoint() {}
 	assert.Equal(t, 1, len(graph.APIs))
 
 	// Should have 2 middleware (EmptyLabelMiddleware and ExactMatchMiddleware)
-	assert.Equal(t, 2, len(graph.Middlewares))
+	assert.Equal(t, 2, len(graph.Middleware))
 
 	middlewareNames := make(map[string]bool)
-	for _, mw := range graph.Middlewares {
+	for _, mw := range graph.Middleware {
 		middlewareNames[mw.Function.Name()] = true
 	}
 
@@ -257,8 +257,8 @@ func (s *Service) GetData() {}
 	assert.Equal(t, 1, len(graph.APIs))
 
 	// Should have 1 middleware (CacheMiddleware matches despite value)
-	assert.Equal(t, 1, len(graph.Middlewares))
+	assert.Equal(t, 1, len(graph.Middleware))
 
-	mw := graph.Middlewares[0]
+	mw := graph.Middleware[0]
 	assert.Equal(t, "CacheMiddleware", mw.Function.Name())
 }

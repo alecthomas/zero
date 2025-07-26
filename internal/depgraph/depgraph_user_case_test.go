@@ -31,9 +31,9 @@ func Auth(authenticated string, dal *DAL) func(http.Handler) http.Handler {
 	graph := analyseTestCode(t, testCode, []string{"string"})
 
 	// Should have 1 middleware
-	assert.Equal(t, 1, len(graph.Middlewares))
+	assert.Equal(t, 1, len(graph.Middleware))
 
-	authMiddleware := graph.Middlewares[0]
+	authMiddleware := graph.Middleware[0]
 	assert.Equal(t, "Auth", authMiddleware.Function.Name())
 	assert.Equal(t, []string{"authenticated"}, authMiddleware.Directive.Labels)
 
@@ -73,9 +73,9 @@ func ComplexAuth(role string, level int, authenticated string, dal *DAL, logger 
 	graph := analyseTestCode(t, testCode, []string{"string"})
 
 	// Should have 1 middleware
-	assert.Equal(t, 1, len(graph.Middlewares))
+	assert.Equal(t, 1, len(graph.Middleware))
 
-	middleware := graph.Middlewares[0]
+	middleware := graph.Middleware[0]
 	assert.Equal(t, "ComplexAuth", middleware.Function.Name())
 	assert.Equal(t, []string{"role", "level", "authenticated"}, middleware.Directive.Labels)
 
