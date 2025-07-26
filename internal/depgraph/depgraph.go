@@ -826,7 +826,11 @@ func isErrorType(t types.Type) bool {
 }
 
 func findMissingDependencies(graph *Graph) {
-	provided := make(map[string]bool)
+	provided := map[string]bool{
+		// Builtin types
+		"context.Context":    true,
+		"*net/http.ServeMux": true,
+	}
 	for key := range graph.Providers {
 		provided[key] = true
 	}
