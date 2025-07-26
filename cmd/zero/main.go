@@ -14,7 +14,7 @@ import (
 var cli struct {
 	Chdir    string   `help:"Change to this directory before running." placeholder:"DIR" short:"C" type:"existingdir"`
 	Debug    bool     `help:"Enable debug logging."`
-	Tags     string   `help:"Tags to enable during type analysis." placeholder:"TAG"`
+	Tags     []string `help:"Tags to enable during type analysis." placeholder:"TAG"`
 	Resolve  []string `help:"Resolve an ambiguous type with this provider." placeholder:"REF"`
 	List     bool     `help:"List all dependencies." xor:"action"`
 	Root     []string `help:"Prune dependencies outside these root types."  placeholder:"REF" short:"r"`
@@ -37,6 +37,7 @@ func main() {
 		depgraph.WithPatterns(cli.Patterns...),
 		depgraph.WithProviders(cli.Resolve...),
 		depgraph.WithOptions(extraOptions...),
+		depgraph.WithTags(cli.Tags...),
 	)
 	kctx.FatalIfErrorf(err)
 	if len(graph.Missing) > 0 {

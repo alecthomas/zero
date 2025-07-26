@@ -102,8 +102,9 @@ type graphOptions struct {
 	// Providers to pick to resolve duplicate providers.
 	pick []string
 	// Additional package patterns to search for annotations.
-	patterns []string
-	debug    bool
+	patterns   []string
+	debug      bool
+	buildFlags []string
 }
 
 type Option func(*graphOptions) error
@@ -152,6 +153,14 @@ func WithOptions(options ...Option) Option {
 	}
 }
 
+// WithTags adds build tags to the build flags.
+func WithTags(tags ...string) Option {
+	return func(o *graphOptions) error {
+		o.buildFlags = append(o.buildFlags, "-tags="+strings.Join(tags, ","))
+		return nil
+	}
+}
+
 type Graph struct {
 	Dest       *types.Package
 	Providers  map[string]*Provider
@@ -190,8 +199,9 @@ func Analyse(dest string, options ...Option) (*Graph, error) {
 	}
 
 	cfg := &packages.Config{
-		Logf: logf,
-		Fset: fset,
+		Logf:       logf,
+		Fset:       fset,
+		BuildFlags: opts.buildFlags,
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedTypes | packages.NeedSyntax |
 			packages.NeedTypesInfo,
