@@ -69,6 +69,8 @@ type Middleware struct {
 	Package *packages.Package
 	// Labels are the labels that this middleware applies to
 	Labels []string
+	// Requires are the dependencies required by this middleware
+	Requires []types.Type
 }
 
 type graphOptions struct {
@@ -546,12 +548,41 @@ func createMiddleware(fn *ast.FuncDecl, pkg *packages.Package, directive *direct
 		return nil, errors.Errorf("invalid middleware function signature for %s: must be func(http.Handler) http.Handler or func(...deps) func(http.Handler) http.Handler", fn.Name.Name)
 	}
 
+	// Analyze dependencies for middleware factory functions
+	var requires []types.Type
+	params := signature.Params()
+
+	// Check if this is a middleware factory (not a direct middleware)
+	if !isDirectMiddleware(signature) {
+		labelNames := make(map[string]bool)
+		for _, label := range directive.Labels {
+			labelNames[label] = true
+		}
+
+		for i := 0; i < params.Len(); i++ {
+			param := params.At(i)
+			paramType := param.Type()
+			paramName := param.Name()
+
+			// String/int parameters must be labels
+			if isStringOrIntType(paramType) {
+				if !labelNames[paramName] {
+					return nil, errors.Errorf("parameter %s of type %s in middleware %s must match a label name", paramName, paramType.String(), fn.Name.Name)
+				}
+			} else {
+				// Non-string/int parameters are dependencies
+				requires = append(requires, paramType)
+			}
+		}
+	}
+
 	middleware := &Middleware{
 		Position:  fset.Position(fn.Pos()),
 		Directive: directive,
 		Function:  funcObj,
 		Package:   pkg,
 		Labels:    directive.Labels,
+		Requires:  requires,
 	}
 
 	return middleware, nil
@@ -590,6 +621,21 @@ func isValidMiddlewareSignature(sig *types.Signature) bool {
 		if obj.Name() == "Middleware" && obj.Pkg() != nil && obj.Pkg().Path() == "github.com/alecthomas/zero" {
 			return true
 		}
+	}
+
+	return false
+}
+
+func isDirectMiddleware(sig *types.Signature) bool {
+	results := sig.Results()
+	if results.Len() != 1 {
+		return false
+	}
+
+	returnType := results.At(0).Type()
+	if isHTTPHandlerType(returnType) {
+		params := sig.Params()
+		return params.Len() == 1 && isHTTPHandlerType(params.At(0).Type())
 	}
 
 	return false
@@ -793,6 +839,27 @@ func findMissingDependencies(graph *Graph) {
 				}
 				if !isDuplicate {
 					graph.Missing[api.Function] = append(graph.Missing[api.Function], receiverType)
+				}
+			}
+		}
+	}
+
+	// Check middleware dependencies
+	for _, middleware := range graph.Middlewares {
+		for _, required := range middleware.Requires {
+			key := types.TypeString(required, nil)
+			if !provided[key] && !isProvidedByConfig(required, graph.Configs) {
+				// Check for duplicates before adding
+				existing := graph.Missing[middleware.Function]
+				isDuplicate := false
+				for _, existingType := range existing {
+					if types.Identical(existingType, required) {
+						isDuplicate = true
+						break
+					}
+				}
+				if !isDuplicate {
+					graph.Missing[middleware.Function] = append(graph.Missing[middleware.Function], required)
 				}
 			}
 		}
