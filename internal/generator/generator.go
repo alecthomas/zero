@@ -80,7 +80,6 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 					}
 					w.L("if p%d, err := ZeroConstructSingletons[%s](ctx, config, singletons); err != nil {", i, reqRef.Ref)
 					w.In(func(w *codewriter.Writer) {
-						w.Import("fmt")
 						w.L(`return out, err`)
 					})
 					w.Indent()
@@ -100,7 +99,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 				}
 				w.W("); err != nil {\n")
 				w.In(func(w *codewriter.Writer) {
-					w.L(`return out, fmt.Errorf("%s: %%w", err)`, provider.Function.Name())
+					w.L(`return out, fmt.Errorf("%s: %%w", err)`, ref.Ref)
 				})
 				w.L("} else {")
 				w.In(func(w *codewriter.Writer) {

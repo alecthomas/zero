@@ -26,6 +26,6 @@ func New(config Config) (*sql.DB, error) {
 		u.Scheme = "postgres"
 		return sql.Open("pgx", u.String())
 	default:
-		return nil, errors.Errorf("unsupported SQL DSN scheme: %s", u.Scheme)
+		return nil, errors.Errorf("unsupported SQL DSN scheme: %q", u.Scheme)
 	}
 }
