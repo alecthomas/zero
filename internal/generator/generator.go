@@ -13,9 +13,32 @@ import (
 	"github.com/alecthomas/zero/internal/depgraph"
 )
 
+type generateOptions struct {
+	tags []string
+}
+
+type Option func(*generateOptions)
+
+// WithTags sets the list of //go:build tags to include in the generated code.
+func WithTags(tags ...string) Option {
+	return func(o *generateOptions) {
+		o.tags = tags
+	}
+}
+
 // Generate Zero's bootstrap code.
-func Generate(out io.Writer, graph *depgraph.Graph) error {
+func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
+	opts := &generateOptions{}
+	for _, option := range options {
+		option(opts)
+	}
+
 	w := codewriter.New(graph.Dest.Name())
+	if len(opts.tags) > 0 {
+		pw := w.Prelude()
+		pw.L("//go:build %s", strings.Join(opts.tags, " "))
+		pw.L("")
+	}
 	w.Import("context")
 	w.L("// Config contains combined Kong configuration for all types in [Construct].")
 	w.L("type ZeroConfig struct {")

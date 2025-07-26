@@ -12,14 +12,15 @@ import (
 )
 
 var cli struct {
-	Chdir    string   `help:"Change to this directory before running." placeholder:"DIR" short:"C" type:"existingdir"`
-	Debug    bool     `help:"Enable debug logging."`
-	Tags     []string `help:"Tags to enable during type analysis." placeholder:"TAG"`
-	Resolve  []string `help:"Resolve an ambiguous type with this provider." placeholder:"REF"`
-	List     bool     `help:"List all dependencies." xor:"action"`
-	Root     []string `help:"Prune dependencies outside these root types."  placeholder:"REF" short:"r"`
-	Dest     string   `help:"Destination package directory for generated files." arg:"" type:"existingdir"`
-	Patterns []string `help:"Additional packages pattern to scan." arg:"" optional:""`
+	Chdir      string   `help:"Change to this directory before running." placeholder:"DIR" short:"C" type:"existingdir"`
+	Debug      bool     `help:"Enable debug logging."`
+	Tags       []string `help:"Tags to enable during type analysis." placeholder:"TAG"`
+	OutputTags []string `help:"Tags to add to generated code."`
+	Resolve    []string `help:"Resolve an ambiguous type with this provider." placeholder:"REF"`
+	List       bool     `help:"List all dependencies." xor:"action"`
+	Root       []string `help:"Prune dependencies outside these root types."  placeholder:"REF" short:"r"`
+	Dest       string   `help:"Destination package directory for generated files." arg:"" type:"existingdir"`
+	Patterns   []string `help:"Additional packages pattern to scan." arg:"" optional:""`
 }
 
 func main() {
@@ -64,6 +65,6 @@ func main() {
 
 	w, err := os.Create(filepath.Join(cli.Dest, "zero.go"))
 	kctx.FatalIfErrorf(err)
-	err = generator.Generate(w, graph)
+	err = generator.Generate(w, graph, generator.WithTags(cli.OutputTags...))
 	kctx.FatalIfErrorf(err)
 }
