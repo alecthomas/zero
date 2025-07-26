@@ -178,6 +178,14 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 
 				// Next, create the ServeMux and register the handlers across receiver types.
 				w.L("mux := http.NewServeMux()")
+				w.Import("github.com/alecthomas/zero")
+				w.L("errorHandler, err := ZeroConstructSingletons[zero.ErrorHandler](ctx, config, singletons)")
+				w.L("if err != nil {")
+				w.In(func(w *codewriter.Writer) {
+					w.L("return out, err")
+				})
+				w.L("}")
+				w.L("_ = errorHandler")
 				for _, api := range graph.APIs {
 					handler := "http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {"
 					closing := ""
@@ -204,7 +212,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 									w.L(`m%dp%d, err := strconv.Itoa(%q)`, mi, i, api.Label(paramName))
 									w.L("if err != nil {")
 									w.In(func(w *codewriter.Writer) {
-										w.L(`http.Error(w, fmt.Sprintf("Path parameter %s must be a valid integer: %s", paramName, err), http.StatusBadRequest)`)
+										w.L(`errorHandler(w, fmt.Sprintf("path parameter %s must be a valid integer: %s", paramName, err), http.StatusBadRequest)`)
 										w.L("return")
 									})
 									w.L("}")
@@ -247,7 +255,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 								w.L(`p%d, err := strconv.Itoa(r.PathValue("%s"))`, i, paramName)
 								w.L("if err != nil {")
 								w.In(func(w *codewriter.Writer) {
-									w.L(`http.Error(w, fmt.Sprintf("Path parameter %s must be a valid integer: %s", paramName, err), http.StatusBadRequest)`)
+									w.L(`errorHandler(w, fmt.Sprintf("path parameter %s must be a valid integer: %s", paramName, err), http.StatusBadRequest)`)
 									w.L("return")
 								})
 								w.L("}")
@@ -260,7 +268,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 								w.L(`p%d, err := zero.DecodeRequest[%s]("%s", r)`, i, ref.Ref, api.Pattern.Method)
 								w.L("if err != nil {")
 								w.In(func(w *codewriter.Writer) {
-									w.L(`http.Error(w, fmt.Sprintf("Invalid request: %%s", err), http.StatusBadRequest)`)
+									w.L(`errorHandler(w, fmt.Sprintf("invalid request: %%s", err), http.StatusBadRequest)`)
 									w.L("return")
 								})
 								w.L("}")
@@ -310,14 +318,13 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 						if hasError {
 							errorValue = "herr"
 						}
+						w.Import("github.com/alecthomas/zero")
 						if responseType != nil {
 							ref := graph.TypeRef(responseType)
 							w.Import(ref.Import)
-							w.Import("github.com/alecthomas/zero")
-							w.L(`_ = zero.EncodeResponse[%s](r, w, out, %s)`, ref.Ref, errorValue)
+							w.L(`zero.EncodeResponse[%s](r, w, errorHandler, out, %s)`, ref.Ref, errorValue)
 						} else if hasError {
-							w.Import("github.com/alecthomas/zero")
-							w.L(`_ = zero.EncodeResponse[zero.EmptyResponse](r, w, nil, %s)`, errorValue)
+							w.L(`zero.EncodeResponse[zero.EmptyResponse](r, w, errorHandler, nil, %s)`, errorValue)
 						}
 					})
 					w.L("}))%s", closing)

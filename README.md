@@ -25,7 +25,7 @@ A struct annotated with `//zero:config [prefix="<prefix>"]` will be used as embe
 
 ## Routes
 
-ZS will automatically generate `http.Handler` implementations for any method annotated with `//zero:api` providing JSON decoding/encoding, path variable decoding, and query parameter decoding. ZS will also generate a corresponding type-safe client for calling the endpoint, or possibly an OpenAPI schema.
+ZS will automatically generate `http.Handler` implementations for any method annotated with `//zero:api`, providing request decoding, response encoding, path variable decoding, query parameter decoding, and error handling.
 
 ```go
 //zero:api [<method>] [<host>]/[<path>] [<label>[=<value>] ...]
@@ -33,6 +33,29 @@ func (s Struct) Method([pathVar0, pathVar1 string][, req Request]) ([<response>,
 ```
 
 `http.ServeMux` is used for routing and thus the pattern syntax is identical.
+
+### Response encoding
+
+Depending on the type of the <response> value, the response will be encoded in the following ways:
+
+| Type | Encoding |
+| ---- | -------- |
+| `nil`/omitted | 204 No Content |
+| `string` | `text/html` |
+| `[]byte` | `application/octet-stream` |
+| `io.Reader` | `application/octet-stream` |
+| `io.ReadCloser` | `application/octet-stream` |
+| `*http.Response` | Response structure is used as-is. |
+| `http.Handler` | The response type's `ServeHTTP()` method will be called. |
+| `*` | `application/json` |
+
+Responses may optionally implement the interface `zero.StatusCode` to control the returned HTTP status code.
+
+### Error responses
+
+As with response bodies, if the returned error type implements `http.Handler`, its `ServeHTTP()` method will be called.
+
+A default error handler may also be registered by creating a custom provider for `zero.ErrorHandler`.
 
 ### Service Interfaces (NOT IMPLEMENTED)
 
@@ -175,90 +198,5 @@ func (s *Service) OnUserCreated(user zero.Event[UserCreatedEvent]) error {
 //zero:cron 1h
 func (s *Service) CheckUsers() error {
   // ...
-}
-```
-
-Generates something like the following:
-
-```go
-type ApplicationConfig struct {
-  Bind           string             `help:"Address to bind HTTP server to." default:"127.0.0.1:8080"`
-  DatabaseConfig app.DatabaseConfig `embed:"" prefix:"database-"`
-  KafkaConfig    app.KafkaConfig    `embed:"" prefix:"kafka-"`
-}
-
-// Start the application server.
-func Start(ctx context.Context, config ApplicationConfig) error {
-  dal, err := app.NewDAL(cli.DatabaseConfig)
-  if err != nil {
-    return fmt.Errorf("failed to construct DAL: %w", err)
-  }
-  svc, err := app.NewService(dal)
-  if err != nil {
-    return fmt.Errorf("failed to construct Service: %w", err)
-  }
-  pubSubConn, err := app.NewKafkaConnection(ctx, config.KafkaConfig)
-  if err != nil {
-    return fmt.Errorf("failed to construct KafkaPubSub: %w", err)
-  }
-
-  // Construct middleware
-  authMiddleware, err := app.Auth(dal)
-  if err != nil {
-    return fmt.Errorf("failed to construct Auth middleware: %w", err)
-  }
-
-  // Initialise routing
-  mux := http.NewServeMux()
-  mux.HandleFunc("GET /users", func(w http.ResponseWriter, r *http.Request) {
-    // Generated code to encode/decode request and call svc.ListUsers
-  })
-  mux.HandleFunc("POST /users", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    // Generated code to encode/decode request and call svc.CreateUser
-  })))
-
-  // Initialise UserCreatedEvent topic.
-  userCreatedTopic, err := app.NewTopic[UserCreatedEvent](ctx, pubSubConn)
-  if err != nil {
-    return fmt.Errorf("failed to create PubSub topic for UserCreatedEvent: %w", err)
-  }
-
-  err = userCreatedTopic.Subscribe(ctx, func (ctx context.Context, event zero.Event[UserCreatedEvent]) error {
-    // Call svc.OnUserCreated with decoded payload.
-  })
-  if err != nil {
-    return fmt.Errorf("failed to subscribe to user-created PubSub topic: %w", err)
-  }
-
-  // Initialise cron jobs
-  err = zero.StartCron(ctx, "1h", func(ctx context.Context) error {
-    return svc.CheckUsers()
-  })
-  if err != nil {
-    return fmt.Errorf("failed to schedule CheckUsers cron job: %w", err)
-  }
-
-  // Start server.
-  return http.ListenAndServe(config.Bind, mux)
-}
-```
-
-Which you would then use from your own `main.go` like so:
-
-```go
-package main
-
-import "github.com/alecthomas/kong"
-
-var cli struct {
-  ApplicationConfig // Generated
-
-  // Other config
-}
-
-func main() {
-  kctx := kong.Parse(&cli)
-  err := app.Start(context.Background(), cli.ApplicationConfig) // Generated
-  kctx.FatalIfErrorf(err, "failed to start service")
 }
 ```

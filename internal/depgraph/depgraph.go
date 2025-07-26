@@ -970,10 +970,15 @@ func importPathForDir(dir string) (string, error) {
 	return path.Join(mod.Module.Mod.Path, dir), nil
 }
 
+// Types used internally by Zero's generated code.
+var internalTypes = []string{
+	"github.com/alecthomas/zero.ErrorHandler",
+}
+
 // pruneUnreferencedTypes removes providers and configs that are not transitively referenced from the given roots
 func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][]*Provider, pick []string) error {
 	referenced := map[string]bool{}
-	toProcess := slices.Clone(roots)
+	toProcess := append(slices.Clone(roots), internalTypes...)
 	ambiguousProviders := map[string][]*Provider{}
 
 	// Transitive closure: find all referenced types

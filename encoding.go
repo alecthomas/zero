@@ -60,17 +60,13 @@ func DecodeRequest[T any](method string, r *http.Request) (T, error) {
 }
 
 // EncodeResponse encodes the response body into JSON and writes it to the response writer.
-func EncodeResponse[T any](r *http.Request, w http.ResponseWriter, data T, outErr error) error {
+func EncodeResponse[T any](r *http.Request, w http.ResponseWriter, errorHandler ErrorHandler, data T, outErr error) {
 	if outErr != nil {
-		var handler APIError
+		var handler http.Handler
 		if errors.As(outErr, &handler) {
 			handler.ServeHTTP(w, nil)
 		} else {
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			err := json.NewEncoder(w).Encode(map[string]string{"error": outErr.Error(), "code": strconv.Itoa(http.StatusInternalServerError)})
-			if err != nil {
-				return errors.Errorf("failed to encode JSON response body: %w", err)
-			}
+			errorHandler(w, outErr.Error(), http.StatusInternalServerError)
 		}
 	} else if handler, ok := any(data).(http.Handler); ok {
 		handler.ServeHTTP(w, r)
@@ -82,12 +78,8 @@ func EncodeResponse[T any](r *http.Request, w http.ResponseWriter, data T, outEr
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(statusCode)
-		err := json.NewEncoder(w).Encode(data)
-		if err != nil {
-			return errors.Errorf("failed to encode JSON response body: %w", err)
-		}
+		_ = json.NewEncoder(w).Encode(data) //nolint
 	}
-	return nil
 }
 
 // EmptyResponse is used for handlers that don't return any content.

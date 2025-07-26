@@ -2,19 +2,22 @@
 package main
 
 import (
-  "database/sql"
-  "context"
-  "fmt"
-  "github.com/alecthomas/zero"
-  impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
-  "net/http"
-  "reflect"
+	"context"
+	"database/sql"
+	"fmt"
+	"net/http"
+	"reflect"
+
+	"github.com/alecthomas/zero"
+	imp9c34c006eb3c10fa "github.com/alecthomas/zero"
+	impef7a81aa222750b7 "github.com/alecthomas/zero/providers"
+	impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
 )
 
 // Config contains combined Kong configuration for all types in [Construct].
 type ZeroConfig struct {
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:""`
-	Config9c6b7595816de4c ServiceConfig `embed:"" prefix:"server-"`
+	Config9c6b7595816de4c  ServiceConfig              `embed:"" prefix:"server-"`
 }
 
 // Construct an instance of T.
@@ -44,6 +47,26 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 	case reflect.TypeOf((*ServiceConfig)(nil)).Elem():
 		return any(config.Config9c6b7595816de4c).(T), nil
 
+	case reflect.TypeOf((**Service)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p1, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := NewService(p0, p1)
+		if err != nil {
+
+			return out, fmt.Errorf("*Service: %w", err)
+		}
+		return any(o).(T), nil
+
+	case reflect.TypeOf((*imp9c34c006eb3c10fa.ErrorHandler)(nil)).Elem():
+		o := impef7a81aa222750b7.DefaultErrorHandler()
+		return any(o).(T), nil
+
 	case reflect.TypeOf((**DAL)(nil)).Elem():
 		p0, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
 		if err != nil {
@@ -64,47 +87,36 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		}
 		return any(o).(T), nil
 
-	case reflect.TypeOf((**Service)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		p1, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		o, err := NewService(p0, p1)
-		if err != nil {
-
-			return out, fmt.Errorf("*Service: %w", err)
-		}
-		return any(o).(T), nil
-
 	case reflect.TypeOf((**http.ServeMux)(nil)).Elem():
 		r0, err := ZeroConstructSingletons[*Service](ctx, config, singletons)
 		if err != nil {
 			return out, fmt.Errorf("*http.ServeMux: %w", err)
 		}
+		errorHandler, err := ZeroConstructSingletons[zero.ErrorHandler](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
 		mux := http.NewServeMux()
+		_ = errorHandler
 		mux.Handle("GET /users", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			out, herr := r0.ListUsers()
-			_ = zero.EncodeResponse[[]User](r, w, out, herr)
+			zero.EncodeResponse[[]User](r, w, errorHandler, out, herr)
 		}))
 		// Parameters for the Authenticate middleware
 		m0p0 := "admin"
 		mux.Handle("POST /users", Authenticate(m0p0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p0, err := zero.DecodeRequest[User]("POST", r)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("Invalid request: %s", err), http.StatusBadRequest)
+				errorHandler(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
 				return
 			}
 			herr := r0.CreateUser(p0)
-			_ = zero.EncodeResponse[zero.EmptyResponse](r, w, nil, herr)
+			zero.EncodeResponse[zero.EmptyResponse](r, w, errorHandler, nil, herr)
 		})))
 		mux.Handle("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p0 := r.PathValue("id")
 			out, herr := r0.GetUser(p0)
-			_ = zero.EncodeResponse[User](r, w, out, herr)
+			zero.EncodeResponse[User](r, w, errorHandler, out, herr)
 		}))
 		return any(mux).(T), nil
 

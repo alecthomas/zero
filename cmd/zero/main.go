@@ -41,6 +41,7 @@ func main() {
 		depgraph.WithTags(cli.Tags...),
 	)
 	kctx.FatalIfErrorf(err)
+
 	if len(graph.Missing) > 0 {
 		for fn, missing := range graph.Missing {
 			missingStr := []string{}

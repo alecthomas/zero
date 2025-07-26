@@ -12,6 +12,9 @@ import (
 	"github.com/alecthomas/zero/internal/cloudevent"
 )
 
+// ErrorHandler represents a function for handling errors from Zero's generated code.
+type ErrorHandler func(w http.ResponseWriter, msg string, code int)
+
 // Middleware is a convenience type for Zero middleware.
 type Middleware func(http.Handler) http.Handler
 
