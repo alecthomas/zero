@@ -16,3 +16,28 @@ jobs:
       - run: goreleaser release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  hermit-release:
+    name: Release Hermit
+    runs-on: ubuntu-latest
+    needs: [release]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
+        with:
+          repository: alecthomas/hermit-packages
+          ref: "main"
+          token: ${{ secrets.ALECTHOMAS_HERMIT_AUTOVERSION_TOKEN }}
+      - name: Init Hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # ratchet:cashapp/activate-hermit@v1.1.4
+      - name: Setup Git Config
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+      - name: Auto-version
+        run: |
+          hermit manifest auto-version zero.hcl --update-digests
+      - name: Commit and Push
+        run: |
+          git add zero.hcl
+          git commit -m "Auto-versioned"
+          git push origin main
