@@ -144,7 +144,8 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 				// Next, create the ServeMux and register the handlers across receiver types.
 				w.L("mux := http.NewServeMux()")
 				for _, api := range graph.APIs {
-					w.L("mux.HandleFunc(%q, func(w http.ResponseWriter, r *http.Request) {", api.Pattern.Pattern())
+					handler := "func(w http.ResponseWriter, r *http.Request) {"
+					w.L("mux.HandleFunc(%q, %s", api.Pattern.Pattern(), handler)
 					w.In(func(w *codewriter.Writer) {
 						signature := api.Function.Signature()
 

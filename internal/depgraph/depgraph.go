@@ -67,10 +67,22 @@ type Middleware struct {
 	Function *types.Func
 	// Package is the package that contains the function
 	Package *packages.Package
-	// Labels are the labels that this middleware applies to
-	Labels []string
 	// Requires are the dependencies required by this middleware
 	Requires []types.Type
+}
+
+func (m *Middleware) Match(api *API) bool {
+	if len(m.Directive.Labels) == 0 {
+		return true
+	}
+	for _, label := range m.Directive.Labels {
+		for _, apiLabel := range api.Pattern.Labels {
+			if label == apiLabel.Name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type graphOptions struct {
@@ -581,7 +593,6 @@ func createMiddleware(fn *ast.FuncDecl, pkg *packages.Package, directive *direct
 		Directive: directive,
 		Function:  funcObj,
 		Package:   pkg,
-		Labels:    directive.Labels,
 		Requires:  requires,
 	}
 
@@ -997,13 +1008,13 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 		// Filter middleware: keep if no labels (global) or if any label matches API labels
 		var filteredMiddleware []*Middleware
 		for _, mw := range graph.Middlewares {
-			if len(mw.Labels) == 0 {
+			if len(mw.Directive.Labels) == 0 {
 				// Global middleware (no labels) - always keep
 				filteredMiddleware = append(filteredMiddleware, mw)
 			} else {
 				// Check if any middleware label matches any API label
 				hasMatchingLabel := false
-				for _, label := range mw.Labels {
+				for _, label := range mw.Directive.Labels {
 					if usedLabels[label] {
 						hasMatchingLabel = true
 						break

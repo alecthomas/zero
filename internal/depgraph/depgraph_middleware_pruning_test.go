@@ -131,7 +131,7 @@ func (s *Service) GetData() {}
 
 	mw := graph.Middlewares[0]
 	assert.Equal(t, "CacheMiddleware", mw.Function.Name())
-	assert.Equal(t, []string{"cache", "timeout"}, mw.Labels)
+	assert.Equal(t, []string{"cache", "timeout"}, mw.Directive.Labels)
 }
 
 func TestKeepAllMiddlewareWhenNoAPIs(t *testing.T) {

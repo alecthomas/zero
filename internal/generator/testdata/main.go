@@ -37,6 +37,13 @@ func (d *DAL) CreateUser(user User) error {
 	return nil
 }
 
+//zero:middleware authenticated
+func Authenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+	})
+}
+
 //zero:config
 type ServiceConfig struct {
 }

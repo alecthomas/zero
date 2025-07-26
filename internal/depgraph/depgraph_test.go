@@ -1982,7 +1982,7 @@ func NewDAL() *DAL {
 	}
 	assert.NotZero(t, globalMiddleware)
 	assert.Equal(t, "LoggingMiddleware", globalMiddleware.Function.Name())
-	assert.Equal(t, 0, len(globalMiddleware.Labels))
+	assert.Equal(t, 0, len(globalMiddleware.Directive.Labels))
 
 	// Test middleware with single label
 	var authMiddleware *Middleware
@@ -1994,7 +1994,7 @@ func NewDAL() *DAL {
 	}
 	assert.NotZero(t, authMiddleware)
 	assert.Equal(t, "AuthMiddleware", authMiddleware.Function.Name())
-	assert.Equal(t, []string{"auth"}, authMiddleware.Labels)
+	assert.Equal(t, []string{"auth"}, authMiddleware.Directive.Labels)
 
 	// Test middleware with multiple labels
 	var corsRateLimitMiddleware *Middleware
@@ -2006,7 +2006,7 @@ func NewDAL() *DAL {
 	}
 	assert.NotZero(t, corsRateLimitMiddleware)
 	assert.Equal(t, "CorsRateLimitMiddleware", corsRateLimitMiddleware.Function.Name())
-	assert.Equal(t, []string{"cors", "ratelimit"}, corsRateLimitMiddleware.Labels)
+	assert.Equal(t, []string{"cors", "ratelimit"}, corsRateLimitMiddleware.Directive.Labels)
 
 	// Test middleware factory with dependencies
 	var authFactoryMiddleware *Middleware
@@ -2018,7 +2018,7 @@ func NewDAL() *DAL {
 	}
 	assert.NotZero(t, authFactoryMiddleware)
 	assert.Equal(t, "AuthMiddlewareFactory", authFactoryMiddleware.Function.Name())
-	assert.Equal(t, []string{"authenticated"}, authFactoryMiddleware.Labels)
+	assert.Equal(t, []string{"authenticated"}, authFactoryMiddleware.Directive.Labels)
 }
 
 func TestAnalyseInvalidMiddlewareFunction(t *testing.T) {

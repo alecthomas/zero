@@ -35,7 +35,7 @@ func Auth(authenticated string, dal *DAL) func(http.Handler) http.Handler {
 
 	authMiddleware := graph.Middlewares[0]
 	assert.Equal(t, "Auth", authMiddleware.Function.Name())
-	assert.Equal(t, []string{"authenticated"}, authMiddleware.Labels)
+	assert.Equal(t, []string{"authenticated"}, authMiddleware.Directive.Labels)
 
 	// Should have exactly 1 dependency: *DAL
 	// The 'authenticated' string parameter should NOT be a dependency since it's a label
@@ -77,7 +77,7 @@ func ComplexAuth(role string, level int, authenticated string, dal *DAL, logger 
 
 	middleware := graph.Middlewares[0]
 	assert.Equal(t, "ComplexAuth", middleware.Function.Name())
-	assert.Equal(t, []string{"role", "level", "authenticated"}, middleware.Labels)
+	assert.Equal(t, []string{"role", "level", "authenticated"}, middleware.Directive.Labels)
 
 	// Should have exactly 3 dependencies: *DAL, *Logger, *Cache
 	// The string/int parameters should NOT be dependencies since they're labels

@@ -52,7 +52,7 @@ func AuthWithRole(admin string, moderator int, dal *DAL) func(http.Handler) http
 		}
 	}
 	assert.NotZero(t, authMiddleware)
-	assert.Equal(t, []string{"authenticated"}, authMiddleware.Labels)
+	assert.Equal(t, []string{"authenticated"}, authMiddleware.Directive.Labels)
 	assert.Equal(t, 1, len(authMiddleware.Requires)) // Only DAL, not the string parameter
 
 	// Find the AuthWithRole middleware
@@ -64,7 +64,7 @@ func AuthWithRole(admin string, moderator int, dal *DAL) func(http.Handler) http
 		}
 	}
 	assert.NotZero(t, authWithRoleMiddleware)
-	assert.Equal(t, []string{"admin", "moderator"}, authWithRoleMiddleware.Labels)
+	assert.Equal(t, []string{"admin", "moderator"}, authWithRoleMiddleware.Directive.Labels)
 	assert.Equal(t, 1, len(authWithRoleMiddleware.Requires)) // Only DAL, not the string/int parameters
 
 	// Check that DAL is required but not provided
@@ -131,7 +131,7 @@ func ComplexAuth(authenticated string, level int, dal *DAL, logger *Logger) func
 
 	mw := graph.Middlewares[0]
 	assert.Equal(t, "ComplexAuth", mw.Function.Name())
-	assert.Equal(t, []string{"authenticated", "level"}, mw.Labels)
+	assert.Equal(t, []string{"authenticated", "level"}, mw.Directive.Labels)
 	assert.Equal(t, 2, len(mw.Requires)) // DAL and Logger, not the string/int parameters
 
 	// Check that both DAL and Logger are required but not provided
@@ -180,7 +180,7 @@ func CORS(next http.Handler) http.Handler {
 
 	mw := graph.Middlewares[0]
 	assert.Equal(t, "CORS", mw.Function.Name())
-	assert.Equal(t, []string{"cors"}, mw.Labels)
+	assert.Equal(t, []string{"cors"}, mw.Directive.Labels)
 	assert.Equal(t, 0, len(mw.Requires)) // Direct middleware has no dependencies
 
 	// No missing dependencies
@@ -216,7 +216,7 @@ func CacheMiddleware(maxAge int, timeout int, cache *Cache) func(http.Handler) h
 
 	mw := graph.Middlewares[0]
 	assert.Equal(t, "CacheMiddleware", mw.Function.Name())
-	assert.Equal(t, []string{"maxAge", "timeout"}, mw.Labels)
+	assert.Equal(t, []string{"maxAge", "timeout"}, mw.Directive.Labels)
 	assert.Equal(t, 1, len(mw.Requires)) // Only Cache, not the int parameters
 
 	// Check that Cache is required but not provided
