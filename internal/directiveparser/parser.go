@@ -13,7 +13,7 @@ import (
 var (
 	annotationParser = participle.MustBuild[annotation](
 		participle.Lexer(patternLexer),
-		participle.Union[Directive](&DirectiveAPI{}, &DirectiveProvider{}, &DirectiveConfig{}),
+		participle.Union[Directive](&DirectiveAPI{}, &DirectiveProvider{}, &DirectiveConfig{}, &DirectiveMiddleware{}),
 		participle.Union[Segment](WildcardSegment{}, LiteralSegment{}, TrailingSegment{}),
 		participle.Elide("Whitespace"),
 		participle.CaseInsensitive("Method"),
@@ -60,6 +60,21 @@ type DirectiveConfig struct {
 func (d *DirectiveConfig) directive()      {}
 func (d *DirectiveConfig) String() string  { return "zero:config" }
 func (d *DirectiveConfig) Validate() error { return nil }
+
+type DirectiveMiddleware struct {
+	Middleware bool     `parser:"@'middleware'"` // Unused but necessary for Participle.
+	Labels     []string `parser:"@Ident*"`
+}
+
+func (d *DirectiveMiddleware) directive() {}
+func (d *DirectiveMiddleware) String() string {
+	result := "zero:middleware"
+	if len(d.Labels) > 0 {
+		result += " " + strings.Join(d.Labels, " ")
+	}
+	return result
+}
+func (d *DirectiveMiddleware) Validate() error { return nil }
 
 // DirectiveAPI represents a //zero:api directive
 type DirectiveAPI struct {

@@ -175,6 +175,50 @@ func TestParse(t *testing.T) {
 			pattern: "zero:api /users/{path...}/posts",
 			wantErr: true,
 		},
+		{
+			name:    "Provider",
+			pattern: "zero:provider",
+			want: &DirectiveProvider{
+				Weak: false,
+			},
+		},
+		{
+			name:    "ProviderWeak",
+			pattern: "zero:provider weak",
+			want: &DirectiveProvider{
+				Weak: true,
+			},
+		},
+		{
+			name:    "Config",
+			pattern: "zero:config",
+			want: &DirectiveConfig{
+				Config: true,
+			},
+		},
+		{
+			name:    "Middleware",
+			pattern: "zero:middleware",
+			want: &DirectiveMiddleware{
+				Middleware: true,
+			},
+		},
+		{
+			name:    "MiddlewareWithLabel",
+			pattern: "zero:middleware auth",
+			want: &DirectiveMiddleware{
+				Middleware: true,
+				Labels:     []string{"auth"},
+			},
+		},
+		{
+			name:    "MiddlewareWithMultipleLabels",
+			pattern: "zero:middleware auth cors",
+			want: &DirectiveMiddleware{
+				Middleware: true,
+				Labels:     []string{"auth", "cors"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -222,6 +266,22 @@ func TestPatternString(t *testing.T) {
 		{
 			name:    "TrailingSegment",
 			pattern: "zero:api /users/{id}/",
+		},
+		{
+			name:    "Provider",
+			pattern: "zero:provider",
+		},
+		{
+			name:    "ProviderWeak",
+			pattern: "zero:provider weak",
+		},
+		{
+			name:    "Config",
+			pattern: "zero:config",
+		},
+		{
+			name:    "Middleware",
+			pattern: "zero:middleware",
 		},
 	}
 

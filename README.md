@@ -91,7 +91,7 @@ A method annotated with `//zero:cron <schedule>` will be called on the given sch
 
 ## Middleware (NOT IMPLEMENTED)
 
-A function annotated with `//zero:middleware [<option>]` will be automatically used as HTTP middleware for any method matching the given `<option>` if provided, or applied globally if not. Option values can be retrieved from the request with `zero.HandlerOptions(r)`.
+A function annotated with `//zero:middleware [<label>]` will be automatically used as HTTP middleware for any method matching the given `<label>` if provided, or applied globally if not. Option values can be retrieved from the request with `zero.HandlerOptions(r)`.
 
 eg.
 
