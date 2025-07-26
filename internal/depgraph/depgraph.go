@@ -23,8 +23,8 @@ import (
 // Ref represents a reference to a symbol.
 type Ref struct {
 	Pkg    string // database/sql
-	Import string // "database/sql"
-	Ref    string // *sql.DB
+	Import string // "database/sql" or impe1d11ad6baa4124f "database/sql"
+	Ref    string // *sql.DB or *impe1d11ad6baa4124f.DB
 }
 
 type Provider struct {
@@ -198,31 +198,41 @@ func Analyse(dest string, options ...Option) (*Graph, error) {
 	return graph, nil
 }
 
-// TypeString splits a type into its import alias+path and type reference.
+// TypeRef splits a type into its import alias+path and type reference.
 //
 // eg. *database/sql.DB would become
 //
 //	impc112c3711fba7de3 "database/sql"
 //	*sql.DB
-func (g *Graph) TypeString(t types.Type) (imp, typ string) {
-	typ = types.TypeString(t, types.RelativeTo(g.Dest))
+func (g *Graph) TypeRef(t types.Type) Ref {
+	typ := types.TypeString(t, types.RelativeTo(g.Dest))
+	var pkg string
 	if parts := strings.Split(typ, "."); len(parts) > 1 {
-		imp = strings.TrimPrefix(strings.Join(parts[:len(parts)-1], "."), "*")
+		pkg = strings.TrimPrefix(strings.Join(parts[:len(parts)-1], "."), "*")
 	}
 	pointer := strings.HasPrefix(typ, "*")
 	if strings.Contains(typ, "/") {
 		typ = path.Base(typ)
 	}
-	if imp != "" {
-		alias := g.ImportAlias(imp)
-		imp = fmt.Sprintf("%s %q", alias, imp)
+
+	var imp, ref string
+	if pkg != "" {
+		alias := g.ImportAlias(pkg)
+		imp = fmt.Sprintf("%s %q", alias, pkg)
 		_, typ, _ = strings.Cut(typ, ".")
-		typ = alias + "." + typ
+		ref = alias + "." + typ
 		if pointer {
-			typ = "*" + typ
+			ref = "*" + ref
 		}
+	} else {
+		ref = typ
 	}
-	return
+
+	return Ref{
+		Pkg:    pkg,
+		Import: imp,
+		Ref:    ref,
+	}
 }
 
 // ImportAlias returns an alias for the given package path, or "" if the package is the destination package.

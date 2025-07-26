@@ -21,9 +21,11 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 	w.In(func(w *codewriter.Writer) {
 		for key, config := range graph.Configs {
 			alias := "Config" + hash(key)
-			imp, typ := graph.TypeString(config)
-			w.Import(imp)
-			w.L("%s %s `embed:\"\"`", alias, typ)
+			ref := graph.TypeRef(config)
+			if ref.Import != "" {
+				w.Import(ref.Import)
+			}
+			w.L("%s %s `embed:\"\"`", alias, ref.Ref)
 		}
 	})
 	w.L("}")
@@ -54,14 +56,16 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 
 		for key, config := range graph.Configs {
 			alias := "Config" + hash(key)
-			imp, typ := graph.TypeString(config)
-			w.Import(imp)
-			w.L("case *%s: // Handle pointer to config.", typ)
+			ref := graph.TypeRef(config)
+			if ref.Import != "" {
+				w.Import(ref.Import)
+			}
+			w.L("case *%s: // Handle pointer to config.", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
 				w.L("return any(&config.%s).(T), nil", alias)
 			})
 			w.W("\n")
-			w.L("case %s:", typ)
+			w.L("case %s:", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
 				w.L("return any(config.%s).(T), nil", alias)
 			})
@@ -69,14 +73,18 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 		}
 
 		for _, provider := range graph.Providers {
-			imp, typ := graph.TypeString(provider.Provides)
-			w.Import(imp)
-			w.L("case %s:", typ)
+			ref := graph.TypeRef(provider.Provides)
+			if ref.Import != "" {
+				w.Import(ref.Import)
+			}
+			w.L("case %s:", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
 				for i, require := range provider.Requires {
-					imp, typ := graph.TypeString(require)
-					w.Import(imp)
-					w.L("if p%d, err := ZeroConstructSingletons[%s](ctx, config, singletons); err != nil {", i, typ)
+					reqRef := graph.TypeRef(require)
+					if reqRef.Import != "" {
+						w.Import(reqRef.Import)
+					}
+					w.L("if p%d, err := ZeroConstructSingletons[%s](ctx, config, singletons); err != nil {", i, reqRef.Ref)
 					w.In(func(w *codewriter.Writer) {
 						w.Import("fmt")
 						w.L(`return out, err`)
@@ -122,9 +130,11 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 				receiverIndex := 0
 				for _, api := range graph.APIs {
 					receiver := api.Function.Signature().Recv().Type()
-					imp, typ := graph.TypeString(receiver)
-					w.Import(imp)
-					key := Receiver{imp, typ}
+					ref := graph.TypeRef(receiver)
+					if ref.Import != "" {
+						w.Import(ref.Import)
+					}
+					key := Receiver{ref.Import, ref.Ref}
 					if _, ok := receivers[key]; !ok {
 						receivers[key] = receiverIndex
 						receiverIndex++
@@ -147,15 +157,17 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 					w.In(func(w *codewriter.Writer) {
 						signature := api.Function.Signature()
 
-						imp, typ := graph.TypeString(signature.Recv().Type())
-						receiverIndex := receivers[Receiver{imp, typ}]
+						ref := graph.TypeRef(signature.Recv().Type())
+						receiverIndex := receivers[Receiver{ref.Import, ref.Ref}]
 						params := signature.Params()
 
 						// First pass, decode any parameters from the Request
 						for i := range params.Len() {
 							paramType := params.At(i).Type()
-							imp, typ := graph.TypeString(paramType)
-							w.Import(imp)
+							ref := graph.TypeRef(paramType)
+							if ref.Import != "" {
+								w.Import(ref.Import)
+							}
 							paramName := params.At(i).Name()
 							typeName := types.TypeString(paramType, nil)
 							switch typeName {
@@ -174,7 +186,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 							case "*http.Request", "http.ResponseWriter", "context.Context":
 							default: // Anything else is a request body/query parameters.
 								w.Import("github.com/alecthomas/zero")
-								w.L(`p%d, err := zero.DecodeRequest[%s]("%s", r)`, i, typ, api.Pattern.Method)
+								w.L(`p%d, err := zero.DecodeRequest[%s]("%s", r)`, i, ref.Ref, api.Pattern.Method)
 								w.L("if err != nil {")
 								w.In(func(w *codewriter.Writer) {
 									w.L(`http.Error(w, fmt.Sprintf("Invalid request: %%s", err), http.StatusBadRequest)`)
@@ -226,9 +238,11 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 							errorValue = "herr"
 						}
 						if responseType != nil {
-							imp, typ := graph.TypeString(responseType)
-							w.Import(imp)
-							w.L(`_ = zero.EncodeResponse[%s](r, w, out, %s)`, typ, errorValue)
+							ref := graph.TypeRef(responseType)
+							if ref.Import != "" {
+								w.Import(ref.Import)
+							}
+							w.L(`_ = zero.EncodeResponse[%s](r, w, out, %s)`, ref.Ref, errorValue)
 						} else if hasError {
 							w.L(`_ = zero.EncodeResponse[zero.EmptyResponse](r, w, nil, %s)`, errorValue)
 						}
