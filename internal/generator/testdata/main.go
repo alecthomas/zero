@@ -37,11 +37,13 @@ func (d *DAL) CreateUser(user User) error {
 	return nil
 }
 
-//zero:middleware authenticated
-func Authenticate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
-	})
+//zero:middleware authenticated role
+func Authenticate(role string) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 //zero:config
@@ -72,7 +74,7 @@ func (s *Service) ListUsers() ([]User, error) {
 	return s.dal.GetUsers()
 }
 
-//zero:api POST /users authenticated
+//zero:api POST /users authenticated role=admin
 func (s *Service) CreateUser(user User) error {
 	return s.dal.CreateUser(user)
 }

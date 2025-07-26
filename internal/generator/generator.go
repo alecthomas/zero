@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"hash/fnv"
 	"io"
+	"strings"
 
 	"github.com/alecthomas/errors"
 	"github.com/alecthomas/zero/internal/codewriter"
@@ -146,14 +147,46 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 				for _, api := range graph.APIs {
 					handler := "http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {"
 					closing := ""
-					for _, middleware := range graph.Middleware {
+					for mi, middleware := range graph.Middleware {
 						if !middleware.Match(api) {
 							continue
 						}
 						ref := graph.FunctionRef(middleware.Function)
 						w.Import(ref.Import)
 						if middleware.Factory {
-							handler = fmt.Sprintf("%s()(%s", ref.Ref, handler)
+							args := []string{}
+							params := middleware.Function.Signature().Params()
+							w.L("// Parameters for the %s middleware", ref.Ref)
+							for i := range params.Len() {
+								args = append(args, fmt.Sprintf("m%dp%d", mi, i))
+								paramType := params.At(i).Type()
+								ref := graph.TypeRef(paramType)
+								w.Import(ref.Import)
+								paramName := params.At(i).Name()
+								typeName := types.TypeString(paramType, nil)
+								switch typeName {
+								// Labels
+								case "int":
+									w.L(`m%dp%d, err := strconv.Itoa(%q)`, mi, i, api.Label(paramName))
+									w.L("if err != nil {")
+									w.In(func(w *codewriter.Writer) {
+										w.L(`http.Error(w, fmt.Sprintf("Path parameter %s must be a valid integer: %s", paramName, err), http.StatusBadRequest)`)
+										w.L("return")
+									})
+									w.L("}")
+								case "string":
+									w.L(`m%dp%d := %q`, mi, i, api.Label(paramName))
+								default:
+									w.L("m%dp%d, err := ZeroConstructSingletons[%s](ctx, config, singletons)", mi, i, paramType)
+									w.L("if err != nil {")
+									w.In(func(w *codewriter.Writer) {
+										w.Import("fmt")
+										w.L(`return out, err`)
+									})
+									w.L("}")
+								}
+							}
+							handler = fmt.Sprintf("%s(%s)(%s", ref.Ref, strings.Join(args, ", "), handler)
 						} else {
 							handler = fmt.Sprintf("%s(%s", ref.Ref, handler)
 						}

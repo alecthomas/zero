@@ -83,7 +83,9 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 			out, herr := r0.ListUsers()
 			_ = zero.EncodeResponse[[]User](r, w, out, herr)
 		}))
-		mux.Handle("POST /users", Authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Parameters for the Authenticate middleware
+		m0p0 := "admin"
+		mux.Handle("POST /users", Authenticate(m0p0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p0, err := zero.DecodeRequest[User]("POST", r)
 			if err != nil {
 				http.Error(w, fmt.Sprintf("Invalid request: %s", err), http.StatusBadRequest)

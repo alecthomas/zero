@@ -55,6 +55,15 @@ type API struct {
 	Options map[string]string
 }
 
+func (a *API) Label(name string) string {
+	for _, label := range a.Pattern.Labels {
+		if label.Name == name {
+			return label.Value
+		}
+	}
+	return ""
+}
+
 // Middleware represents a function that is an HTTP middleware. Middleware functions are annotated like so:
 //
 //	//zero:middleware [<label>]
