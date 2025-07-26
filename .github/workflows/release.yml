@@ -40,4 +40,4 @@ jobs:
         run: |
           git add zero.hcl
           git commit -m "Auto-versioned"
-          git push origin main
+          git push origin master
