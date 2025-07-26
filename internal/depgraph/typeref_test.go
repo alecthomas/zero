@@ -36,8 +36,8 @@ func TestTypeRef(t *testing.T) {
 			typeStr: "database/sql.DB",
 			expected: Ref{
 				Pkg:    "database/sql",
-				Import: "", // Will be checked separately
-				Ref:    "", // Will be checked separately
+				Import: `"database/sql"`,
+				Ref:    "sql.DB",
 			},
 		},
 		{
@@ -45,8 +45,8 @@ func TestTypeRef(t *testing.T) {
 			typeStr: "*database/sql.DB",
 			expected: Ref{
 				Pkg:    "database/sql",
-				Import: "", // Will be checked separately
-				Ref:    "", // Will be checked separately
+				Import: `"database/sql"`,
+				Ref:    "*sql.DB",
 			},
 		},
 	}
@@ -80,27 +80,7 @@ func TestTypeRef(t *testing.T) {
 
 			result := graph.TypeRef(typ)
 
-			assert.Equal(t, tt.expected.Pkg, result.Pkg)
-
-			// Handle external package types with dynamic aliases
-			switch tt.typeStr {
-			case "database/sql.DB":
-				assert.Contains(t, result.Import, `"database/sql"`)
-				assert.NotEqual(t, "", result.Import)
-				// Ref should be alias.DB where alias is extracted from Import
-				assert.Contains(t, result.Ref, ".DB")
-				assert.NotContains(t, result.Ref, "*")
-			case "*database/sql.DB":
-				assert.Contains(t, result.Import, `"database/sql"`)
-				assert.NotEqual(t, "", result.Import)
-				// Ref should be *alias.DB where alias is extracted from Import
-				assert.Contains(t, result.Ref, ".DB")
-				assert.Contains(t, result.Ref, "*")
-			default:
-				// For basic types, check exact match
-				assert.Equal(t, tt.expected.Ref, result.Ref)
-				assert.Equal(t, tt.expected.Import, result.Import)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
