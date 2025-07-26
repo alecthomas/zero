@@ -1,0 +1,12 @@
+skip_lfs: true
+output:
+  - success
+  - failure
+pre-push:
+  parallel: true
+  jobs:
+    - name: lint
+      run: golangci-lint run
+
+    - name: test
+      run: go test ./...
