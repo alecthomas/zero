@@ -2,11 +2,11 @@
 package main
 
 import (
+  "database/sql"
   "context"
   "fmt"
   "github.com/alecthomas/zero"
   impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
-  impe1d11ad6baa4124f "database/sql"
   "net/http"
   "reflect"
 )
@@ -32,17 +32,35 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 	case context.Context:
 		return any(ctx).(T), nil
 
+	case *impc24ab568b6f3f934.Config: // Handle pointer to config.
+		return any(&config.Config6fab5aa5f9534d38).(T), nil
+
+	case impc24ab568b6f3f934.Config:
+		return any(config.Config6fab5aa5f9534d38).(T), nil
+
 	case *ServiceConfig: // Handle pointer to config.
 		return any(&config.Config9c6b7595816de4c).(T), nil
 
 	case ServiceConfig:
 		return any(config.Config9c6b7595816de4c).(T), nil
 
-	case *impc24ab568b6f3f934.Config: // Handle pointer to config.
-		return any(&config.Config6fab5aa5f9534d38).(T), nil
+	case *DAL:
+		if p0, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons); err != nil {
+			return out, err
+		} else if o, err := NewDAL(p0); err != nil {
+			return out, fmt.Errorf("NewDAL: %w", err)
+		} else {
+			return any(o).(T), nil
+		}
 
-	case impc24ab568b6f3f934.Config:
-		return any(config.Config6fab5aa5f9534d38).(T), nil
+	case *sql.DB:
+		if p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons); err != nil {
+			return out, err
+		} else if o, err := impc24ab568b6f3f934.New(p0); err != nil {
+			return out, fmt.Errorf("New: %w", err)
+		} else {
+			return any(o).(T), nil
+		}
 
 	case *Service:
 		if p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons); err != nil {
@@ -51,24 +69,6 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 			return out, err
 		} else if o, err := NewService(p0, p1); err != nil {
 			return out, fmt.Errorf("NewService: %w", err)
-		} else {
-			return any(o).(T), nil
-		}
-
-	case *DAL:
-		if p0, err := ZeroConstructSingletons[*impe1d11ad6baa4124f.DB](ctx, config, singletons); err != nil {
-			return out, err
-		} else if o, err := NewDAL(p0); err != nil {
-			return out, fmt.Errorf("NewDAL: %w", err)
-		} else {
-			return any(o).(T), nil
-		}
-
-	case *impe1d11ad6baa4124f.DB:
-		if p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons); err != nil {
-			return out, err
-		} else if o, err := impc24ab568b6f3f934.New(p0); err != nil {
-			return out, fmt.Errorf("New: %w", err)
 		} else {
 			return any(o).(T), nil
 		}

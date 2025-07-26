@@ -205,27 +205,73 @@ func Analyse(dest string, options ...Option) (*Graph, error) {
 //	impc112c3711fba7de3 "database/sql"
 //	*sql.DB
 func (g *Graph) TypeRef(t types.Type) Ref {
-	typ := types.TypeString(t, types.RelativeTo(g.Dest))
-	var pkg string
-	if parts := strings.Split(typ, "."); len(parts) > 1 {
-		pkg = strings.TrimPrefix(strings.Join(parts[:len(parts)-1], "."), "*")
-	}
-	pointer := strings.HasPrefix(typ, "*")
-	if strings.Contains(typ, "/") {
-		typ = path.Base(typ)
+	// Handle pointer types
+	pointer := false
+	if ptr, ok := t.(*types.Pointer); ok {
+		pointer = true
+		t = ptr.Elem()
 	}
 
+	var pkg, typeName string
 	var imp, ref string
-	if pkg != "" {
-		alias := g.ImportAlias(pkg)
-		imp = fmt.Sprintf("%s %q", alias, pkg)
-		_, typ, _ = strings.Cut(typ, ".")
-		ref = alias + "." + typ
-		if pointer {
-			ref = "*" + ref
+
+	// Extract package and type name directly from the type
+	if named, ok := t.(*types.Named); ok {
+		if named.Obj().Pkg() != nil {
+			pkg = named.Obj().Pkg().Path()
+			typeName = named.Obj().Name()
+		} else {
+			// Built-in type
+			typeName = named.Obj().Name()
 		}
 	} else {
-		ref = typ
+		// For non-named types, fall back to string representation
+		typ := types.TypeString(t, types.RelativeTo(g.Dest))
+		typeName = typ
+	}
+
+	if pkg != "" {
+		alias := g.ImportAlias(pkg)
+		if alias != "" {
+			imp = fmt.Sprintf("%s %q", alias, pkg)
+			ref = alias + "." + typeName
+		} else {
+			// Standard library or same package
+			if pkg == g.Dest.Path() {
+				ref = typeName
+			} else {
+				// Standard library package - need to import it
+				imp = fmt.Sprintf("%q", pkg)
+				pkgName := path.Base(pkg)
+				ref = pkgName + "." + typeName
+			}
+		}
+	} else {
+		ref = typeName
+	}
+
+	if pointer {
+		ref = "*" + ref
+	}
+
+	return Ref{
+		Pkg:    pkg,
+		Import: imp,
+		Ref:    ref,
+	}
+}
+
+// FunctionRef returns a reference to a function, including import information if needed.
+func (g *Graph) FunctionRef(fn *types.Func) Ref {
+	name := fn.Name()
+	pkg := fn.Pkg().Path()
+
+	var imp, ref string
+	if alias := g.ImportAlias(pkg); alias != "" {
+		imp = fmt.Sprintf("%s %q", alias, pkg)
+		ref = alias + "." + name
+	} else {
+		ref = name
 	}
 
 	return Ref{
@@ -238,6 +284,9 @@ func (g *Graph) TypeRef(t types.Type) Ref {
 // ImportAlias returns an alias for the given package path, or "" if the package is the destination package.
 func (g *Graph) ImportAlias(pkg string) string {
 	if pkg == g.Dest.Path() {
+		return ""
+	}
+	if _, isStdlib := stdlib[pkg]; isStdlib {
 		return ""
 	}
 	aliasID := fnv.New64a()

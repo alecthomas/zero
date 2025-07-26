@@ -1882,3 +1882,40 @@ type Service struct {}
 	expectedDeps := []string{"*DatabaseConfig", "*AppConfig"}
 	assert.Equal(t, expectedDeps, serviceDeps)
 }
+
+func TestFunctionRef(t *testing.T) {
+	testCode := `
+package main
+
+import "database/sql"
+
+//zero:provider
+func NewDB() *sql.DB {
+	return nil
+}
+
+//zero:provider
+func NewService() *Service {
+	return nil
+}
+
+type Service struct{}
+`
+	graph := analyseTestCode(t, testCode, []string{"*database/sql.DB", "*test.Service"})
+
+	// Test function reference for standard library package
+	dbProvider, ok := graph.Providers["*database/sql.DB"]
+	assert.True(t, ok)
+	dbFuncRef := graph.FunctionRef(dbProvider.Function)
+	assert.Equal(t, "test", dbFuncRef.Pkg) // Same package as destination
+	assert.Equal(t, "", dbFuncRef.Import)
+	assert.Equal(t, "NewDB", dbFuncRef.Ref)
+
+	// Test function reference for same package
+	serviceProvider, ok := graph.Providers["*test.Service"]
+	assert.True(t, ok)
+	serviceFuncRef := graph.FunctionRef(serviceProvider.Function)
+	assert.Equal(t, "test", serviceFuncRef.Pkg)
+	assert.Equal(t, "", serviceFuncRef.Import) // Same package
+	assert.Equal(t, "NewService", serviceFuncRef.Ref)
+}

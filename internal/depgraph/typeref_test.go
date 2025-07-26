@@ -83,19 +83,20 @@ func TestTypeRef(t *testing.T) {
 			assert.Equal(t, tt.expected.Pkg, result.Pkg)
 
 			// Handle external package types with dynamic aliases
-			if tt.typeStr == "database/sql.DB" {
+			switch tt.typeStr {
+			case "database/sql.DB":
 				assert.Contains(t, result.Import, `"database/sql"`)
 				assert.NotEqual(t, "", result.Import)
 				// Ref should be alias.DB where alias is extracted from Import
 				assert.Contains(t, result.Ref, ".DB")
 				assert.NotContains(t, result.Ref, "*")
-			} else if tt.typeStr == "*database/sql.DB" {
+			case "*database/sql.DB":
 				assert.Contains(t, result.Import, `"database/sql"`)
 				assert.NotEqual(t, "", result.Import)
 				// Ref should be *alias.DB where alias is extracted from Import
 				assert.Contains(t, result.Ref, ".DB")
 				assert.Contains(t, result.Ref, "*")
-			} else {
+			default:
 				// For basic types, check exact match
 				assert.Equal(t, tt.expected.Ref, result.Ref)
 				assert.Equal(t, tt.expected.Import, result.Import)

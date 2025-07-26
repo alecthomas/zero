@@ -22,9 +22,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 		for key, config := range graph.Configs {
 			alias := "Config" + hash(key)
 			ref := graph.TypeRef(config)
-			if ref.Import != "" {
-				w.Import(ref.Import)
-			}
+			w.Import(ref.Import)
 			w.L("%s %s `embed:\"\"`", alias, ref.Ref)
 		}
 	})
@@ -57,9 +55,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 		for key, config := range graph.Configs {
 			alias := "Config" + hash(key)
 			ref := graph.TypeRef(config)
-			if ref.Import != "" {
-				w.Import(ref.Import)
-			}
+			w.Import(ref.Import)
 			w.L("case *%s: // Handle pointer to config.", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
 				w.L("return any(&config.%s).(T), nil", alias)
@@ -74,9 +70,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 
 		for _, provider := range graph.Providers {
 			ref := graph.TypeRef(provider.Provides)
-			if ref.Import != "" {
-				w.Import(ref.Import)
-			}
+			w.Import(ref.Import)
 			w.L("case %s:", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
 				for i, require := range provider.Requires {
@@ -93,11 +87,11 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 					w.W("} else ")
 				}
 
-				functionRef := provider.Function.Name()
-				if alias := graph.ImportAlias(provider.Function.Pkg().Path()); alias != "" {
-					functionRef = alias + "." + functionRef
+				functionRef := graph.FunctionRef(provider.Function)
+				if functionRef.Import != "" {
+					w.Import(functionRef.Import)
 				}
-				w.W("if o, err := %s(", functionRef)
+				w.W("if o, err := %s(", functionRef.Ref)
 				for i := range len(provider.Requires) {
 					w.W("p%d", i)
 					if i < len(provider.Requires)-1 {
@@ -131,9 +125,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 				for _, api := range graph.APIs {
 					receiver := api.Function.Signature().Recv().Type()
 					ref := graph.TypeRef(receiver)
-					if ref.Import != "" {
-						w.Import(ref.Import)
-					}
+					w.Import(ref.Import)
 					key := Receiver{ref.Import, ref.Ref}
 					if _, ok := receivers[key]; !ok {
 						receivers[key] = receiverIndex
@@ -165,9 +157,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 						for i := range params.Len() {
 							paramType := params.At(i).Type()
 							ref := graph.TypeRef(paramType)
-							if ref.Import != "" {
-								w.Import(ref.Import)
-							}
+							w.Import(ref.Import)
 							paramName := params.At(i).Name()
 							typeName := types.TypeString(paramType, nil)
 							switch typeName {
@@ -239,9 +229,7 @@ func Generate(out io.Writer, graph *depgraph.Graph) error {
 						}
 						if responseType != nil {
 							ref := graph.TypeRef(responseType)
-							if ref.Import != "" {
-								w.Import(ref.Import)
-							}
+							w.Import(ref.Import)
 							w.L(`_ = zero.EncodeResponse[%s](r, w, out, %s)`, ref.Ref, errorValue)
 						} else if hasError {
 							w.L(`_ = zero.EncodeResponse[zero.EmptyResponse](r, w, nil, %s)`, errorValue)
