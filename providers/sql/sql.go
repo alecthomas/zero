@@ -17,6 +17,17 @@ import (
 )
 
 // Migrations represents a set of SQL migrations.
+//
+// Create a provider that returns an fs.FS with your .sql migrations at the root of the FS. eg.
+//
+//	//go:embed migrations/*.sql
+//	var migrations embed.FS
+//
+//	//zero:provider multi
+//	func Migrations() Migrations {
+//		sub, _ := fs.Sub(migrations, "migrations")
+//		return []fs.FS{sub}
+//	}
 type Migrations []fs.FS
 
 //zero:config prefix="sql-"

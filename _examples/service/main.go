@@ -20,7 +20,7 @@ type DAL struct {
 	users map[int]User
 }
 
-//go:embed migrations
+//go:embed migrations/*.sql
 var migrations embed.FS
 
 //zero:provider multi
