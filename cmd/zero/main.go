@@ -95,5 +95,14 @@ func ensureGoModuleVersion(kctx *kong.Context, version string) error {
 	cmd := exec.Command("go", "get", "github.com/alecthomas/zero@"+version) //nolint
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return errors.Wrap(cmd.Run(), "failed to update to github.com/alecthomas/zero@"+version)
+	if err := cmd.Run(); err != nil {
+		return errors.Wrap(err, "failed to update to github.com/alecthomas/zero@"+version)
+	}
+	cmd = exec.Command("go", "mod", "tidy") //nolint
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return errors.Wrap(err, "failed to update to github.com/alecthomas/zero@"+version)
+	}
+	return nil
 }
