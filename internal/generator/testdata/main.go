@@ -11,24 +11,15 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/alecthomas/zero"
+	zerosql "github.com/alecthomas/zero/providers/sql"
 )
 
 type DAL struct {
 	users map[int]User
 }
 
-type Migration struct {
-	ID  int
-	SQL string
-}
-
 //zero:provider multi
-func ProvideMigrations() []Migration { return nil }
-
-//zero:provider weak multi
-func ProvideCronMigrations() []Migration {
-	return []Migration{{ID: -1, SQL: "CREATE TABLE cron (key VARCHAR NOT NULL, expires TIMESTAMP NOT NULL)"}}
-}
+func ProvideMigrations() zerosql.Migrations { return nil }
 
 type CronLogger struct{}
 
@@ -41,7 +32,7 @@ type CronService struct{}
 func ProvideCronService() CronService { return CronService{} }
 
 //zero:provider
-func NewDAL(db *sql.DB, migrations []Migration) (*DAL, error) {
+func NewDAL(db *sql.DB) (*DAL, error) {
 	return &DAL{
 		users: map[int]User{
 			1: {Name: "Alice", BirthYear: 1945},

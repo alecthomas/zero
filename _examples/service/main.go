@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"embed"
+	"io/fs"
+	"log/slog"
 	"maps"
 	"net/http"
 	"reflect"
@@ -11,25 +13,27 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/alecthomas/zero"
+	zerosql "github.com/alecthomas/zero/providers/sql"
 )
-
-type Migration struct {
-	ID  int
-	SQL string
-}
 
 type DAL struct {
 	users map[int]User
 }
 
+//go:embed migrations
+var migrations embed.FS
+
 //zero:provider multi
-func ProvideMigrations() []Migration { return nil }
+func Migrations() zerosql.Migrations {
+	sub, err := fs.Sub(migrations, "migrations")
+	if err != nil {
+		panic(err)
+	}
+	return zerosql.Migrations{sub}
+}
 
 //zero:provider
-func NewDAL(db *sql.DB, migrations []Migration) *DAL {
-	for _, migration := range migrations {
-		fmt.Printf("Applying migration: %03d %q\n", migration.ID, migration.SQL)
-	}
+func NewDAL(db *sql.DB) *DAL {
 	return &DAL{
 		users: map[int]User{
 			1: {Name: "Alice", BirthYear: 1970},
@@ -66,20 +70,8 @@ type Service struct {
 	dal *DAL
 }
 
-//zero:provider multi weak
-func ProvideCronMigration() []Migration {
-	return []Migration{
-		{ID: 0, SQL: "CREATE TABLE cron (key VARCHAR NOT NULL, expires TIMESTAMP NOT NULL)"},
-	}
-}
-
-type CronExecutor struct{}
-
-//zero:provider weak require=ProvideCronMigration
-func ProvideCron() CronExecutor { return CronExecutor{} }
-
 //zero:provider
-func NewService(dal *DAL, cron CronExecutor, config ServiceConfig) (*Service, error) {
+func NewService(dal *DAL, config ServiceConfig) (*Service, error) {
 	// Other initialisation
 	return &Service{dal: dal}, nil
 }
@@ -119,6 +111,7 @@ func (s *Service) CheckUsers() error {
 }
 
 var cli struct {
+	Dev bool `help:"Run in development mode."`
 	ZeroConfig
 }
 
@@ -126,10 +119,10 @@ func main() {
 	kctx := kong.Parse(&cli)
 	ctx := context.Background()
 	singletons := map[reflect.Type]any{}
-	_, err := ZeroConstructSingletons[*Service](ctx, cli.ZeroConfig, singletons)
+	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, cli.ZeroConfig, singletons)
 	kctx.FatalIfErrorf(err)
 	mux, err := ZeroConstructSingletons[*http.ServeMux](ctx, cli.ZeroConfig, singletons)
 	kctx.FatalIfErrorf(err)
-	fmt.Println("Listening on http://127.0.0.1:8080")
+	logger.Info("Listening on http://127.0.0.1:8080")
 	http.ListenAndServe("127.0.0.1:8080", mux)
 }

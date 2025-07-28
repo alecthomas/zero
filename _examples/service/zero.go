@@ -3,9 +3,11 @@ package main
 
 import (
   "database/sql"
+  "log/slog"
   "context"
   "fmt"
   "github.com/alecthomas/zero"
+  imp31feb4b39618eab1 "github.com/alecthomas/zero/providers/logging"
   imp9c34c006eb3c10fa "github.com/alecthomas/zero"
   impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
   impef7a81aa222750b7 "github.com/alecthomas/zero/providers"
@@ -16,7 +18,8 @@ import (
 // Config contains combined Kong configuration for all types in [Construct].
 type ZeroConfig struct {
 	Config9c6b7595816de4c ServiceConfig `embed:"" prefix:"server-"`
-	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:""`
+	Config2127feb0b75ea2fe imp31feb4b39618eab1.SlogConfig `embed:"" prefix:"log-"`
+	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:"" prefix:"sql-"`
 }
 
 // Construct an instance of T.
@@ -40,6 +43,12 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 	case reflect.TypeOf((*ServiceConfig)(nil)).Elem():
 		return any(config.Config9c6b7595816de4c).(T), nil
 
+	case reflect.TypeOf((**imp31feb4b39618eab1.SlogConfig)(nil)).Elem(): // Handle pointer to config.
+		return any(&config.Config2127feb0b75ea2fe).(T), nil
+
+	case reflect.TypeOf((*imp31feb4b39618eab1.SlogConfig)(nil)).Elem():
+		return any(config.Config2127feb0b75ea2fe).(T), nil
+
 	case reflect.TypeOf((**impc24ab568b6f3f934.Config)(nil)).Elem(): // Handle pointer to config.
 		return any(&config.Config6fab5aa5f9534d38).(T), nil
 
@@ -47,11 +56,23 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		return any(config.Config6fab5aa5f9534d38).(T), nil
 
 	case reflect.TypeOf((**sql.DB)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[context.Context](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		o, err := impc24ab568b6f3f934.New(p0)
+		p1, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p2, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p3, err := ZeroConstructSingletons[impc24ab568b6f3f934.Migrations](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := impc24ab568b6f3f934.New(p0, p1, p2, p3)
 		if err != nil {
 			return out, fmt.Errorf("*sql.DB: %w", err)
 		}
@@ -62,11 +83,7 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[[]Migration](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		o := NewDAL(p0, p1)
+		o := NewDAL(p0)
 		return any(o).(T), nil
 
 	case reflect.TypeOf((**Service)(nil)).Elem():
@@ -74,34 +91,32 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[CronExecutor](ctx, config, singletons)
+		p1, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		o, err := NewService(p0, p1, p2)
+		o, err := NewService(p0, p1)
 		if err != nil {
 			return out, fmt.Errorf("*Service: %w", err)
 		}
+		return any(o).(T), nil
+
+	case reflect.TypeOf((**slog.Logger)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[imp31feb4b39618eab1.SlogConfig](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o := imp31feb4b39618eab1.ProvideSlogger(p0)
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp9c34c006eb3c10fa.ErrorHandler)(nil)).Elem():
 		o := impef7a81aa222750b7.DefaultErrorHandler()
 		return any(o).(T), nil
 
-	case reflect.TypeOf((*CronExecutor)(nil)).Elem():
-		o := ProvideCron()
-		return any(o).(T), nil
-
-	case reflect.TypeOf((*[]Migration)(nil)).Elem():
-		r0 := ProvideMigrations()
-		r1 := ProvideCronMigration()
-		var result []Migration
+	case reflect.TypeOf((*impc24ab568b6f3f934.Migrations)(nil)).Elem():
+		r0 := Migrations()
+		var result impc24ab568b6f3f934.Migrations
 		result = append(result, r0...)
-		result = append(result, r1...)
 		return any(result).(T), nil
 
 	case reflect.TypeOf((**http.ServeMux)(nil)).Elem():

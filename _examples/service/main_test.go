@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
@@ -9,9 +10,10 @@ import (
 )
 
 func TestMux(t *testing.T) {
+	u, _ := url.Parse("postgres://user:password@localhost/dbname")
 	config := ZeroConfig{
 		Config6fab5aa5f9534d38: sql.Config{
-			DSN: "postgres://user:password@localhost/dbname",
+			DSN: u,
 		},
 	}
 	// This should work but doesn't? Fix this later.
