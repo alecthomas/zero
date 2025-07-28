@@ -95,3 +95,54 @@ func goModTidy(t *testing.T, dir string) {
 	err := cmd.Run()
 	assert.NoError(t, err)
 }
+
+func TestMultiProvider(t *testing.T) {
+	cwd, err := os.Getwd()
+	assert.NoError(t, err)
+
+	dir := t.TempDir()
+
+	copyFile(t, "testdata/main.go", filepath.Join(dir, "main.go"))
+	createGoMod(t, filepath.Join(cwd, "../.."), dir)
+
+	t.Chdir(dir)
+
+	graph, err := depgraph.Analyse(".", depgraph.WithProviders("github.com/alecthomas/zero/providers/sql.New"))
+	assert.NoError(t, err)
+
+	// Check that multi-providers are detected
+	assert.True(t, len(graph.MultiProviders) > 0, "Should have multi-providers")
+
+	// Verify map multi-providers
+	mapProviders, exists := graph.MultiProviders["map[string]int"]
+	assert.True(t, exists, "Should have map[string]int multi-providers")
+	assert.Equal(t, 2, len(mapProviders), "Should have 2 map providers")
+
+	// Verify slice multi-providers
+	sliceProviders, exists := graph.MultiProviders["[]string"]
+	assert.True(t, exists, "Should have []string multi-providers")
+	assert.Equal(t, 2, len(sliceProviders), "Should have 2 slice providers")
+
+	w, err := os.Create("zero.go")
+	assert.NoError(t, err)
+	err = Generate(w, graph)
+	_ = w.Close()
+	assert.NoError(t, err)
+
+	// Verify generated code contains multi-provider logic
+	generatedCode := readFile(t, "zero.go")
+	assert.Contains(t, generatedCode, "case reflect.TypeOf((*map[string]int)(nil)).Elem():")
+	assert.Contains(t, generatedCode, "case reflect.TypeOf((*[]string)(nil)).Elem():")
+	assert.Contains(t, generatedCode, "result := make(map[string]int)")
+	assert.Contains(t, generatedCode, "var result []string")
+	assert.Contains(t, generatedCode, "result = append(result, r")
+
+	goModTidy(t, dir)
+
+	// Test that the generated code compiles and runs
+	cmd := exec.CommandContext(t.Context(), "go", "run", ".", "--help")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	assert.NoError(t, err, "Generated code should compile and run:\n%s", generatedCode)
+}

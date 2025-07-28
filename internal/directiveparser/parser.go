@@ -42,15 +42,20 @@ type Directive interface {
 }
 
 type DirectiveProvider struct {
-	Weak bool `parser:"'provider' @'weak'?"`
+	Weak  bool `parser:"'provider' (  @'weak'"`
+	Multi bool `parser:"            | @'multi')*"`
 }
 
 func (p *DirectiveProvider) directive() {}
 func (p *DirectiveProvider) String() string {
+	out := "zero:provider"
 	if p.Weak {
-		return "zero:provider weak"
+		out += " weak"
 	}
-	return "zero:provider"
+	if p.Multi {
+		out += " multi"
+	}
+	return out
 }
 func (p *DirectiveProvider) Validate() error { return nil }
 
@@ -63,8 +68,7 @@ func (d *DirectiveConfig) String() string  { return "zero:config" }
 func (d *DirectiveConfig) Validate() error { return nil }
 
 type DirectiveMiddleware struct {
-	Middleware bool     `parser:"@'middleware'"` // Unused but necessary for Participle.
-	Labels     []string `parser:"@Ident*"`
+	Labels []string `parser:"'middleware' @Ident*"`
 }
 
 func (d *DirectiveMiddleware) directive() {}

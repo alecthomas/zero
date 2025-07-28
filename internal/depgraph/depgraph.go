@@ -163,7 +163,7 @@ func WithOptions(options ...Option) Option {
 	}
 }
 
-// WithTags adds build tags to the build flags.
+// WithTags adds build tags to the Go toolchain flags.
 func WithTags(tags ...string) Option {
 	return func(o *graphOptions) error {
 		o.buildFlags = append(o.buildFlags, "-tags="+strings.Join(tags, ","))
@@ -172,23 +172,25 @@ func WithTags(tags ...string) Option {
 }
 
 type Graph struct {
-	Dest       *types.Package
-	Providers  map[string]*Provider
-	Configs    map[string]*Config
-	APIs       []*API
-	Middleware []*Middleware
-	Missing    map[*types.Func][]types.Type
+	Dest           *types.Package
+	Providers      map[string]*Provider
+	MultiProviders map[string][]*Provider // Multiple providers for multi types
+	Configs        map[string]*Config
+	APIs           []*API
+	Middleware     []*Middleware
+	Missing        map[*types.Func][]types.Type
 }
 
 // Analyse statically loads Go packages, then analyses them for //zero:... annotations in order to build the
 // Zero's dependency injection graph.
 func Analyse(dest string, options ...Option) (*Graph, error) {
 	graph := &Graph{
-		Providers:  make(map[string]*Provider),
-		Configs:    make(map[string]*Config),
-		APIs:       make([]*API, 0),
-		Middleware: make([]*Middleware, 0),
-		Missing:    make(map[*types.Func][]types.Type),
+		Providers:      make(map[string]*Provider),
+		MultiProviders: make(map[string][]*Provider),
+		Configs:        make(map[string]*Config),
+		APIs:           make([]*API, 0),
+		Middleware:     make([]*Middleware, 0),
+		Missing:        make(map[*types.Func][]types.Type),
 	}
 	opts := &graphOptions{}
 	for _, opt := range options {
@@ -357,6 +359,17 @@ func (g *Graph) ImportAlias(pkg string) string {
 	return fmt.Sprintf("imp%x", aliasID.Sum64())
 }
 
+// GetProviders returns all providers for a given type (both single and multi).
+func (g *Graph) GetProviders(typeStr string) []*Provider {
+	if multiProviders, exists := g.MultiProviders[typeStr]; exists {
+		return multiProviders
+	}
+	if provider, exists := g.Providers[typeStr]; exists {
+		return []*Provider{provider}
+	}
+	return nil
+}
+
 // Graph returns the dependency graph as a map where keys are type strings
 // and values are slices of their dependency type strings.
 func (g *Graph) Graph() map[string][]string {
@@ -368,6 +381,18 @@ func (g *Graph) Graph() map[string][]string {
 		for _, reqType := range provider.Requires {
 			depTypeStr := types.TypeString(reqType, types.RelativeTo(g.Dest))
 			deps = append(deps, depTypeStr)
+		}
+		result[typeStr] = deps
+	}
+
+	// Add multi-providers and their dependencies
+	for typeStr, providers := range g.MultiProviders {
+		deps := make([]string, 0)
+		for _, provider := range providers {
+			for _, reqType := range provider.Requires {
+				depTypeStr := types.TypeString(reqType, types.RelativeTo(g.Dest))
+				deps = append(deps, depTypeStr)
+			}
 		}
 		result[typeStr] = deps
 	}
@@ -848,6 +873,9 @@ func findMissingDependencies(graph *Graph) {
 	for key := range graph.Providers {
 		provided[key] = true
 	}
+	for key := range graph.MultiProviders {
+		provided[key] = true
+	}
 	for key := range graph.Configs {
 		provided[key] = true
 	}
@@ -867,6 +895,29 @@ func findMissingDependencies(graph *Graph) {
 				}
 				if !isDuplicate {
 					graph.Missing[provider.Function] = append(graph.Missing[provider.Function], required)
+				}
+			}
+		}
+	}
+
+	// Check dependencies for multi-providers
+	for _, providers := range graph.MultiProviders {
+		for _, provider := range providers {
+			for _, required := range provider.Requires {
+				key := types.TypeString(required, nil)
+				if !provided[key] && !isProvidedByConfig(required, graph.Configs) {
+					// Check for duplicates before adding
+					existing := graph.Missing[provider.Function]
+					isDuplicate := false
+					for _, existingType := range existing {
+						if types.Identical(existingType, required) {
+							isDuplicate = true
+							break
+						}
+					}
+					if !isDuplicate {
+						graph.Missing[provider.Function] = append(graph.Missing[provider.Function], required)
+					}
 				}
 			}
 		}
@@ -981,6 +1032,13 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 	toProcess := append(slices.Clone(roots), internalTypes...)
 	ambiguousProviders := map[string][]*Provider{}
 
+	// Validate multi-provider constraints first
+	for key, providerList := range providers {
+		if err := validateMultiProviderConstraints(key, providerList); err != nil {
+			return err
+		}
+	}
+
 	// Transitive closure: find all referenced types
 	for len(toProcess) > 0 {
 		current := toProcess[0]
@@ -993,15 +1051,28 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 
 		// If this type has a provider, add its dependencies
 		if providers, exists := providers[current]; exists {
-			provider := pickProvider(providers, pick)
-			if provider == nil {
-				ambiguousProviders[current] = providers
+			if isMultiProvider(providers) {
+				// For multi-providers, store all providers
+				graph.MultiProviders[current] = providers
+				for _, p := range providers {
+					for _, required := range p.Requires {
+						requiredKey := types.TypeString(required, nil)
+						if !referenced[requiredKey] {
+							toProcess = append(toProcess, requiredKey)
+						}
+					}
+				}
 			} else {
-				graph.Providers[types.TypeString(provider.Provides, nil)] = provider
-				for _, required := range provider.Requires {
-					requiredKey := types.TypeString(required, nil)
-					if !referenced[requiredKey] {
-						toProcess = append(toProcess, requiredKey)
+				provider := pickProvider(providers, pick)
+				if provider == nil {
+					ambiguousProviders[current] = providers
+				} else {
+					graph.Providers[types.TypeString(provider.Provides, nil)] = provider
+					for _, required := range provider.Requires {
+						requiredKey := types.TypeString(required, nil)
+						if !referenced[requiredKey] {
+							toProcess = append(toProcess, requiredKey)
+						}
 					}
 				}
 			}
@@ -1028,6 +1099,13 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 	for key := range providers {
 		if !referenced[key] {
 			delete(providers, key)
+		}
+	}
+
+	// Remove unreferenced multi-providers
+	for key := range graph.MultiProviders {
+		if !referenced[key] {
+			delete(graph.MultiProviders, key)
 		}
 	}
 
@@ -1091,6 +1169,12 @@ func pickProvider(providers []*Provider, pick []string) *Provider {
 	if len(providers) == 1 {
 		return providers[0]
 	}
+
+	// For multi-providers, we don't pick a single provider - they all contribute
+	if isMultiProvider(providers) {
+		return providers[0] // Return first one as representative
+	}
+
 	var strong []*Provider
 	for _, provider := range providers {
 		if !provider.Directive.Weak {
@@ -1105,4 +1189,63 @@ func pickProvider(providers []*Provider, pick []string) *Provider {
 		return strong[0]
 	}
 	return nil
+}
+
+// validateMultiProviderConstraints ensures that if one provider for a type is multi,
+// all providers for that type must be multi.
+func validateMultiProviderConstraints(typeKey string, providers []*Provider) error {
+	if len(providers) <= 1 {
+		return nil
+	}
+
+	hasMulti := false
+	hasNonMulti := false
+
+	for _, provider := range providers {
+		if provider.Directive.Multi {
+			hasMulti = true
+		} else {
+			hasNonMulti = true
+		}
+	}
+
+	if hasMulti && hasNonMulti {
+		var multiProviders []string
+		var nonMultiProviders []string
+
+		for _, provider := range providers {
+			funcName := "unknown"
+			if provider.Function != nil {
+				funcName = provider.Function.FullName()
+			}
+
+			if provider.Directive.Multi {
+				multiProviders = append(multiProviders, funcName)
+			} else {
+				nonMultiProviders = append(nonMultiProviders, funcName)
+			}
+		}
+
+		return errors.Errorf("type %s has mixed multi and non-multi providers: multi=[%s], non-multi=[%s]",
+			typeKey,
+			strings.Join(multiProviders, ", "),
+			strings.Join(nonMultiProviders, ", "))
+	}
+
+	return nil
+}
+
+// isMultiProvider returns true if all providers in the list are multi-providers.
+func isMultiProvider(providers []*Provider) bool {
+	if len(providers) == 0 {
+		return false
+	}
+
+	for _, provider := range providers {
+		if !provider.Directive.Multi {
+			return false
+		}
+	}
+
+	return true
 }

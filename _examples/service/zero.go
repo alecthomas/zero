@@ -53,7 +53,6 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		}
 		o, err := impc24ab568b6f3f934.New(p0)
 		if err != nil {
-
 			return out, fmt.Errorf("*sql.DB: %w", err)
 		}
 		return any(o).(T), nil
@@ -77,7 +76,6 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		}
 		o, err := NewService(p0, p1)
 		if err != nil {
-
 			return out, fmt.Errorf("*Service: %w", err)
 		}
 		return any(o).(T), nil

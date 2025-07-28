@@ -52,13 +52,15 @@ type ServiceConfig struct {
 }
 
 type Service struct {
-	dal *DAL
+	dal    *DAL
+	config map[string]int
+	tags   []string
 }
 
 //zero:provider
-func NewService(dal *DAL, config ServiceConfig) (*Service, error) {
+func NewService(dal *DAL, config ServiceConfig, configMap map[string]int, tags []string) (*Service, error) {
 	// Other initialisation
-	return &Service{dal: dal}, nil
+	return &Service{dal: dal, config: configMap, tags: tags}, nil
 }
 
 type User struct {
@@ -75,6 +77,16 @@ func (s *Service) ListUsers() ([]User, error) {
 	return s.dal.GetUsers()
 }
 
+//zero:api GET /config
+func (s *Service) GetConfig() map[string]int {
+	return s.config
+}
+
+//zero:api GET /tags
+func (s *Service) GetTags() []string {
+	return s.tags
+}
+
 //zero:api POST /users authenticated role=admin
 func (s *Service) CreateUser(user User) error {
 	return s.dal.CreateUser(user)
@@ -88,6 +100,32 @@ func (s *Service) GetUser(id string) (User, error) {
 //zero:api GET /users/{id}/avatar
 func (s *Service) GetAvatar(id string, w http.ResponseWriter, r *http.Request) {
 
+}
+
+//zero:provider multi
+func ProvideMapA() map[string]int {
+	return map[string]int{
+		"a": 1,
+		"b": 2,
+	}
+}
+
+//zero:provider multi
+func ProvideMapB() map[string]int {
+	return map[string]int{
+		"c": 3,
+		"d": 4,
+	}
+}
+
+//zero:provider multi
+func ProvideSliceA() []string {
+	return []string{"apple", "banana"}
+}
+
+//zero:provider multi
+func ProvideSliceB() []string {
+	return []string{"cherry", "date"}
 }
 
 // zero:subscribe

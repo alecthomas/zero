@@ -106,45 +106,49 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.Import(ref.Import)
 			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
-				for i, require := range provider.Requires {
-					reqRef := graph.TypeRef(require)
-					if reqRef.Import != "" {
-						w.Import(reqRef.Import)
-					}
-					w.L("p%d, err := ZeroConstructSingletons[%s](ctx, config, singletons)", i, reqRef.Ref)
-					w.L("if err != nil {")
-					w.In(func(w *codewriter.Writer) {
-						w.L(`return out, err`)
-					})
-					w.L("}")
+				writeProviderCall(w, graph, provider, "p", "o")
+				w.L("return any(o).(T), nil")
+			})
+			w.W("\n")
+		}
+
+		for _, providers := range stableMapIter(graph.MultiProviders) {
+			if len(providers) == 0 {
+				continue
+			}
+			ref := graph.TypeRef(providers[0].Provides)
+			w.Import(ref.Import)
+			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
+			w.In(func(w *codewriter.Writer) {
+				// Construct all provider results
+				for pi, provider := range providers {
+					writeProviderCall(w, graph, provider, fmt.Sprintf("p%d_", pi), fmt.Sprintf("r%d", pi))
 				}
 
-				functionRef := graph.FunctionRef(provider.Function)
-				if functionRef.Import != "" {
-					w.Import(functionRef.Import)
-				}
-				returnsErr := provider.Function.Signature().Results().Len() == 2
-				w.Indent()
-				if returnsErr {
-					w.W("o, err := %s(", functionRef.Ref)
-				} else {
-					w.W("o := %s(", functionRef.Ref)
-				}
-				for i := range len(provider.Requires) {
-					w.W("p%d", i)
-					if i < len(provider.Requires)-1 {
-						w.W(", ")
+				// Determine if it's a map or slice and merge accordingly
+				providedType := providers[0].Provides.Underlying()
+				switch t := providedType.(type) {
+				case *types.Map:
+					// Map merging
+					w.L("result := make(%s)", ref.Ref)
+					for pi := range providers {
+						w.L("for k, v := range r%d {", pi)
+						w.In(func(w *codewriter.Writer) {
+							w.L("result[k] = v")
+						})
+						w.L("}")
 					}
+				case *types.Slice:
+					// Slice appending
+					w.L("var result %s", ref.Ref)
+					for pi := range providers {
+						w.L("result = append(result, r%d...)", pi)
+					}
+				default:
+					_ = t
+					w.L(`return out, fmt.Errorf("multi-provider type %s must be a map or slice", "%s")`, ref.Ref)
 				}
-				w.W(")\n")
-				if returnsErr {
-					w.L("if err != nil {\n")
-					w.In(func(w *codewriter.Writer) {
-						w.L(`return out, fmt.Errorf("%s: %%w", err)`, ref.Ref)
-					})
-					w.L("}")
-				}
-				w.L("return any(o).(T), nil")
+				w.L("return any(result).(T), nil")
 			})
 			w.W("\n")
 		}
@@ -174,24 +178,13 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 					return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
 				}) {
 					index := receivers[receiver]
-					w.L("r%d, err := ZeroConstructSingletons[%s](ctx, config, singletons)", index, receiver.Typ)
-					w.L("if err != nil {")
-					w.In(func(w *codewriter.Writer) {
-						w.Import("fmt")
-						w.L(`return out, fmt.Errorf("*http.ServeMux: %%w", err)`)
-					})
-					w.L("}")
+					writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, "*http.ServeMux")
 				}
 
 				// Next, create the ServeMux and register the handlers across receiver types.
 				w.L("mux := http.NewServeMux()")
 				w.Import("github.com/alecthomas/zero")
-				w.L("errorHandler, err := ZeroConstructSingletons[zero.ErrorHandler](ctx, config, singletons)")
-				w.L("if err != nil {")
-				w.In(func(w *codewriter.Writer) {
-					w.L("return out, err")
-				})
-				w.L("}")
+				writeZeroConstructSingletonByName(w, "errorHandler", "zero.ErrorHandler", "")
 				w.L("_ = errorHandler")
 				for _, api := range graph.APIs {
 					handler := "http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {"
@@ -209,31 +202,8 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 							for i := range params.Len() {
 								args = append(args, fmt.Sprintf("m%dp%d", mi, i))
 								paramType := params.At(i).Type()
-								ref := graph.TypeRef(paramType)
-								w.Import(ref.Import)
 								paramName := params.At(i).Name()
-								typeName := types.TypeString(paramType, nil)
-								switch typeName {
-								// Labels
-								case "int":
-									w.L(`m%dp%d, err := strconv.Itoa(%q)`, mi, i, api.Label(paramName))
-									w.L("if err != nil {")
-									w.In(func(w *codewriter.Writer) {
-										w.L(`errorHandler(w, fmt.Sprintf("path parameter %s must be a valid integer: %s", paramName, err), http.StatusBadRequest)`)
-										w.L("return")
-									})
-									w.L("}")
-								case "string":
-									w.L(`m%dp%d := %q`, mi, i, api.Label(paramName))
-								default:
-									w.L("m%dp%d, err := ZeroConstructSingletons[%s](ctx, config, singletons)", mi, i, paramType)
-									w.L("if err != nil {")
-									w.In(func(w *codewriter.Writer) {
-										w.Import("fmt")
-										w.L(`return out, err`)
-									})
-									w.L("}")
-								}
+								writeParameterConstruction(w, graph, paramType, api.Label(paramName), fmt.Sprintf("m%dp", mi), i, true, "")
 							}
 							handler = fmt.Sprintf("%s(%s)(%s", ref.Ref, strings.Join(args, ", "), handler)
 						} else {
@@ -252,33 +222,11 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 						// First pass, decode any parameters from the Request
 						for i := range params.Len() {
 							paramType := params.At(i).Type()
-							ref := graph.TypeRef(paramType)
-							w.Import(ref.Import)
 							paramName := params.At(i).Name()
 							typeName := types.TypeString(paramType, nil)
-							switch typeName {
-							// Path parameters.
-							case "int":
-								w.L(`p%d, err := strconv.Itoa(r.PathValue("%s"))`, i, paramName)
-								w.L("if err != nil {")
-								w.In(func(w *codewriter.Writer) {
-									w.L(`errorHandler(w, fmt.Sprintf("path parameter %s must be a valid integer: %s", paramName, err), http.StatusBadRequest)`)
-									w.L("return")
-								})
-								w.L("}")
-							case "string":
-								w.L(`p%d := r.PathValue("%s")`, i, paramName)
-							// Builtin types, just pass them through.
-							case "*net/http.Request", "net/http.ResponseWriter", "context.Context":
-							default: // Anything else is a request body/query parameters.
-								w.Import("github.com/alecthomas/zero")
-								w.L(`p%d, err := zero.DecodeRequest[%s]("%s", r)`, i, ref.Ref, api.Pattern.Method)
-								w.L("if err != nil {")
-								w.In(func(w *codewriter.Writer) {
-									w.L(`errorHandler(w, fmt.Sprintf("invalid request: %%s", err), http.StatusBadRequest)`)
-									w.L("return")
-								})
-								w.L("}")
+							// Skip builtin types that are handled in the call site
+							if typeName != "*net/http.Request" && typeName != "net/http.ResponseWriter" && typeName != "context.Context" {
+								writeParameterConstruction(w, graph, paramType, paramName, "p", i, false, api.Pattern.Method)
 							}
 						}
 
@@ -296,7 +244,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 							} else {
 								hasError = false
 								w.W("out := ")
-								responseType = results.At(1).Type()
+								responseType = results.At(0).Type()
 							}
 						case 2: // Always (T, error)
 							w.W("out, herr := ")
@@ -308,17 +256,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 								w.W(", ")
 							}
 							paramType := params.At(i).Type()
-							typeName := types.TypeString(paramType, nil)
-							switch typeName {
-							case "context.Context":
-								w.W("r.Context()")
-							case "*net/http.Request":
-								w.W("r")
-							case "net/http.ResponseWriter":
-								w.W("w")
-							default:
-								w.W("p%d", i)
-							}
+							writeParameterCall(w, paramType, "p", i)
 						}
 						w.W(")\n")
 						errorValue := "nil"
@@ -349,6 +287,147 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 		return errors.Errorf("failed to write file: %w", err)
 	}
 	return nil
+}
+
+// writeParameterConstruction generates code to construct a parameter of the given type.
+// Returns the variable name that holds the constructed parameter.
+func writeParameterConstruction(w *codewriter.Writer, graph *depgraph.Graph, paramType types.Type, paramName string, varPrefix string, index int, isMiddleware bool, httpMethod string) {
+	ref := graph.TypeRef(paramType)
+	w.Import(ref.Import)
+	typeName := types.TypeString(paramType, nil)
+	varName := fmt.Sprintf("%s%d", varPrefix, index)
+
+	switch typeName {
+	case "int":
+		if isMiddleware {
+			w.L(`%s, err := strconv.Itoa(%q)`, varName, paramName) // For middleware, paramName is the label value
+		} else {
+			w.L(`%s, err := strconv.Atoi(r.PathValue("%s"))`, varName, paramName)
+		}
+		w.L("if err != nil {")
+		w.In(func(w *codewriter.Writer) {
+			if isMiddleware {
+				w.Import("fmt")
+				w.L(`return out, err`)
+			} else {
+				w.L(`errorHandler(w, fmt.Sprintf("path parameter %s must be a valid integer: %%s", err), http.StatusBadRequest)`, paramName)
+				w.L("return")
+			}
+		})
+		w.L("}")
+	case "string":
+		if isMiddleware {
+			w.L(`%s := %q`, varName, paramName) // For middleware, paramName is the label value
+		} else {
+			w.L(`%s := r.PathValue("%s")`, varName, paramName)
+		}
+	case "*net/http.Request", "net/http.ResponseWriter", "context.Context":
+		// These are handled specially in the call site, no construction needed
+	default:
+		if isMiddleware {
+			w.L("%s, err := ZeroConstructSingletons[%s](ctx, config, singletons)", varName, ref.Ref)
+			w.L("if err != nil {")
+			w.In(func(w *codewriter.Writer) {
+				w.Import("fmt")
+				w.L(`return out, err`)
+			})
+			w.L("}")
+		} else {
+			w.Import("github.com/alecthomas/zero")
+			w.L(`%s, err := zero.DecodeRequest[%s]("%s", r)`, varName, ref.Ref, httpMethod)
+			w.L("if err != nil {")
+			w.In(func(w *codewriter.Writer) {
+				w.L(`errorHandler(w, fmt.Sprintf("invalid request: %%s", err), http.StatusBadRequest)`)
+				w.L("return")
+			})
+			w.L("}")
+		}
+	}
+}
+
+// writeParameterCall writes the parameter name for a function call based on the parameter type.
+func writeParameterCall(w *codewriter.Writer, paramType types.Type, varPrefix string, index int) {
+	typeName := types.TypeString(paramType, nil)
+	switch typeName {
+	case "context.Context":
+		w.W("r.Context()")
+	case "*net/http.Request":
+		w.W("r")
+	case "net/http.ResponseWriter":
+		w.W("w")
+	default:
+		w.W("%s%d", varPrefix, index)
+	}
+}
+
+// writeZeroConstructSingleton writes code to construct a dependency using ZeroConstructSingletons.
+func writeZeroConstructSingleton(w *codewriter.Writer, graph *depgraph.Graph, varName string, depType types.Type, errorWrapper string) {
+	ref := graph.TypeRef(depType)
+	if ref.Import != "" {
+		w.Import(ref.Import)
+	}
+	w.L("%s, err := ZeroConstructSingletons[%s](ctx, config, singletons)", varName, ref.Ref)
+	w.L("if err != nil {")
+	w.In(func(w *codewriter.Writer) {
+		if errorWrapper != "" {
+			w.Import("fmt")
+			w.L(`return out, fmt.Errorf("%s: %%w", err)`, errorWrapper)
+		} else {
+			w.L(`return out, err`)
+		}
+	})
+	w.L("}")
+}
+
+// writeZeroConstructSingletonByName writes code to construct a dependency using ZeroConstructSingletons by type name.
+func writeZeroConstructSingletonByName(w *codewriter.Writer, varName string, typeName string, errorWrapper string) {
+	w.L("%s, err := ZeroConstructSingletons[%s](ctx, config, singletons)", varName, typeName)
+	w.L("if err != nil {")
+	w.In(func(w *codewriter.Writer) {
+		if errorWrapper != "" {
+			w.Import("fmt")
+			w.L(`return out, fmt.Errorf("%s: %%w", err)`, errorWrapper)
+		} else {
+			w.L(`return out, err`)
+		}
+	})
+	w.L("}")
+}
+
+// writeProviderCall generates code to call a provider function with its dependencies.
+func writeProviderCall(w *codewriter.Writer, graph *depgraph.Graph, provider *depgraph.Provider, depVarPrefix string, resultVar string) {
+	// Construct all dependencies
+	for i, require := range provider.Requires {
+		writeZeroConstructSingleton(w, graph, fmt.Sprintf("%s%d", depVarPrefix, i), require, "")
+	}
+
+	// Get function reference and call it
+	functionRef := graph.FunctionRef(provider.Function)
+	if functionRef.Import != "" {
+		w.Import(functionRef.Import)
+	}
+	returnsErr := provider.Function.Signature().Results().Len() == 2
+	w.Indent()
+	if returnsErr {
+		w.W("%s, err := %s(", resultVar, functionRef.Ref)
+	} else {
+		w.W("%s := %s(", resultVar, functionRef.Ref)
+	}
+	for i := range len(provider.Requires) {
+		w.W("%s%d", depVarPrefix, i)
+		if i < len(provider.Requires)-1 {
+			w.W(", ")
+		}
+	}
+	w.W(")\n")
+	if returnsErr {
+		ref := graph.TypeRef(provider.Provides)
+		w.L("if err != nil {")
+		w.In(func(w *codewriter.Writer) {
+			w.L(`return out, fmt.Errorf("%s: %%w", err)`, ref.Ref)
+		})
+		w.L("}")
+	}
 }
 
 func hash(s string) string {

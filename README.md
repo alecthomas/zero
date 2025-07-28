@@ -8,7 +8,18 @@ A core tenet of Zero Services it that it will work with the normal Go developmen
 
 ## Dependency injection
 
-Any function annotated with `//zero:provider [weak]` will be used to provide its return type during application construction. Weak providers may be overridden by explicitly creating a non-weak provider, or explicitly selecting the provider to use via `--resolve`.
+Any function annotated with `//zero:provider [weak] [multi]` will be used to provide its return type during application construction.
+
+### Weak providers
+
+Weak providers may be overridden by explicitly creating a non-weak provider, or explicitly selecting the provider to use via `--resolve`.
+
+### Multi-providers
+
+A multi-provider allows multiple providers to contribute to a single merged type value. The provided type must return a
+slice or a map.
+
+### Example
 
 eg. The following code will inject a `*DAL` type and provide a `*Service` type.
 

@@ -2041,3 +2041,167 @@ type Service struct{}
 	assert.Error(t, err)
 	assert.EqualError(t, err, "invalid middleware function signature for InvalidMiddleware: must be func(http.Handler) http.Handler or func(...deps) func(http.Handler) http.Handler")
 }
+
+func TestAnalyseMultiProviders(t *testing.T) {
+	testCode := `
+package main
+
+//zero:provider multi
+func NewSliceA() []string {
+	return []string{"a"}
+}
+
+//zero:provider multi
+func NewSliceB() []string {
+	return []string{"b"}
+}
+
+//zero:provider
+func NewService(items []string) *Service {
+	return &Service{Items: items}
+}
+
+type Service struct {
+	Items []string
+}
+`
+	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+	assert.Equal(t, 1, len(graph.Providers))
+	assert.Equal(t, 1, len(graph.MultiProviders))
+	assert.Equal(t, 0, len(graph.Missing))
+
+	// Should have multi-providers for []string
+	multiProviders, ok := graph.MultiProviders["[]string"]
+	assert.True(t, ok)
+	assert.Equal(t, 2, len(multiProviders))
+
+	// Should have regular provider for Service
+	serviceProvider, ok := graph.Providers["*test.Service"]
+	assert.True(t, ok)
+	assert.Equal(t, 1, len(serviceProvider.Requires))
+
+	// Test GetProviders method
+	sliceProviders := graph.GetProviders("[]string")
+	assert.Equal(t, 2, len(sliceProviders))
+
+	serviceProviders := graph.GetProviders("*test.Service")
+	assert.Equal(t, 1, len(serviceProviders))
+
+	nonExistentProviders := graph.GetProviders("NonExistent")
+	assert.Zero(t, nonExistentProviders)
+}
+
+func TestAnalyseMixedMultiAndNonMultiProviders(t *testing.T) {
+	testCode := `
+package main
+
+//zero:provider multi
+func NewSliceA() []string {
+	return []string{"a"}
+}
+
+//zero:provider
+func NewSliceB() []string {
+	return []string{"b"}
+}
+
+//zero:provider
+func NewService(items []string) *Service {
+	return &Service{Items: items}
+}
+
+type Service struct {
+	Items []string
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, []string{"*test.Service"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "type []string has mixed multi and non-multi providers")
+}
+
+func TestAnalyseMultiProvidersOnly(t *testing.T) {
+	testCode := `
+package main
+
+//zero:provider multi
+func NewMapA() map[string]int {
+	return map[string]int{"a": 1}
+}
+
+//zero:provider multi
+func NewMapB() map[string]int {
+	return map[string]int{"b": 2}
+}
+
+//zero:provider multi
+func NewMapC() map[string]int {
+	return map[string]int{"c": 3}
+}
+
+//zero:provider
+func NewService(items map[string]int) *Service {
+	return &Service{Items: items}
+}
+
+type Service struct {
+	Items map[string]int
+}
+`
+	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+	assert.Equal(t, 1, len(graph.Providers))
+	assert.Equal(t, 1, len(graph.MultiProviders))
+	assert.Equal(t, 0, len(graph.Missing))
+
+	// Should have multi-providers for map[string]int
+	multiProviders, ok := graph.MultiProviders["map[string]int"]
+	assert.True(t, ok)
+	assert.Equal(t, 3, len(multiProviders))
+
+	// Verify all providers are marked as multi
+	for _, provider := range multiProviders {
+		assert.True(t, provider.Directive.Multi)
+	}
+}
+
+func TestAnalyseMultiProviderPruning(t *testing.T) {
+	testCode := `
+package main
+
+//zero:provider multi
+func NewSliceA() []string {
+	return []string{"a"}
+}
+
+//zero:provider multi
+func NewSliceB() []string {
+	return []string{"b"}
+}
+
+//zero:provider multi
+func NewUnusedSlice() []int {
+	return []int{1, 2, 3}
+}
+
+//zero:provider
+func NewService(items []string) *Service {
+	return &Service{Items: items}
+}
+
+type Service struct {
+	Items []string
+}
+`
+	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+	assert.Equal(t, 1, len(graph.Providers))
+	assert.Equal(t, 1, len(graph.MultiProviders))
+	assert.Equal(t, 0, len(graph.Missing))
+
+	// Should have multi-providers for []string but not for []int (unreferenced)
+	multiProviders, ok := graph.MultiProviders["[]string"]
+	assert.True(t, ok)
+	assert.Equal(t, 2, len(multiProviders))
+
+	// Should not have multi-providers for []int (pruned because unreferenced)
+	_, ok = graph.MultiProviders["[]int"]
+	assert.False(t, ok)
+}

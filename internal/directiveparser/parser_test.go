@@ -190,6 +190,14 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
+			name:    "ProviderWeakMulti",
+			pattern: "zero:provider multi weak",
+			want: &DirectiveProvider{
+				Weak:  true,
+				Multi: true,
+			},
+		},
+		{
 			name:    "Config",
 			pattern: "zero:config",
 			want:    &DirectiveConfig{},
@@ -209,24 +217,20 @@ func TestParse(t *testing.T) {
 		{
 			name:    "Middleware",
 			pattern: "zero:middleware",
-			want: &DirectiveMiddleware{
-				Middleware: true,
-			},
+			want:    &DirectiveMiddleware{},
 		},
 		{
 			name:    "MiddlewareWithLabel",
 			pattern: "zero:middleware auth",
 			want: &DirectiveMiddleware{
-				Middleware: true,
-				Labels:     []string{"auth"},
+				Labels: []string{"auth"},
 			},
 		},
 		{
 			name:    "MiddlewareWithMultipleLabels",
 			pattern: "zero:middleware auth cors",
 			want: &DirectiveMiddleware{
-				Middleware: true,
-				Labels:     []string{"auth", "cors"},
+				Labels: []string{"auth", "cors"},
 			},
 		},
 	}
