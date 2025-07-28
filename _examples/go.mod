@@ -8,7 +8,6 @@ require (
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.12.0
 	github.com/alecthomas/zero v0.0.0-00010101000000-000000000000
-	github.com/brianvoe/gofakeit/v7 v7.3.0
 )
 
 require (

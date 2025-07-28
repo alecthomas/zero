@@ -62,7 +62,11 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, err
 		}
-		o := NewDAL(p0)
+		p1, err := ZeroConstructSingletons[[]Migration](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o := NewDAL(p0, p1)
 		return any(o).(T), nil
 
 	case reflect.TypeOf((**Service)(nil)).Elem():
@@ -70,11 +74,15 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
+		p1, err := ZeroConstructSingletons[CronExecutor](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		o, err := NewService(p0, p1)
+		p2, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := NewService(p0, p1, p2)
 		if err != nil {
 			return out, fmt.Errorf("*Service: %w", err)
 		}
@@ -83,6 +91,18 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 	case reflect.TypeOf((*imp9c34c006eb3c10fa.ErrorHandler)(nil)).Elem():
 		o := impef7a81aa222750b7.DefaultErrorHandler()
 		return any(o).(T), nil
+
+	case reflect.TypeOf((*CronExecutor)(nil)).Elem():
+		o := ProvideCron()
+		return any(o).(T), nil
+
+	case reflect.TypeOf((*[]Migration)(nil)).Elem():
+		r0 := ProvideMigrations()
+		r1 := ProvideCronMigration()
+		var result []Migration
+		result = append(result, r0...)
+		result = append(result, r1...)
+		return any(result).(T), nil
 
 	case reflect.TypeOf((**http.ServeMux)(nil)).Elem():
 		r0, err := ZeroConstructSingletons[*Service](ctx, config, singletons)

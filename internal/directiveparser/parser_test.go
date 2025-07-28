@@ -190,11 +190,12 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			name:    "ProviderWeakMulti",
-			pattern: "zero:provider multi weak",
+			name:    "ProviderAllOptions",
+			pattern: "zero:provider multi weak require=first require=second,third",
 			want: &DirectiveProvider{
-				Weak:  true,
-				Multi: true,
+				Weak:    true,
+				Multi:   true,
+				Require: []string{"first", "second", "third"},
 			},
 		},
 		{

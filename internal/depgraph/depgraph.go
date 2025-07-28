@@ -1032,6 +1032,31 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 	toProcess := append(slices.Clone(roots), internalTypes...)
 	ambiguousProviders := map[string][]*Provider{}
 
+	// Build function name to provider mapping for directive requirements
+	// Key is "package.path/functionName" to ensure same-package requirements
+	funcNameToProvider := map[string]*Provider{}
+	for _, providerList := range providers {
+		for _, p := range providerList {
+			funcKey := p.Package.PkgPath + "/" + p.Function.Name()
+			funcNameToProvider[funcKey] = p
+		}
+	}
+
+	// Pre-process directive requirements to identify explicitly required providers
+	explicitlyRequired := map[string]bool{}
+	for _, providerList := range providers {
+		for _, p := range providerList {
+			for _, requiredFuncName := range p.Directive.Require {
+				requiredFuncKey := p.Package.PkgPath + "/" + requiredFuncName
+				if _, exists := funcNameToProvider[requiredFuncKey]; exists {
+					explicitlyRequired[requiredFuncKey] = true
+				} else {
+					return errors.Errorf("provider %s requires %s, but %s is not a valid provider function in the same package", p.Function.Name(), requiredFuncName, requiredFuncName)
+				}
+			}
+		}
+	}
+
 	// Validate multi-provider constraints first
 	for key, providerList := range providers {
 		if err := validateMultiProviderConstraints(key, providerList); err != nil {
@@ -1052,13 +1077,37 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 		// If this type has a provider, add its dependencies
 		if providers, exists := providers[current]; exists {
 			if isMultiProvider(providers) {
-				// For multi-providers, store all providers
-				graph.MultiProviders[current] = providers
+				// For multi-providers, include non-weak providers by default, plus any explicitly required weak providers
+				var includedProviders []*Provider
 				for _, p := range providers {
+					funcKey := p.Package.PkgPath + "/" + p.Function.Name()
+					if !p.Directive.Weak || explicitlyRequired[funcKey] {
+						includedProviders = append(includedProviders, p)
+					}
+				}
+
+				// If no non-weak providers exist and none are explicitly required, include all (weak) providers
+				if len(includedProviders) == 0 {
+					includedProviders = providers
+				}
+
+				graph.MultiProviders[current] = includedProviders
+				for _, p := range includedProviders {
 					for _, required := range p.Requires {
 						requiredKey := types.TypeString(required, nil)
 						if !referenced[requiredKey] {
 							toProcess = append(toProcess, requiredKey)
+						}
+					}
+					// Handle directive requirements for multi-providers
+					for _, requiredFuncName := range p.Directive.Require {
+						// Only allow requiring functions from the same package
+						requiredFuncKey := p.Package.PkgPath + "/" + requiredFuncName
+						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
+							requiredKey := types.TypeString(requiredProvider.Provides, nil)
+							if !referenced[requiredKey] {
+								toProcess = append(toProcess, requiredKey)
+							}
 						}
 					}
 				}
@@ -1072,6 +1121,17 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 						requiredKey := types.TypeString(required, nil)
 						if !referenced[requiredKey] {
 							toProcess = append(toProcess, requiredKey)
+						}
+					}
+					// Handle directive requirements
+					for _, requiredFuncName := range provider.Directive.Require {
+						// Only allow requiring functions from the same package
+						requiredFuncKey := provider.Package.PkgPath + "/" + requiredFuncName
+						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
+							requiredKey := types.TypeString(requiredProvider.Provides, nil)
+							if !referenced[requiredKey] {
+								toProcess = append(toProcess, requiredKey)
+							}
 						}
 					}
 				}

@@ -17,8 +17,31 @@ type DAL struct {
 	users map[int]User
 }
 
+type Migration struct {
+	ID  int
+	SQL string
+}
+
+//zero:provider multi
+func ProvideMigrations() []Migration { return nil }
+
+//zero:provider weak multi
+func ProvideCronMigrations() []Migration {
+	return []Migration{{ID: -1, SQL: "CREATE TABLE cron (key VARCHAR NOT NULL, expires TIMESTAMP NOT NULL)"}}
+}
+
+type CronLogger struct{}
+
+//zero:provider weak
+func ProvideCronLogger() CronLogger { return CronLogger{} }
+
+type CronService struct{}
+
+//zero:provider weak require=ProvideCronLogger
+func ProvideCronService() CronService { return CronService{} }
+
 //zero:provider
-func NewDAL(db *sql.DB) (*DAL, error) {
+func NewDAL(db *sql.DB, migrations []Migration) (*DAL, error) {
 	return &DAL{
 		users: map[int]User{
 			1: {Name: "Alice", BirthYear: 1945},
@@ -58,7 +81,7 @@ type Service struct {
 }
 
 //zero:provider
-func NewService(dal *DAL, config ServiceConfig, configMap map[string]int, tags []string) (*Service, error) {
+func NewService(dal *DAL, cronService CronService, config ServiceConfig, configMap map[string]int, tags []string) (*Service, error) {
 	// Other initialisation
 	return &Service{dal: dal, config: configMap, tags: tags}, nil
 }

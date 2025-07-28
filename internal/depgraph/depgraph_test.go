@@ -1360,6 +1360,242 @@ func (s *UserService) ComplexCreate(ctx context.Context, req1 CreateUserRequest,
 	}
 }
 
+func TestAnalyseWeakProviderDirectiveRequirements(t *testing.T) {
+	testCode := `
+package main
+
+import (
+	"database/sql"
+)
+
+type CronJob struct {
+	Name string
+}
+
+type Config struct {
+	Host string
+}
+
+//zero:provider
+func NewDB(config Config) *sql.DB {
+	return nil
+}
+
+//zero:provider weak
+func CronJobProvider() CronJob {
+	return CronJob{}
+}
+
+//zero:provider weak require=CronJobProvider
+func SQLCron(db *sql.DB) string {
+	return ""
+}
+`
+	// Test that when SQLCron (weak provider) is included, CronJobProvider is also included
+	graph := analyseTestCode(t, testCode, []string{"string"})
+
+	// SQLCron should be included as it provides the root type "string"
+	sqlCronProvider, ok := graph.Providers["string"]
+	assert.True(t, ok, "SQLCron provider should be included")
+	assert.Equal(t, "SQLCron", sqlCronProvider.Function.Name())
+
+	// CronJobProvider should be included because SQLCron requires it via directive
+	cronJobProvider, ok := graph.Providers["test.CronJob"]
+	assert.True(t, ok, "CronJobProvider should be included due to directive requirement")
+	assert.Equal(t, "CronJobProvider", cronJobProvider.Function.Name())
+
+	// NewDB should be included because SQLCron needs it as a parameter
+	dbProvider, ok := graph.Providers["*database/sql.DB"]
+	assert.True(t, ok, "NewDB provider should be included as SQLCron depends on it")
+	assert.Equal(t, "NewDB", dbProvider.Function.Name())
+}
+
+func TestAnalyseWeakProviderDirectiveRequirementsChain(t *testing.T) {
+	testCode := `
+package main
+
+import (
+	"database/sql"
+)
+
+type Logger struct {
+	Level string
+}
+
+type Cache struct {
+	Size int
+}
+
+type Config struct {
+	Host string
+}
+
+//zero:provider
+func NewDB(config Config) *sql.DB {
+	return nil
+}
+
+//zero:provider weak
+func DebugLogger() Logger {
+	return Logger{Level: "debug"}
+}
+
+//zero:provider weak require=DebugLogger
+func RedisCache(logger Logger) Cache {
+	return Cache{Size: 100}
+}
+
+//zero:provider weak require=RedisCache
+func CacheManager(db *sql.DB, cache Cache) string {
+	return "manager"
+}
+`
+	// Test that when CacheManager (weak provider) is included, the entire chain is included
+	graph := analyseTestCode(t, testCode, []string{"string"})
+
+	// CacheManager should be included as it provides the root type "string"
+	cacheManagerProvider, ok := graph.Providers["string"]
+	assert.True(t, ok, "CacheManager provider should be included")
+	assert.Equal(t, "CacheManager", cacheManagerProvider.Function.Name())
+
+	// RedisCache should be included because CacheManager requires it via directive
+	redisCacheProvider, ok := graph.Providers["test.Cache"]
+	assert.True(t, ok, "RedisCache should be included due to directive requirement")
+	assert.Equal(t, "RedisCache", redisCacheProvider.Function.Name())
+
+	// DebugLogger should be included because RedisCache requires it via directive
+	debugLoggerProvider, ok := graph.Providers["test.Logger"]
+	assert.True(t, ok, "DebugLogger should be included due to transitive directive requirement")
+	assert.Equal(t, "DebugLogger", debugLoggerProvider.Function.Name())
+
+	// NewDB should be included because CacheManager needs it as a parameter
+	dbProvider, ok := graph.Providers["*database/sql.DB"]
+	assert.True(t, ok, "NewDB provider should be included as CacheManager depends on it")
+	assert.Equal(t, "NewDB", dbProvider.Function.Name())
+}
+
+func TestAnalyseWeakMultiProviderNotIncludedUnlessNeeded(t *testing.T) {
+	testCode := `
+package main
+
+type Service struct {
+	Name string
+}
+
+//zero:provider multi
+func RegularService() Service {
+	return Service{Name: "regular"}
+}
+
+//zero:provider weak multi
+func WeakService() Service {
+	return Service{Name: "weak"}
+}
+
+//zero:provider
+func GetServiceName(s Service) string {
+	return s.Name
+}
+`
+	// Test that weak multi-providers are not included unless explicitly needed
+	graph := analyseTestCode(t, testCode, []string{"string"})
+
+	// GetServiceName should be included as it provides the root type "string"
+	serviceNameProvider, ok := graph.Providers["string"]
+	assert.True(t, ok, "GetServiceName provider should be included")
+	assert.Equal(t, "GetServiceName", serviceNameProvider.Function.Name())
+
+	// Service should be a multi-provider but only contain RegularService, not WeakService
+	multiProviders, ok := graph.MultiProviders["test.Service"]
+	assert.True(t, ok, "Service should be a multi-provider")
+	assert.Equal(t, 1, len(multiProviders), "Should only contain the non-weak provider")
+	assert.Equal(t, "RegularService", multiProviders[0].Function.Name())
+
+	// WeakService should NOT be included since it's weak and not explicitly needed
+	for _, provider := range multiProviders {
+		assert.NotEqual(t, "WeakService", provider.Function.Name(), "WeakService should not be included")
+	}
+}
+
+func TestAnalyseWeakMultiProviderIncludedWhenRequired(t *testing.T) {
+	testCode := `
+package main
+
+type Service struct {
+	Name string
+}
+
+//zero:provider multi
+func RegularService() Service {
+	return Service{Name: "regular"}
+}
+
+//zero:provider weak multi
+func WeakService() Service {
+	return Service{Name: "weak"}
+}
+
+//zero:provider weak require=WeakService
+func SpecialHandler() string {
+	return "special"
+}
+`
+	// Test that weak multi-providers ARE included when explicitly required
+	graph := analyseTestCode(t, testCode, []string{"string"})
+
+	// SpecialHandler should be included as it provides the root type "string"
+	specialHandlerProvider, ok := graph.Providers["string"]
+	assert.True(t, ok, "SpecialHandler provider should be included")
+	assert.Equal(t, "SpecialHandler", specialHandlerProvider.Function.Name())
+
+	// Service should be a multi-provider containing BOTH providers
+	multiProviders, ok := graph.MultiProviders["test.Service"]
+	assert.True(t, ok, "Service should be a multi-provider")
+	assert.Equal(t, 2, len(multiProviders), "Should contain both providers since WeakService is required")
+
+	// Both RegularService and WeakService should be included
+	providerNames := make([]string, len(multiProviders))
+	for i, p := range multiProviders {
+		providerNames[i] = p.Function.Name()
+	}
+	assert.SliceContains(t, providerNames, "RegularService")
+	assert.SliceContains(t, providerNames, "WeakService")
+}
+
+func TestAnalyseInvalidRequireDirective(t *testing.T) {
+	testCode := `
+package main
+
+//zero:provider weak require=NonExistentFunction
+func WeakProvider() string {
+	return "test"
+}
+`
+	// Test that invalid function names in require directive return an error
+	_, err := analyseTestCodeWithError(t, testCode, []string{"string"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "requires NonExistentFunction, but NonExistentFunction is not a valid provider function in the same package")
+}
+
+func TestAnalyseRequireNonProviderFunction(t *testing.T) {
+	testCode := `
+package main
+
+func RegularFunction() string {
+	return "not a provider"
+}
+
+//zero:provider weak require=RegularFunction
+func WeakProvider() int {
+	return 42
+}
+`
+	// Test that requiring a non-provider function returns an error
+	_, err := analyseTestCodeWithError(t, testCode, []string{"int"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "requires RegularFunction, but RegularFunction is not a valid provider function in the same package")
+}
+
 func TestAnalyseAPIValidParameterTypes(t *testing.T) {
 	testCode := `
 package main

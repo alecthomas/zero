@@ -42,8 +42,9 @@ type Directive interface {
 }
 
 type DirectiveProvider struct {
-	Weak  bool `parser:"'provider' (  @'weak'"`
-	Multi bool `parser:"            | @'multi')*"`
+	Weak    bool     `parser:"'provider' (  @'weak'"`
+	Multi   bool     `parser:"            | @'multi'"`
+	Require []string `parser:"            | 'require' '=' @Ident (',' @Ident)*)*"`
 }
 
 func (p *DirectiveProvider) directive() {}
@@ -54,6 +55,9 @@ func (p *DirectiveProvider) String() string {
 	}
 	if p.Multi {
 		out += " multi"
+	}
+	if len(p.Require) > 0 {
+		out += " require=" + strings.Join(p.Require, ",")
 	}
 	return out
 }

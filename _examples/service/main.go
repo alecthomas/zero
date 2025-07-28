@@ -11,19 +11,29 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/alecthomas/zero"
-	"github.com/brianvoe/gofakeit/v7"
 )
+
+type Migration struct {
+	ID  int
+	SQL string
+}
 
 type DAL struct {
 	users map[int]User
 }
 
+//zero:provider multi
+func ProvideMigrations() []Migration { return nil }
+
 //zero:provider
-func NewDAL(db *sql.DB) *DAL {
+func NewDAL(db *sql.DB, migrations []Migration) *DAL {
+	for _, migration := range migrations {
+		fmt.Printf("Applying migration: %03d %q\n", migration.ID, migration.SQL)
+	}
 	return &DAL{
 		users: map[int]User{
-			1: {Name: gofakeit.Name(), BirthYear: gofakeit.Date().Year()},
-			2: {Name: gofakeit.Name(), BirthYear: gofakeit.Date().Year()},
+			1: {Name: "Alice", BirthYear: 1970},
+			2: {Name: "Bob", BirthYear: 1980},
 		},
 	}
 }
@@ -56,8 +66,20 @@ type Service struct {
 	dal *DAL
 }
 
+//zero:provider multi weak
+func ProvideCronMigration() []Migration {
+	return []Migration{
+		{ID: 0, SQL: "CREATE TABLE cron (key VARCHAR NOT NULL, expires TIMESTAMP NOT NULL)"},
+	}
+}
+
+type CronExecutor struct{}
+
+//zero:provider weak require=ProvideCronMigration
+func ProvideCron() CronExecutor { return CronExecutor{} }
+
 //zero:provider
-func NewService(dal *DAL, config ServiceConfig) (*Service, error) {
+func NewService(dal *DAL, cron CronExecutor, config ServiceConfig) (*Service, error) {
 	// Other initialisation
 	return &Service{dal: dal}, nil
 }

@@ -8,18 +8,7 @@ A core tenet of Zero Services it that it will work with the normal Go developmen
 
 ## Dependency injection
 
-Any function annotated with `//zero:provider [weak] [multi]` will be used to provide its return type during application construction.
-
-### Weak providers
-
-Weak providers may be overridden by explicitly creating a non-weak provider, or explicitly selecting the provider to use via `--resolve`.
-
-### Multi-providers
-
-A multi-provider allows multiple providers to contribute to a single merged type value. The provided type must return a
-slice or a map.
-
-### Example
+Any function annotated with `//zero:provider [weak] [multi] [require=<provider>,...]` will be used to provide its return type during application construction.
 
 eg. The following code will inject a `*DAL` type and provide a `*Service` type.
 
@@ -30,13 +19,55 @@ func NewService(dal *DAL) (*Service, error) { ... }
 
 This is somewhat similar to Google's Wire [project](https://github.com/google/wire).
 
+### Weak providers
+
+Weak providers are marked with `weak`, and may be overridden implicitly by creating a non-weak provider, or explicitly by selecting the provider to use via `--resolve`.
+
+Weak providers are selected if any of the following conditions are true:
+
+- They are the only provider of that type.
+- They been explicitly selected by the user.
+- They are injected by another provider.
+
+### Multi-providers
+
+A multi-provider allows multiple providers to contribute to a single merged type value. The provided type must return a
+slice or a map. Note that slice order is not guaranteed.
+
+eg. In the following example the slice `[]string{"hello", "world"}` will be provided.
+
+```go
+//zero:provider multi
+func Hello() []string { return []string{"hello"} }
+
+//zero:provider multi
+func World() []string { return []string{"world"} }
+````
+
+### Explicit dependencies
+
+A weak provider may also explicitly request other weak dependencies be injected. This is useful when an injected parameter of the provider is itself reliant on an optional weak type.
+
+eg. In this example the `SQLCron()` provider requires that the migrations provided by `CronSQLMigrations()` have already been applied to `*sql.DB`, which in turn requires `[]Migration`. By explicitly specifiying `require=CronSQLMigrations`, the previously ignored weak provider will be added.
+
+```go
+//zero:provider
+func NewDB(config Config, migrations []Migration) *sql.DB { ... }
+
+//zero:provider weak multi
+func CronSQLMigrations() []Migration { ... }
+
+//zero:provider weak require=CronSQLMigrations
+func SQLCron(db *sql.DB) cron.Executor { ... }
+````
+
 ## Configuration
 
 A struct annotated with `//zero:config [prefix="<prefix>"]` will be used as embedded [Kong](https://github.com/alecthomas/kong)-annotated configuration, with corresponding config loading from JSON/YAML/HCL. These config structs can in turn be used during dependency injection.
 
 ## Routes
 
-ZS will automatically generate `http.Handler` implementations for any method annotated with `//zero:api`, providing request decoding, response encoding, path variable decoding, query parameter decoding, and error handling.
+Zero will automatically generate `http.Handler` implementations for any method annotated with `//zero:api`, providing request decoding, response encoding, path variable decoding, query parameter decoding, and error handling.
 
 ```go
 //zero:api [<method>] [<host>]/[<path>] [<label>[=<value>] ...]
