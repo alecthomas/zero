@@ -11,8 +11,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -59,6 +62,45 @@ type Config struct {
 
 func dsnScheme(dsn string) string {
 	return strings.Split(dsn, "://")[0]
+}
+
+// DumpMigrations to a directory.
+//
+// This is convenient for use with external migration tools.
+func DumpMigrations(migrations Migrations, dir string) error {
+	for _, migration := range migrations {
+		files, err := fs.ReadDir(migration, ".")
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		for _, file := range files {
+			if file.IsDir() {
+				continue
+			}
+			if err := copyFile(migration, file, dir); err != nil {
+				return errors.WithStack(err)
+			}
+		}
+	}
+	return nil
+}
+
+func copyFile(migration fs.FS, file fs.DirEntry, dir string) error {
+	w, err := os.Create(filepath.Join(dir, file.Name()))
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	defer w.Close()
+	r, err := migration.Open(file.Name())
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	defer r.Close()
+	_, err = io.Copy(w, r)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
 }
 
 // Open a database connection.
