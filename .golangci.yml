@@ -54,6 +54,7 @@ linters:
     - tagalign
     - goconst
     - gochecknoinits
+    - durationcheck
   settings:
     dupl:
       threshold: 100
