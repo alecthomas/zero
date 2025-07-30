@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/alecthomas/errors"
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 func init() {
@@ -19,6 +19,16 @@ func init() {
 type SQLiteDriver struct{}
 
 var _ Driver = (*SQLiteDriver)(nil)
+
+func (SQLiteDriver) Name() string { return "sqlite" }
+
+func (SQLiteDriver) TranslateError(err error) error {
+	var sqliteError *sqlite.Error
+	if errors.As(err, &sqliteError) && (sqliteError.Code() == 19 || sqliteError.Code() == 1555 || sqliteError.Code() == 1556) { // SQLITE_CONSTRAINT / SQLITE_CONSTRAINT_FOREIGNKEY / SQLITE_CONSTRAINT_PRIMARYKEY
+		return errors.Errorf("%w: %w", ErrConstraint, err)
+	}
+	return err
+}
 
 func (SQLiteDriver) Denormalise(query string) string { return query }
 

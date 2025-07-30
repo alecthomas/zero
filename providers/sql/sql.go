@@ -22,11 +22,18 @@ import (
 	"github.com/alecthomas/errors"
 )
 
+// ErrConstraint is returned when an SQL constraint violation occurs.
+var ErrConstraint = errors.New("constraint violation")
+
 // Driver abstracts driver-specific functionality for supporting migrations and local development.
 type Driver interface {
+	// Name of the driver.
+	Name() string
+	// TranslateError wraps a driver-specific error in standard errors from this package, such as ErrConflict.
+	TranslateError(err error) error
 	// Open connection to the database.
 	Open(dsn string) (*sql.DB, error)
-	// Denormalise a query that uses ? placeholders to its native format.
+	// Denormalise converts a query that uses ? placeholders to its native format.
 	Denormalise(query string) string
 	// RecreateDatabase optionally drops, then creates a database.
 	RecreateDatabase(ctx context.Context, dsn string) error
@@ -58,6 +65,17 @@ type Config struct {
 	Create  bool   `help:"Create (or recreate) the database."`
 	Migrate bool   `help:"Apply migrations during connection establishment."`
 	DSN     string `default:"${sqldsn}" required:"" help:"DSN for the SQL connection."`
+}
+
+// DriverForConfig returns the [Driver] associated with the given [Config].
+//
+//zero:provider
+func DriverForConfig(config Config) (Driver, error) {
+	driver, ok := drivers[dsnScheme(config.DSN)]
+	if !ok {
+		return nil, errors.Errorf("unsupported SQL driver: %s", dsnScheme(config.DSN))
+	}
+	return driver, nil
 }
 
 func dsnScheme(dsn string) string {
@@ -142,7 +160,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, migrations Mig
 func CreateDatabase(ctx context.Context, dsn string) error {
 	driver, ok := drivers[dsnScheme(dsn)]
 	if !ok {
-		return errors.Errorf("unsupported database driver: %s", dsnScheme(dsn))
+		return errors.Errorf("unsupported SQL driver: %s", dsnScheme(dsn))
 	}
 	return driver.RecreateDatabase(ctx, dsn)
 }
@@ -156,7 +174,7 @@ type migrationFile struct {
 func CheckMigrations(ctx context.Context, dsn string, db *sql.DB, migrations Migrations) error {
 	driver, ok := drivers[dsnScheme(dsn)]
 	if !ok {
-		return errors.Errorf("unsupported database driver: %s", dsnScheme(dsn))
+		return errors.Errorf("unsupported SQL driver: %s", dsnScheme(dsn))
 	}
 	allMigrations, err := collectMigrations(migrations)
 	if err != nil {
@@ -179,7 +197,7 @@ func CheckMigrations(ctx context.Context, dsn string, db *sql.DB, migrations Mig
 func Migrate(ctx context.Context, logger *slog.Logger, dsn string, db *sql.DB, migrations Migrations) error {
 	driver, ok := drivers[dsnScheme(dsn)]
 	if !ok {
-		return errors.Errorf("unsupported database driver: %s", dsnScheme(dsn))
+		return errors.Errorf("unsupported SQL driver: %s", dsnScheme(dsn))
 	}
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(255) PRIMARY KEY)`)
 	if err != nil {

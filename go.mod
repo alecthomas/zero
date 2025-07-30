@@ -11,6 +11,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/thnxdev/happy v0.1.6
 	golang.org/x/mod v0.26.0
+	golang.org/x/sync v0.16.0
 	modernc.org/sqlite v1.38.2
 )
 
@@ -26,7 +27,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
-	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	modernc.org/libc v1.66.3 // indirect
@@ -38,6 +38,7 @@ require (
 	github.com/alecthomas/errors v0.8.2
 	github.com/alecthomas/repr v0.5.0 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
+	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/lmittmann/tint v1.1.2
 	github.com/psanford/memfs v0.0.0-20241019191636-4ef911798f9b

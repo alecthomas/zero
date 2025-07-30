@@ -18,3 +18,7 @@ release:
   git diff --exit-code
   git tag $(svu next)
   git push --tags
+
+# Run "go mod tidy" in all modules
+tidy:
+  git ls-files | grep go.mod | xargs dirname | xargs -I {} go mod -C {} tidy

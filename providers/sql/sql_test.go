@@ -12,20 +12,23 @@ import (
 func testDB(t *testing.T, dsn string) {
 	t.Helper()
 	fs := memfs.New()
-	err := fs.WriteFile("000_init.sql", []byte(`CREATE TABLE users (name TEXT NOT NULL)`), 0600)
+	err := fs.WriteFile("000_init.sql", []byte(`CREATE TABLE users (name VARCHAR(255) NOT NULL PRIMARY KEY)`), 0600)
 	assert.NoError(t, err)
 
 	logger := slog.New(slog.DiscardHandler)
+	config := Config{DSN: dsn, Create: true, Migrate: true}
 
 	var db *sql.DB
 	t.Run("RecreateConnect", func(t *testing.T) {
-		db, err = New(t.Context(), Config{
-			DSN:     dsn,
-			Create:  true,
-			Migrate: true,
-		}, logger, Migrations{fs})
+		db, err = New(t.Context(), config, logger, Migrations{fs})
 		assert.NoError(t, err)
 	})
+	if db == nil {
+		return
+	}
+
+	driver, err := DriverForConfig(config)
+	assert.NoError(t, err)
 
 	t.Run("Insert", func(t *testing.T) {
 		_, err = db.ExecContext(t.Context(), `INSERT INTO users (name) VALUES ('Alice')`)
@@ -45,4 +48,10 @@ func testDB(t *testing.T, dsn string) {
 		}
 		assert.NoError(t, rows.Err())
 	})
+
+	t.Run("Insert", func(t *testing.T) {
+		_, err = db.ExecContext(t.Context(), `INSERT INTO users (name) VALUES ('Alice')`)
+		assert.IsError(t, driver.TranslateError(err), ErrConstraint)
+	})
+
 }

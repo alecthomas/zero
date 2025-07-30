@@ -11,6 +11,9 @@ import (
 	"strings"
 
 	"github.com/alecthomas/errors"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -21,6 +24,16 @@ func init() {
 type PostgresDriver struct{}
 
 var _ Driver = (*PostgresDriver)(nil)
+
+func (PostgresDriver) Name() string { return "postgres" }
+
+func (PostgresDriver) TranslateError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgerrcode.IsIntegrityConstraintViolation(pgErr.Code) {
+		return errors.Errorf("%w: %w", ErrConstraint, err)
+	}
+	return err
+}
 
 func (PostgresDriver) Denormalise(query string) string {
 	placeholderRe := regexp.MustCompile(`\?`)
