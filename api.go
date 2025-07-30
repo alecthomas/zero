@@ -72,7 +72,7 @@ func (e Event[T]) Payload() T         { return e.payload }
 
 func (e Event[T]) MarshalJSON() ([]byte, error) {
 	cloudEvent := cloudevent.New(e.source, e.created, e.payload)
-	return json.MarshalIndent(cloudEvent, "", "  ")
+	return errors.WithStack2(json.MarshalIndent(cloudEvent, "", "  "))
 }
 
 func (e *Event[T]) UnmarshalJSON(data []byte) error {

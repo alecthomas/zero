@@ -160,7 +160,7 @@ type TrailingSegment struct {
 func (a TrailingSegment) pathSegment()   {}
 func (a TrailingSegment) String() string { return "/" }
 
-// Parse a Zero's compiler directive.
+// Parse a Zero compiler directive.
 func Parse(pattern string) (Directive, error) {
 	if pattern == "" {
 		return nil, errors.Errorf("empty pattern")
@@ -172,7 +172,7 @@ func Parse(pattern string) (Directive, error) {
 	}
 	directive := result.Directive
 	if err := directive.Validate(); err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 
 	return result.Directive, nil

@@ -183,7 +183,7 @@ func CreateDatabase(ctx context.Context, dsn string) error {
 	if !ok {
 		return errors.Errorf("unsupported SQL driver: %s", dsnScheme(dsn))
 	}
-	return driver.RecreateDatabase(ctx, dsn)
+	return errors.WithStack(driver.RecreateDatabase(ctx, dsn))
 }
 
 type migrationFile struct {

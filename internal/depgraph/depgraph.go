@@ -416,7 +416,7 @@ func parseDirective(doc *ast.CommentGroup) (directiveparser.Directive, error) {
 	}
 	for _, comment := range doc.List {
 		if strings.HasPrefix(comment.Text, "//zero:") {
-			return directiveparser.Parse(comment.Text[2:])
+			return errors.WithStack2(directiveparser.Parse(comment.Text[2:]))
 		}
 	}
 	return nil, nil

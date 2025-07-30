@@ -30,7 +30,7 @@ func (MySQLDriver) TranslateError(err error) error {
 }
 func (MySQLDriver) Denormalise(query string) string { return query }
 func (MySQLDriver) Open(dsn string) (*sql.DB, error) {
-	return sql.Open("mysql", mysqlURLToDSN(dsn))
+	return errors.WithStack2(sql.Open("mysql", mysqlURLToDSN(dsn)))
 }
 func (MySQLDriver) RecreateDatabase(ctx context.Context, dsn string) error {
 	config, err := mysql.ParseDSN(mysqlURLToDSN(dsn))

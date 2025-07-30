@@ -123,7 +123,7 @@ retry:
 				break
 			}
 		} else if err := tx.Commit(); err != nil {
-			return nil, err
+			return nil, errors.WithStack(err)
 		} else {
 			return func(ctx context.Context) error {
 				return errors.WithStack(s.releaseLease(ctx, key))
@@ -180,7 +180,7 @@ func (s *SQLLeaser) acquireTx(ctx context.Context, tx *sql.Tx, key string) error
 		WHERE lease = ? AND expires < ?;
 	`), key, now)
 	if err != nil {
-		return s.driver.TranslateError(err)
+		return errors.WithStack(s.driver.TranslateError(err))
 	}
 
 	// If we can insert successfully, we have the lease
@@ -190,7 +190,7 @@ func (s *SQLLeaser) acquireTx(ctx context.Context, tx *sql.Tx, key string) error
 		VALUES (?, ?, ?)
 	`), key, s.holder, expires)
 	if err != nil {
-		return s.driver.TranslateError(err)
+		return errors.WithStack(s.driver.TranslateError(err))
 	}
 
 	return nil
