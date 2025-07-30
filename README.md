@@ -166,8 +166,8 @@ Zero ships with providers for a number of common use-cases, including SQL, loggi
 
 ### SQL
 
-The SQL provider supports Postgres, MySQL, and SQLite out of the box, but can be extended at runtime. For each database
-it supports (re)creation of databases, and migrations, during development, and dumping of migration files for use with
+The SQL provider supports Postgres, MySQL, and SQLite out of the box, but can be extended at runtime. For each database,
+it supports (re)creation of databases and migrations during development, and dumping of migration files for use with
 production migration tooling.
 
 There are a few steps that have to be followed to configure SQL support:
@@ -185,6 +185,14 @@ zero ./cmd/service
 #### 2. Set the DSN for development
 
 To set the default DSN for the configuration, pass the Kong option `kong.Vars{"sqldsn": "..."}`.
+
+DSNs are URN-like, where the part after the schema is driver-specific. eg.
+
+```
+sqlite://file:boop?mode=memory
+mysql://root:secret@tcp(localhost:3306)/zero
+postgres://postgres:secret@localhost:5432/zero-test?sslmode=disable
+```
 
 #### 3. Provide migrations
 
