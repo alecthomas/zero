@@ -157,7 +157,7 @@ var cli struct {
 }
 
 func main() {
-	kctx := kong.Parse(&cli)
+	kctx := kong.Parse(&cli, kong.Vars{"sqldsn": "sqlite://:memory:"})
 	ctx := context.Background()
 	singletons := map[reflect.Type]any{}
 	_, err := ZeroConstructSingletons[*Service](ctx, cli.ZeroConfig, singletons)

@@ -116,7 +116,9 @@ var cli struct {
 }
 
 func main() {
-	kctx := kong.Parse(&cli)
+	kctx := kong.Parse(&cli, kong.Vars{
+		"sqldsn": "postgres://postgres:secret@localhost:5432/zero-exempler?sslmode=disable",
+	})
 	ctx := context.Background()
 	singletons := map[reflect.Type]any{}
 	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, cli.ZeroConfig, singletons)

@@ -11,6 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: cashapp/activate-hermit@v1
+      - run: docker compose up -d --wait
       - run: go test ./...
   lint:
     name: Lint

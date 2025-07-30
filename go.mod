@@ -7,9 +7,11 @@ require (
 	github.com/alecthomas/kong v1.12.0
 	github.com/alecthomas/participle/v2 v2.1.4
 	github.com/dyninc/qstring v0.0.0-20160719172318-ab5840a88e81
+	github.com/go-sql-driver/mysql v1.9.3
+	github.com/jackc/pgx/v5 v5.7.5
 	github.com/thnxdev/happy v0.1.6
 	golang.org/x/mod v0.26.0
-	modernc.org/sqlite v1.38.1
+	modernc.org/sqlite v1.38.2
 )
 
 require (
@@ -35,9 +37,9 @@ require (
 require (
 	github.com/alecthomas/errors v0.8.2
 	github.com/alecthomas/repr v0.5.0 // indirect
-	github.com/go-sql-driver/mysql v1.9.3
 	github.com/hexops/gotextdiff v1.0.3 // indirect
-	github.com/jackc/pgx/v5 v5.7.5
+	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/lmittmann/tint v1.1.2
+	github.com/psanford/memfs v0.0.0-20241019191636-4ef911798f9b
 	golang.org/x/tools v0.35.0
 )

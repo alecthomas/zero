@@ -75,30 +75,6 @@ This can be very useful for testing.
 
 A struct annotated with `//zero:config [prefix="<prefix>"]` will be used as embedded [Kong](https://github.com/alecthomas/kong)-annotated configuration, with corresponding config loading from JSON/YAML/HCL. These config structs can in turn be used during dependency injection.
 
-## PubSub (NOT IMPLEMENTED)
-
-A method annotated with `//zero:subscribe` will result in the method being called whenever the corresponding pubsub topic receives an event. The PubSub implementation itself is described by the `zero.Topic[T]` interface, which may be injected in order to publish to a topic. A topic's payload type is used to uniquely identify that topic.
-
-To cater to arbitrarily typed PubSub topics, a generic provider function may be declared that returns a generic `zero.Topic[T]`. This will be called during injection with the event type of a subscriber or publisher.
-
-eg.
-
-```go
-//ftl:provider
-func NewKafkaConnection(ctx context.Context, config KafkaConfig) (*kafka.Conn, error) {
-  return kafka.DialContext(ctx, config.Network, config.Address)
-}
-
-//ftl:provider
-func NewPubSubTopic[T any](ctx context.Context, conn *kafka.Conn) (zero.Topic[T], error) {
-  // ...
-}
-```
-
-## Cron (NOT IMPLEMENTED)
-
-A method annotated with `//zero:cron <schedule>` will be called on the given schedule.
-
 ## Middleware
 
 A function annotated with `//zero:middleware [<label>]` will be automatically used as HTTP middleware for any method matching the given `<label>` if provided, or applied globally if not. Option values can be retrieved from the request with `zero.HandlerOptions(r)`.
@@ -184,6 +160,87 @@ func CronSQLMigrations() []Migration { ... }
 func SQLCron(db *sql.DB) cron.Executor { ... }
 ````
 
+## Builtin Providers
+
+Zero ships with providers for a number of common use-cases, including SQL, logging, and so on.
+
+### SQL
+
+The SQL provider supports Postgres, MySQL, and SQLite out of the box, but can be extended at runtime. For each database
+it supports (re)creation of databases, and migrations, during development, and dumping of migration files for use with
+production migration tooling.
+
+There are a few steps that have to be followed to configure SQL support:
+
+#### 1. Enable the driver in the build
+
+By default drivers are excluded via Go build tags to reduce the dependencies for end-user builds. To enable a particular
+driver use something like:
+
+```bash
+export GOFLAGS='--tags=postgres'
+zero ./cmd/service
+```
+
+#### 2. Set the DSN for development
+
+To set the default DSN for the configuration, pass the Kong option `kong.Vars{"sqldsn": "..."}`.
+
+#### 3. Provide migrations
+
+Migrations are provided as a slice of Go `fs.FS` filesystems. Every `.sql` file in the root of each FS will be applied, with all files globally lexically ordered. Files across multiple migration filesystems must be globally unique.
+
+Good practice is to name migration files something like:
+
+```
+<id>_<table>_<description>.sql
+```
+
+eg.
+
+```
+001_users_create.sql
+```
+
+Here's an example of providing migrations from an embedded FS (recommended):
+
+```go
+import zerosql "github.com/alecthomas/zero/providers/sql"
+
+//go:embed migrations/*.sql
+var migrations embed.FS
+
+//zero:provider
+func Migrations() zerosql.Migrations {
+	sub, _ := fs.Sub(migrations, "migrations")
+	return zerosql.Migrations{sub}
+}
+````
+
+## PubSub (NOT IMPLEMENTED)
+
+A method annotated with `//zero:subscribe` will result in the method being called whenever the corresponding pubsub topic receives an event. The PubSub implementation itself is described by the `zero.Topic[T]` interface, which may be injected in order to publish to a topic. A topic's payload type is used to uniquely identify that topic.
+
+To cater to arbitrarily typed PubSub topics, a generic provider function may be declared that returns a generic `zero.Topic[T]`. This will be called during injection with the event type of a subscriber or publisher.
+
+eg.
+
+```go
+//ftl:provider
+func NewKafkaConnection(ctx context.Context, config KafkaConfig) (*kafka.Conn, error) {
+  return kafka.DialContext(ctx, config.Network, config.Address)
+}
+
+//ftl:provider
+func NewPubSubTopic[T any](ctx context.Context, conn *kafka.Conn) (zero.Topic[T], error) {
+  // ...
+}
+```
+
+## Cron (NOT IMPLEMENTED)
+
+A method annotated with `//zero:cron <schedule>` will be called on the given schedule.
+
 ## Infrastructure (NOT IMPLEMENTED)
 
 While the base usage of Zero doesn't deal with infrastructure at all, it would be possible to automatically extract required infrastructure and inject provisioned implementations of those into the injection graph as it is being constructed.
@@ -191,54 +248,3 @@ While the base usage of Zero doesn't deal with infrastructure at all, it would b
 For example, if a service consumes `pubsub.Topic[T]` and there is no provider, one could be provided by an external provisioning plugin. The plugin could get called with the missing type, and return code that provides that type, as well as eg. Terraform for provisioning the infrastructure.
 
 This is not thought out in detail, but the basic approach should work.
-
-## Example
-
-```go
-package app
-
-type User struct {
-}
-
-type UserCreatedEvent User
-
-//zero:config
-type DatabaseConfig struct {
-  DSN string `default:"postgres://localhost" help:"DSN for the service."`
-}
-
-//zero:provider
-func NewDAL(config DatabaseConfig) (*DAL, error) {
-  // ...
-}
-
-type Service struct {
-  dal *DAL
-}
-
-//zero:provider
-func NewService(dal *DAL) (*Service, error) {
-  // Other initialisation
-  return &Service{dal: dal}, nil
-}
-
-//zero:api GET /users
-func (s *Service) ListUsers() ([]User, error) {
-  // ...
-}
-
-//zero:api POST /users authenticated
-func (s *Service) CreateUser(ctx context.Context, user User) error {
-  // ...
-}
-
-//zero:subscribe
-func (s *Service) OnUserCreated(user zero.Event[UserCreatedEvent]) error {
-  // ...
-}
-
-//zero:cron 1h
-func (s *Service) CheckUsers() error {
-  // ...
-}
-```

@@ -12,13 +12,14 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/alecthomas/zero/internal/depgraph"
 	"github.com/alecthomas/zero/internal/generator"
+	"github.com/kballard/go-shellquote"
 )
 
 var cli struct {
 	Version    kong.VersionFlag   `help:"Print the version and exit."`
 	Chdir      kong.ChangeDirFlag `help:"Change to this directory before running." placeholder:"DIR" short:"C"`
 	Debug      bool               `help:"Enable debug logging."`
-	Tags       []string           `help:"Tags to enable during type analysis." placeholder:"TAG"`
+	Tags       []string           `help:"Tags to enable during type analysis (will also be read from $GOFLAGS)." placeholder:"TAG"`
 	OutputTags []string           `help:"Tags to add to generated code."`
 	Resolve    []string           `help:"Resolve an ambiguous type with this provider." placeholder:"REF"`
 	List       bool               `help:"List all dependencies." xor:"action"`
@@ -42,12 +43,15 @@ func main() {
 	err := ensureGoModuleVersion(kctx, version)
 	kctx.FatalIfErrorf(err)
 
+	// Combine explicit tags and tags from GOFLAGS
+	tags := append(cli.Tags, parseGoTags()...)
+
 	graph, err := depgraph.Analyse(cli.Dest,
 		depgraph.WithRoots(cli.Root...),
 		depgraph.WithPatterns(cli.Patterns...),
 		depgraph.WithProviders(cli.Resolve...),
 		depgraph.WithOptions(extraOptions...),
-		depgraph.WithTags(cli.Tags...),
+		depgraph.WithTags(tags...),
 	)
 	kctx.FatalIfErrorf(err)
 
@@ -105,4 +109,21 @@ func ensureGoModuleVersion(kctx *kong.Context, version string) error {
 		return errors.Wrap(err, "failed to update to github.com/alecthomas/zero@"+version)
 	}
 	return nil
+}
+
+func parseGoTags() []string {
+	goFlags := os.Getenv("GOFLAGS")
+	words, err := shellquote.Split(goFlags)
+	if err != nil {
+		return nil
+	}
+	tags := []string{}
+	for _, word := range words {
+		if strings.HasPrefix(word, "-tags=") {
+			tags = append(tags, strings.Split(word[6:], ",")...)
+		} else if strings.HasPrefix(word, "--tags=") {
+			tags = append(tags, strings.Split(word[7:], ",")...)
+		}
+	}
+	return tags
 }
