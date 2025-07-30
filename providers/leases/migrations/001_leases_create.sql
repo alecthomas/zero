@@ -1,0 +1,5 @@
+CREATE TABLE leases (
+    lease VARCHAR(255) NOT NULL PRIMARY KEY,
+    holder VARCHAR(255) NOT NULL,
+    expires TIMESTAMP NOT NULL
+);

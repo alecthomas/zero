@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/alecthomas/errors"
 )
@@ -73,9 +74,22 @@ type Config struct {
 func DriverForConfig(config Config) (Driver, error) {
 	driver, ok := drivers[dsnScheme(config.DSN)]
 	if !ok {
-		return nil, errors.Errorf("unsupported SQL driver: %s", dsnScheme(config.DSN))
+		return nil, errors.Errorf("unknown SQL driver: %s", dsnScheme(config.DSN))
 	}
 	return driver, nil
+}
+
+var dbToDriverLock sync.Mutex
+var dbToDriver = map[*sql.DB]Driver{}
+
+// DriverForDB returns the [Driver] associated with the given [sql.DB].
+//
+// This is populated by [Open] and [New].
+func DriverForDB(db *sql.DB) (Driver, bool) {
+	dbToDriverLock.Lock()
+	defer dbToDriverLock.Unlock()
+	driver, ok := dbToDriver[db]
+	return driver, ok
 }
 
 func dsnScheme(dsn string) string {
@@ -121,13 +135,20 @@ func copyFile(migration fs.FS, file fs.DirEntry, dir string) error {
 	return nil
 }
 
-// Open a database connection.
+// Open a database connection without applying or validating migrations.
 func Open(dsn string) (db *sql.DB, err error) {
 	driver, ok := drivers[dsnScheme(dsn)]
 	if !ok {
 		return nil, errors.Errorf("unsupported SQL driver: %q", dsnScheme(dsn))
 	}
-	return errors.WithStack2(driver.Open(dsn))
+	db, err = driver.Open(dsn)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	dbToDriverLock.Lock()
+	defer dbToDriverLock.Unlock()
+	dbToDriver[db] = driver
+	return db, nil
 }
 
 // New creates a new SQL database connection, applying migrations or verifying migrations have been applied.

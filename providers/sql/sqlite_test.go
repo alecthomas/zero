@@ -14,6 +14,6 @@ func TestSQLite(t *testing.T) {
 		testDB(t, "sqlite://file:"+dbPath)
 	})
 	t.Run("Memory", func(t *testing.T) {
-		testDB(t, "sqlite://file:foobar?mode=memory&cache=shared")
+		testDB(t, "sqlite://file:discard?mode=memory&cache=shared")
 	})
 }
