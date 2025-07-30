@@ -218,12 +218,31 @@ import zerosql "github.com/alecthomas/zero/providers/sql"
 //go:embed migrations/*.sql
 var migrations embed.FS
 
-//zero:provider
+//zero:provider multi
 func Migrations() zerosql.Migrations {
 	sub, _ := fs.Sub(migrations, "migrations")
 	return zerosql.Migrations{sub}
 }
 ````
+
+## Leases
+
+Zero supports [leases](https://en.wikipedia.org/wiki/Lease_(computer_science)) for coordination. There are two implementations available, in-memory, and one based on SQL. The latter is intended to be robust in the face of failures and timeouts, and in particular has the property that if lease renewal fails, the process will be terminated. This ensures that split-brain cannot occur.
+
+To use leases:
+
+1. Inject the lease interface:
+
+    ```go
+    //zero:provider
+    func NewService(leaser leases.Leaser) *Service { ... }
+    ````
+
+2. Select the lease implementation to use:
+
+    ```bash
+    zero --resolve github.com/alecthomas/zero/providers/leases.NewMemoryLeaser ./cmd/service
+    ```
 
 ## PubSub (NOT IMPLEMENTED)
 
