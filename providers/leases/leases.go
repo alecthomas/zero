@@ -20,8 +20,8 @@ type Release func(ctx context.Context) error
 type Leaser interface {
 	// Acquire acquires a lease for the given key.
 	//
-	// It will block until the lease is acquired or timeout is reached. Once acquired, the lease will be automatically
-	// released when the context is canceled, or when the Release function is called.
+	// It will block until the lease is acquired, timeout is reached, or context is cancelled. Once acquired, the lease
+	// will be automatically released when the context is canceled, or when the Release function is called.
 	//
 	// Leases are automatically renewed, but if renewal fails after a period of retries, the process will be terminated
 	// to avoid split-brain.

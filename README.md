@@ -227,7 +227,7 @@ func Migrations() zerosql.Migrations {
 
 ## Leases
 
-Zero supports [leases](https://en.wikipedia.org/wiki/Lease_(computer_science)) for coordination. There are two implementations available, in-memory, and one based on SQL. The latter is intended to be robust in the face of failures and timeouts, and in particular has the property that if lease renewal fails, the process will be terminated. This ensures that split-brain cannot occur.
+Zero supports [leases](https://en.wikipedia.org/wiki/Lease_(computer_science)) for coordination. There are two implementations available, in-memory, and one based on SQL. The latter is intended to be robust in the face of failures and timeouts, and in particular has the property that if lease renewal fails, the process will be terminated. This ensures that split-brain cannot occur, but _can_ result in service outage of the database is unavailable. However, if the database is unavailable, your service is likely down anyway.
 
 To use leases:
 

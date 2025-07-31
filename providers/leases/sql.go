@@ -2,6 +2,7 @@ package leases
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -44,14 +45,13 @@ func NewSQLLeaser(
 	driver zerosql.Driver,
 	db *sql.DB,
 ) (*SQLLeaser, error) {
-	hostname, err := os.Hostname()
+	holder, err := makeID()
 	if err != nil {
-		return nil, errors.Errorf("failed to get hostname: %w", err)
+		return nil, errors.Errorf("failed to make lease holder ID: %w", err)
 	}
-	pid := os.Getpid()
 	s := &SQLLeaser{
 		stop:   make(chan struct{}),
-		holder: fmt.Sprintf("%s:%d", hostname, pid),
+		holder: holder,
 		db:     db,
 		q:      driver.Denormalise,
 		driver: driver,
@@ -59,6 +59,21 @@ func NewSQLLeaser(
 	}
 	go s.renewLoop(ctx)
 	return s, nil
+}
+
+func makeID() (string, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", errors.Errorf("failed to get hostname: %w", err)
+	}
+	pid := os.Getpid()
+	suffix := make([]byte, 32)
+	_, err = cryptorand.Read(suffix)
+	if err != nil {
+		return "", errors.Errorf("failed to generate random suffix: %w", err)
+	}
+	holder := fmt.Sprintf("%s-%d-%016x", hostname, pid, suffix)
+	return holder, nil
 }
 
 func (s *SQLLeaser) renewLoop(ctx context.Context) {
@@ -102,20 +117,20 @@ func (s *SQLLeaser) renew(ctx context.Context) {
 }
 
 func (s *SQLLeaser) Acquire(ctx context.Context, key string, timeout time.Duration) (Release, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// Try to acquire the lease until the timeout is reached
 retry:
 	for {
-		tx, err := s.db.BeginTx(ctx, nil)
+		tx, err := s.db.BeginTx(timeoutCtx, nil)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				break
 			}
 			return nil, errors.Errorf("lease %s: failed to begin transaction: %w", key, err)
 		}
-		if err := s.acquireTx(ctx, tx, key); err != nil {
+		if err := s.acquireTx(timeoutCtx, tx, key); err != nil {
 			s.log.Debug("Failed to acquire lease, will retry", "err", err)
 			// Failed to acquire lease, rollback and fallthrough to the retry.
 			_ = tx.Rollback()
@@ -125,22 +140,35 @@ retry:
 		} else if err := tx.Commit(); err != nil {
 			return nil, errors.WithStack(err)
 		} else {
+			released := make(chan struct{})
+			go func() {
+				select {
+				case <-released:
+				case <-ctx.Done():
+					_ = s.releaseLease(context.Background(), key) //nolint
+				}
+			}()
 			return func(ctx context.Context) error {
+				select {
+				case <-released:
+				default:
+					close(released)
+				}
 				return errors.WithStack(s.releaseLease(ctx, key))
 			}, nil
 		}
 
 		select {
-		case <-ctx.Done():
+		case <-timeoutCtx.Done():
 			break retry
 		case <-time.After(jitter(time.Second)):
 		}
 	}
 
 	// Couldn't acquire the lease, try to find the holder.
-	ctx, cancel = context.WithTimeout(context.Background(), time.Second*5)
+	timeoutCtx, cancel = context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	row := s.db.QueryRowContext(ctx, s.q(`SELECT holder FROM leases WHERE lease = ?`), key) //nolint
+	row := s.db.QueryRowContext(timeoutCtx, s.q(`SELECT holder FROM leases WHERE lease = ?`), key) //nolint
 	if row.Err() != nil {
 		return nil, errors.Errorf("lease %s: failed to query lease holder: %w", key, row.Err())
 	}

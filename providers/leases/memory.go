@@ -25,7 +25,7 @@ func NewMemoryLeaser() *MemoryLeaser {
 }
 
 func (m *MemoryLeaser) Acquire(ctx context.Context, key string, timeout time.Duration) (Release, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	timeoutContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	tick := time.NewTicker(time.Millisecond * 100)
@@ -40,7 +40,7 @@ func (m *MemoryLeaser) Acquire(ctx context.Context, key string, timeout time.Dur
 		if ok {
 			select {
 			case <-tick.C:
-			case <-ctx.Done():
+			case <-timeoutContext.Done():
 				return nil, errors.Errorf("%s: %w", key, ErrLeaseHeld)
 			}
 			continue
@@ -53,13 +53,35 @@ func (m *MemoryLeaser) Acquire(ctx context.Context, key string, timeout time.Dur
 			m.lock.Unlock()
 			continue
 		}
+		defer m.lock.Unlock()
 
 		// We have the lease
-		defer m.lock.Unlock()
 		m.leases[key] = true
+		// Release the lease if the context is cancelled.
+		released := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				m.lock.Lock()
+				defer m.lock.Unlock()
+				// Check if the lease was already released
+				select {
+				case <-released:
+				default:
+					delete(m.leases, key)
+				}
+
+			case <-released:
+			}
+		}()
 		return func(ctx context.Context) error {
 			m.lock.Lock()
 			defer m.lock.Unlock()
+			select {
+			case <-released:
+			default:
+				close(released)
+			}
 			held := m.leases[key]
 			if !held {
 				return errors.Errorf("%s: %w", key, ErrLeaseNotHeld)

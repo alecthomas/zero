@@ -1,6 +1,7 @@
 package leases
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -36,5 +37,14 @@ func testLeases(t *testing.T, leaser Leaser) { //nolint
 		release, err = leaser.Acquire(t.Context(), "lease", time.Second)
 		assert.NoError(t, err)
 		assert.NoError(t, release(t.Context()))
+	})
+
+	t.Run("ReleaseWhenContextCancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		release, err := leaser.Acquire(ctx, "lease", time.Second)
+		assert.NoError(t, err)
+		cancel()
+		time.Sleep(time.Millisecond * 100)
+		assert.IsError(t, release(t.Context()), ErrLeaseNotHeld)
 	})
 }
