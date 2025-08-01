@@ -3,7 +3,9 @@ package directiveparser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/alecthomas/errors"
 	"github.com/alecthomas/participle/v2"
@@ -13,7 +15,7 @@ import (
 var (
 	annotationParser = participle.MustBuild[annotation](
 		participle.Lexer(patternLexer),
-		participle.Union[Directive](&DirectiveAPI{}, &DirectiveProvider{}, &DirectiveConfig{}, &DirectiveMiddleware{}),
+		participle.Union[Directive](&DirectiveAPI{}, &DirectiveProvider{}, &DirectiveConfig{}, &DirectiveMiddleware{}, &DirectiveCron{}),
 		participle.Union[Segment](WildcardSegment{}, LiteralSegment{}, TrailingSegment{}),
 		participle.Elide("Whitespace"),
 		participle.CaseInsensitive("Method"),
@@ -21,6 +23,7 @@ var (
 	)
 	patternLexer = lexer.MustSimple([]lexer.SimpleRule{
 		{"Method", `GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT|ANY`},
+		{"Number", `[0-9]+`},
 		{"Ident", `[a-zA-Z_][a-zA-Z0-9_]*`},
 		{"Escape", `%[0-9a-fA-F][0-9a-fA-F]`},
 		{"String", `"(\\.|[^"])*"`},
@@ -84,6 +87,41 @@ func (d *DirectiveMiddleware) String() string {
 	return result
 }
 func (d *DirectiveMiddleware) Validate() error { return nil }
+
+type DirectiveCron struct {
+	Schedule string `parser:"'cron' @(Number ('h' | 'H' | 'm' | 'm' | 's' | 'S' | 'd' | 'D' | 'w' | 'W'))"`
+}
+
+func (d *DirectiveCron) directive() {}
+func (d *DirectiveCron) String() string {
+	return "zero:cron " + d.Schedule
+}
+func (d *DirectiveCron) Duration() (time.Duration, error) {
+	// time.ParseDuration doesn't support "d" or "w" so we roll our own
+	if suffix, ok := strings.CutSuffix(strings.ToLower(d.Schedule), "d"); ok {
+		days, err := strconv.Atoi(suffix)
+		if err != nil {
+			return 0, errors.Wrap(err, "invalid cron schedule")
+		}
+		return time.Duration(days) * time.Hour * 24, nil
+	}
+	if suffix, ok := strings.CutSuffix(strings.ToLower(d.Schedule), "w"); ok {
+		days, err := strconv.Atoi(suffix)
+		if err != nil {
+			return 0, errors.Wrap(err, "invalid cron schedule")
+		}
+		return time.Duration(days) * time.Hour * 24 * 7, nil
+	}
+	schedule, err := time.ParseDuration(d.Schedule)
+	if err != nil {
+		return 0, errors.Wrap(err, "invalid cron schedule")
+	}
+	return schedule, nil
+}
+func (d *DirectiveCron) Validate() error {
+	_, err := d.Duration()
+	return err
+}
 
 // DirectiveAPI represents a //zero:api directive
 type DirectiveAPI struct {

@@ -14,6 +14,32 @@ func TestParse(t *testing.T) {
 		wantErr bool
 	}{
 		{
+			name:    "CronValid",
+			pattern: "zero:cron 1h",
+			want: &DirectiveCron{
+				Schedule: "1h",
+			},
+		},
+		{
+			name:    "CronDay",
+			pattern: "zero:cron 1d",
+			want: &DirectiveCron{
+				Schedule: "1d",
+			},
+		},
+		{
+			name:    "CronWeek",
+			pattern: "zero:cron 1w",
+			want: &DirectiveCron{
+				Schedule: "1w",
+			},
+		},
+		{
+			name:    "CronInvalid",
+			pattern: "zero:cron 1y",
+			wantErr: true,
+		},
+		{
 			name:    "EmptyPattern",
 			pattern: "zero:api",
 			wantErr: true,
