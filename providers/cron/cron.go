@@ -29,6 +29,7 @@ func (s *Schedule) String() string {
 	return fmt.Sprintf("Schedule(%q, nextRun=%s)", s.name, time.Until(s.NextRun()))
 }
 
+// Job represents a cron job.
 type Job func(ctx context.Context) error
 
 type Scheduler struct {
@@ -42,7 +43,7 @@ type Scheduler struct {
 //
 // The [Scheduler] uses [leases.Leaser] to prevent cron jobs from running concurrently.
 //
-//zero:provider
+//zero:provider weak
 func NewScheduler(ctx context.Context, logger *slog.Logger, leaser leases.Leaser) *Scheduler {
 	s := &Scheduler{logger: logger, leaser: leaser}
 	go s.run(ctx)
@@ -77,7 +78,6 @@ func (s *Scheduler) run(ctx context.Context) {
 			if !schedule.NextRun().Before(now) {
 				continue
 			}
-			// s.logger.Debug("Running cron job", "job", schedule.name)
 			release, err := s.leaser.Acquire(ctx, "cron/"+schedule.name, schedule.period/2)
 			if err != nil {
 				s.logger.Error("Failed to acquire lease for cron job", "job", schedule.name, "error", err)
@@ -97,6 +97,21 @@ func (s *Scheduler) run(ctx context.Context) {
 
 func (s *Scheduler) sortSchedulesNoLock() {
 	slices.SortFunc(s.schedules, func(a, b *Schedule) int { return a.NextRun().Compare(b.NextRun()) })
+}
+
+// NullScheduler is a no-op scheduler used when no cron jobs are defined.
+type NullScheduler struct{}
+
+// Register does nothing for the null scheduler.
+func (n *NullScheduler) Register(name string, schedule time.Duration, job Job) error {
+	return nil
+}
+
+// NewNullScheduler creates a new null scheduler.
+//
+//zero:provider weak
+func NewNullScheduler() *Scheduler {
+	return &Scheduler{}
 }
 
 // Calculate the next time a cron job should run.

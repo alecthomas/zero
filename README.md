@@ -244,6 +244,20 @@ To use leases:
     zero --resolve github.com/alecthomas/zero/providers/leases.NewMemoryLeaser ./cmd/service
     ```
 
+## Cron
+
+A method annotated with `//zero:cron <schedule>` will be called on the given schedule. Schedules currently must be in the form `<n>[smhdw]`.
+
+eg.
+
+```go
+//zero:cron 5s
+func (s *Service) CheckUsers(ctx context.Context) error {
+	// ...
+	return nil
+}
+````
+
 ## PubSub (NOT IMPLEMENTED)
 
 A method annotated with `//zero:subscribe` will result in the method being called whenever the corresponding pubsub topic receives an event. The PubSub implementation itself is described by the `zero.Topic[T]` interface, which may be injected in order to publish to a topic. A topic's payload type is used to uniquely identify that topic.
@@ -263,10 +277,6 @@ func NewPubSubTopic[T any](ctx context.Context, conn *kafka.Conn) (zero.Topic[T]
   // ...
 }
 ```
-
-## Cron (NOT IMPLEMENTED)
-
-A method annotated with `//zero:cron <schedule>` will be called on the given schedule.
 
 ## Infrastructure (NOT IMPLEMENTED)
 

@@ -27,6 +27,11 @@ type Ref struct {
 	Ref    string // *sql.DB or *impe1d11ad6baa4124f.DB
 }
 
+func (r Ref) String() string {
+	return fmt.Sprintf("%s.%s", r.Pkg, strings.TrimPrefix(r.Ref, "*"))
+}
+
+// A Provider represents a constructor for a type.
 type Provider struct {
 	// Position is the position of the function declaration.
 	Position  token.Position
@@ -62,6 +67,20 @@ func (a *API) Label(name string) string {
 		}
 	}
 	return ""
+}
+
+// CronJob represents a cron job method in the graph.
+//
+//	//zero:cron <schedule>
+type CronJob struct {
+	// Position is the position of the function declaration.
+	Position token.Position
+	// Schedule is the parsed cron schedule directive
+	Schedule *directiveparser.DirectiveCron
+	// Function is the function that handles the cron job
+	Function *types.Func
+	// Package is the package that contains the function
+	Package *packages.Package
 }
 
 // Config represents command-line/file configuration. Config structs are annotated like so:
@@ -119,7 +138,7 @@ type graphOptions struct {
 
 type Option func(*graphOptions) error
 
-// WithRoots selects a set of root types for the graph.
+// WithRoots selects a set of root types that will always be included in the graph.
 func WithRoots(roots ...string) Option {
 	return func(o *graphOptions) error {
 		o.roots = roots
@@ -177,6 +196,7 @@ type Graph struct {
 	MultiProviders map[string][]*Provider // Multiple providers for multi types
 	Configs        map[string]*Config
 	APIs           []*API
+	CronJobs       []*CronJob
 	Middleware     []*Middleware
 	Missing        map[*types.Func][]types.Type
 }
@@ -189,6 +209,7 @@ func Analyse(dest string, options ...Option) (*Graph, error) {
 		MultiProviders: make(map[string][]*Provider),
 		Configs:        make(map[string]*Config),
 		APIs:           make([]*API, 0),
+		CronJobs:       make([]*CronJob, 0),
 		Middleware:     make([]*Middleware, 0),
 		Missing:        make(map[*types.Func][]types.Type),
 	}
@@ -238,9 +259,9 @@ func Analyse(dest string, options ...Option) (*Graph, error) {
 		return nil, errors.Errorf("destination package %q not found", destImport)
 	}
 
-	// If no roots provided, use API receivers as roots
+	// If no roots provided, use API and Cron receivers as roots
 	if opts.roots == nil {
-		opts.roots = make([]string, 0, len(graph.APIs))
+		opts.roots = make([]string, 0, len(graph.APIs)+len(graph.CronJobs))
 		for _, api := range graph.APIs {
 			if recv := api.Function.Signature().Recv(); recv != nil {
 				receiverType := recv.Type()
@@ -248,7 +269,20 @@ func Analyse(dest string, options ...Option) (*Graph, error) {
 				opts.roots = append(opts.roots, receiverTypeStr)
 			}
 		}
+		for _, cron := range graph.CronJobs {
+			if recv := cron.Function.Signature().Recv(); recv != nil {
+				receiverType := recv.Type()
+				receiverTypeStr := types.TypeString(receiverType, nil)
+				opts.roots = append(opts.roots, receiverTypeStr)
+			}
+		}
 	}
+	// Always include the Zero container, as this ensures that API endpoints and cron jobs are always included.
+	opts.roots = append(opts.roots, "*github.com/alecthomas/zero.Container")
+
+	// Automatically require the appropriate scheduler provider based on cron jobs
+	requireAppropriateScheduler(graph, opts)
+
 	if err := pruneUnreferencedTypes(graph, opts.roots, providers, opts.pick); err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -257,7 +291,7 @@ func Analyse(dest string, options ...Option) (*Graph, error) {
 
 	// Prune unreferenced providers and configs based on roots
 	if len(opts.roots) == 0 {
-		return nil, errors.Errorf("no root types provided and no API endpoints found")
+		return nil, errors.Errorf("no root types provided and no API endpoints or cron jobs found")
 	}
 
 	return graph, nil
@@ -453,6 +487,15 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 						graph.APIs = append(graph.APIs, api)
 					}
 
+				case *directiveparser.DirectiveCron:
+					cron, err := createCron(decl, pkg, directive)
+					if err != nil {
+						return err
+					}
+					if cron != nil {
+						graph.CronJobs = append(graph.CronJobs, cron)
+					}
+
 				case *directiveparser.DirectiveMiddleware:
 					middleware, err := createMiddleware(decl, pkg, directive)
 					if err != nil {
@@ -591,6 +634,56 @@ func createAPI(fn *ast.FuncDecl, pkg *packages.Package, directive *directivepars
 
 	return &API{
 		Pattern:  directive,
+		Function: funcObj,
+		Package:  pkg,
+		Position: fset.Position(fn.Pos()),
+	}, nil
+}
+
+func createCron(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveCron) (*CronJob, error) {
+	// Cron annotations are only valid on methods (functions with receivers)
+	if fn.Recv == nil {
+		return nil, errors.Errorf("//zero:cron annotation is only valid on methods, not functions: %s", fn.Name.Name)
+	}
+
+	obj := pkg.TypesInfo.ObjectOf(fn.Name)
+	if obj == nil {
+		return nil, errors.Errorf("failed to retrieve object for function %s", fn.Name.Name)
+	}
+
+	funcObj, ok := obj.(*types.Func)
+	if !ok {
+		return nil, nil
+	}
+
+	signature := funcObj.Signature()
+
+	// Validate exact signature: Cron(context.Context) error
+	params := signature.Params()
+	if params.Len() != 1 {
+		return nil, errors.Errorf("cron method %s must have exactly one parameter of type context.Context", fn.Name.Name)
+	}
+
+	// Check first parameter is context.Context
+	param := params.At(0)
+	paramType := param.Type()
+	if !isContextType(paramType) {
+		return nil, errors.Errorf("cron method %s first parameter must be context.Context, got %s", fn.Name.Name, types.TypeString(paramType, nil))
+	}
+
+	// Validate return type is error
+	results := signature.Results()
+	if results.Len() != 1 {
+		return nil, errors.Errorf("cron method %s must return exactly one value of type error", fn.Name.Name)
+	}
+
+	returnType := results.At(0).Type()
+	if !isErrorType(returnType) {
+		return nil, errors.Errorf("cron method %s must return error, got %s", fn.Name.Name, types.TypeString(returnType, nil))
+	}
+
+	return &CronJob{
+		Schedule: directive,
 		Function: funcObj,
 		Package:  pkg,
 		Position: fset.Position(fn.Pos()),
@@ -862,6 +955,15 @@ func isErrorType(t types.Type) bool {
 		return false
 	}
 	return named.Obj().Name() == "error" && named.Obj().Pkg() == nil
+}
+
+func isContextType(t types.Type) bool {
+	named, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	return obj.Name() == "Context" && obj.Pkg() != nil && obj.Pkg().Path() == "context"
 }
 
 func findMissingDependencies(graph *Graph) {
@@ -1308,4 +1410,28 @@ func isMultiProvider(providers []*Provider) bool {
 	}
 
 	return true
+}
+
+// requireAppropriateScheduler automatically adds the appropriate scheduler provider
+// to the pick list based on whether cron jobs are present in the graph.
+func requireAppropriateScheduler(graph *Graph, opts *graphOptions) {
+	// Check if any scheduler is already explicitly picked
+	hasScheduler := false
+	for _, pick := range opts.pick {
+		if strings.Contains(pick, "NewScheduler") || strings.Contains(pick, "NewNullScheduler") {
+			hasScheduler = true
+			break
+		}
+	}
+
+	// If no scheduler is explicitly picked, auto-select based on cron jobs
+	if !hasScheduler {
+		var schedulerToRequire string
+		if len(graph.CronJobs) > 0 {
+			schedulerToRequire = "github.com/alecthomas/zero/providers/cron.NewScheduler"
+		} else {
+			schedulerToRequire = "github.com/alecthomas/zero/providers/cron.NewNullScheduler"
+		}
+		opts.pick = append(opts.pick, schedulerToRequire)
+	}
 }

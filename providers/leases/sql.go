@@ -44,7 +44,7 @@ func NewSQLLeaser(
 	logger *slog.Logger,
 	driver zerosql.Driver,
 	db *sql.DB,
-) (*SQLLeaser, error) {
+) (Leaser, error) {
 	holder, err := makeID()
 	if err != nil {
 		return nil, errors.Errorf("failed to make lease holder ID: %w", err)

@@ -837,6 +837,7 @@ func (s *APIService) GetUsers(ctx context.Context) ([]string, error) {
 func (s *APIService) GetUser(ctx context.Context, id int) (*string, error) {
 	return nil, nil
 }
+
 `
 	graph := analyseTestCode(t, testCode, []string{"*test.UserService", "*test.PostService"})
 	assert.Equal(t, 2, len(graph.APIs))
@@ -2440,4 +2441,207 @@ type Service struct {
 	// Should not have multi-providers for []int (pruned because unreferenced)
 	_, ok = graph.MultiProviders["[]int"]
 	assert.False(t, ok)
+}
+
+func TestAnalyseCronFunctions(t *testing.T) {
+	testCode := `
+package main
+
+import (
+	"context"
+)
+
+type CronService struct{}
+
+//zero:cron 1h
+func (s *CronService) HourlyTask(ctx context.Context) error {
+	return nil
+}
+
+//zero:cron 30m
+func (s *CronService) HalfHourlyTask(ctx context.Context) error {
+	return nil
+}
+
+//zero:cron 1d
+func (s *CronService) DailyTask(ctx context.Context) error {
+	return nil
+}
+`
+	graph := analyseTestCode(t, testCode, nil)
+	assert.Equal(t, 3, len(graph.CronJobs))
+
+	// Check first cron job
+	cron1 := graph.CronJobs[0]
+	assert.Equal(t, "HourlyTask", cron1.Function.Name())
+	assert.Equal(t, "1h", cron1.Schedule.Schedule)
+
+	// Check second cron job
+	cron2 := graph.CronJobs[1]
+	assert.Equal(t, "HalfHourlyTask", cron2.Function.Name())
+	assert.Equal(t, "30m", cron2.Schedule.Schedule)
+
+	// Check third cron job
+	cron3 := graph.CronJobs[2]
+	assert.Equal(t, "DailyTask", cron3.Function.Name())
+	assert.Equal(t, "1d", cron3.Schedule.Schedule)
+}
+
+func TestAnalyseCronAnnotationOnFunction(t *testing.T) {
+	testCode := `
+package main
+
+import "context"
+
+//zero:cron 1h
+func StandaloneCronFunction(ctx context.Context) error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "//zero:cron annotation is only valid on methods, not functions: StandaloneCronFunction")
+}
+
+func TestAnalyseCronInvalidSignatureNoParameters(t *testing.T) {
+	testCode := `
+package main
+
+type CronService struct{}
+
+//zero:cron 1h
+func (s *CronService) InvalidCron() error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "cron method InvalidCron must have exactly one parameter of type context.Context")
+}
+
+func TestAnalyseCronInvalidSignatureTooManyParameters(t *testing.T) {
+	testCode := `
+package main
+
+import "context"
+
+type CronService struct{}
+
+//zero:cron 1h
+func (s *CronService) InvalidCron(ctx context.Context, extra string) error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "cron method InvalidCron must have exactly one parameter of type context.Context")
+}
+
+func TestAnalyseCronInvalidSignatureWrongParameterType(t *testing.T) {
+	testCode := `
+package main
+
+type CronService struct{}
+
+//zero:cron 1h
+func (s *CronService) InvalidCron(notContext string) error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "cron method InvalidCron first parameter must be context.Context, got string")
+}
+
+func TestAnalyseCronInvalidSignatureNoReturnValue(t *testing.T) {
+	testCode := `
+package main
+
+import "context"
+
+type CronService struct{}
+
+//zero:cron 1h
+func (s *CronService) InvalidCron(ctx context.Context) {
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "cron method InvalidCron must return exactly one value of type error")
+}
+
+func TestAnalyseCronInvalidSignatureTooManyReturnValues(t *testing.T) {
+	testCode := `
+package main
+
+import "context"
+
+type CronService struct{}
+
+//zero:cron 1h
+func (s *CronService) InvalidCron(ctx context.Context) (string, error) {
+	return "", nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "cron method InvalidCron must return exactly one value of type error")
+}
+
+func TestAnalyseCronInvalidSignatureWrongReturnType(t *testing.T) {
+	testCode := `
+package main
+
+import "context"
+
+type CronService struct{}
+
+//zero:cron 1h
+func (s *CronService) InvalidCron(ctx context.Context) string {
+	return ""
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "cron method InvalidCron must return error, got string")
+}
+
+func TestAnalyseMixedProvidersAPIsCrons(t *testing.T) {
+	testCode := `
+package main
+
+import (
+	"context"
+	"database/sql"
+)
+
+type Service struct{}
+
+//zero:provider
+func CreateService() *Service {
+	return &Service{}
+}
+
+//zero:api GET /users
+func (s *Service) GetUsers(ctx context.Context) ([]string, error) {
+	return []string{}, nil
+}
+
+//zero:cron 1h
+func (s *Service) HourlyCleanup(ctx context.Context) error {
+	return nil
+}
+`
+	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+
+	assert.Equal(t, 1, len(graph.Providers))
+	assert.Equal(t, 1, len(graph.APIs))
+	assert.Equal(t, 1, len(graph.CronJobs))
+
+	// Check provider
+	provider, ok := graph.Providers["*test.Service"]
+	assert.True(t, ok)
+	assert.Equal(t, "CreateService", provider.Function.Name())
+
+	// Check API
+	api := graph.APIs[0]
+	assert.Equal(t, "GetUsers", api.Function.Name())
+
+	// Check cron
+	cron := graph.CronJobs[0]
+	assert.Equal(t, "HourlyCleanup", cron.Function.Name())
+	assert.Equal(t, "1h", cron.Schedule.Schedule)
 }

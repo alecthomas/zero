@@ -20,7 +20,7 @@ var _ Leaser = (*MemoryLeaser)(nil)
 // On the upside, it can never fail.
 //
 //zero:provider weak
-func NewMemoryLeaser() *MemoryLeaser {
+func NewMemoryLeaser() Leaser {
 	return &MemoryLeaser{leases: make(map[string]bool)}
 }
 

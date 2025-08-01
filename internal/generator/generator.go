@@ -107,6 +107,61 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
 				writeProviderCall(w, graph, provider, "p", "o")
+
+				// If this is a scheduler provider with NewScheduler function, register cron jobs
+				if strings.Contains(ref.Ref, "Scheduler") && strings.Contains(provider.Function.FullName(), "NewScheduler") && len(graph.CronJobs) > 0 {
+					// First, collect the receiver types so we can construct them.
+					type Receiver struct {
+						Imp string
+						Typ string
+					}
+					receivers := map[Receiver]int{}
+					receiverIndex := 0
+					for _, cronJob := range graph.CronJobs {
+						receiver := cronJob.Function.Signature().Recv().Type()
+						ref := graph.TypeRef(receiver)
+						w.Import(ref.Import)
+						key := Receiver{ref.Import, ref.Ref}
+						if _, ok := receivers[key]; !ok {
+							receivers[key] = receiverIndex
+							receiverIndex++
+						}
+					}
+					for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b Receiver) int {
+						return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
+					}) {
+						index := receivers[receiver]
+						writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, "")
+					}
+
+					// Register each cron job
+					for _, cronJob := range graph.CronJobs {
+						receiver := cronJob.Function.Signature().Recv().Type()
+						ref := graph.TypeRef(receiver)
+						receiverIndex := receivers[Receiver{ref.Import, ref.Ref}]
+
+						// Create the job name from the full type signature
+						jobName := fmt.Sprintf("%s.%s", ref, cronJob.Function.Name())
+
+						// Get the schedule duration at generation time
+						schedule, scheduleErr := cronJob.Schedule.Duration()
+						if scheduleErr != nil {
+							w.L(`return out, fmt.Errorf("invalid cron schedule for %s: %%s", %q)`, jobName, scheduleErr.Error())
+							continue
+						}
+
+						// Register the job
+						w.Import("time")
+						w.L("err = o.Register(%q, time.Duration(%d), r%d.%s)", jobName, schedule.Nanoseconds(), receiverIndex, cronJob.Function.Name())
+						w.L("if err != nil {")
+						w.In(func(w *codewriter.Writer) {
+							w.Import("fmt")
+							w.L(`return out, fmt.Errorf("failed to register cron job %s: %%w", err)`, jobName)
+						})
+						w.L("}")
+					}
+				}
+
 				w.L("return any(o).(T), nil")
 			})
 			w.W("\n")
@@ -153,10 +208,14 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.W("\n")
 		}
 
+		// We always provide http.ServeMux
+		w.Import("net/http")
+		w.L("case reflect.TypeOf((**http.ServeMux)(nil)).Elem():")
 		if len(graph.APIs) > 0 {
-			w.Import("net/http")
-			w.L("case reflect.TypeOf((**http.ServeMux)(nil)).Elem():")
 			w.In(func(w *codewriter.Writer) {
+				// Create the ServeMux
+				w.L("mux := http.NewServeMux()")
+
 				// First, collect the receiver types so we can construct them.
 				type Receiver struct {
 					Imp string
@@ -181,8 +240,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 					writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, "*http.ServeMux")
 				}
 
-				// Next, create the ServeMux and register the handlers across receiver types.
-				w.L("mux := http.NewServeMux()")
+				// Register the handlers across receiver types.
 				w.Import("github.com/alecthomas/zero")
 				writeZeroConstructSingletonByName(w, "errorHandler", "zero.ErrorHandler", "")
 				w.L("_ = errorHandler")
@@ -276,10 +334,16 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 				}
 				w.L("return any(mux).(T), nil")
 			})
-			w.W("\n")
+		} else {
+			w.In(func(w *codewriter.Writer) {
+				w.L("return any(http.NewServeMux()).(T), nil")
+			})
 		}
+		w.W("\n")
+
 		w.L("}")
-		w.L(`return out, fmt.Errorf("don't know how to construct %%T", out)`)
+		w.Import("fmt")
+		w.L(`return out, fmt.Errorf("don't know how to construct %%s", reflect.TypeFor[T]())`)
 	})
 	w.L("}")
 	_, err := out.Write(w.Bytes())

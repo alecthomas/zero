@@ -67,13 +67,14 @@ type ServiceConfig struct {
 }
 
 type Service struct {
-	dal *DAL
+	dal    *DAL
+	logger *slog.Logger
 }
 
 //zero:provider
-func NewService(dal *DAL, config ServiceConfig) (*Service, error) {
+func NewService(dal *DAL, logger *slog.Logger, config ServiceConfig) (*Service, error) {
 	// Other initialisation
-	return &Service{dal: dal}, nil
+	return &Service{dal: dal, logger: logger}, nil
 }
 
 type User struct {
@@ -105,9 +106,10 @@ func (s *Service) OnUserCreated(user zero.Event[UserCreatedEvent]) error {
 	panic("not implemented")
 }
 
-// zero:cron 1h
-func (s *Service) CheckUsers() error {
-	panic("not implemented")
+//zero:cron 5s
+func (s *Service) CheckUsers(ctx context.Context) error {
+	s.logger.Info("CheckUsers cron job")
+	return nil
 }
 
 var cli struct {
@@ -123,8 +125,8 @@ func main() {
 	singletons := map[reflect.Type]any{}
 	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, cli.ZeroConfig, singletons)
 	kctx.FatalIfErrorf(err)
-	mux, err := ZeroConstructSingletons[*http.ServeMux](ctx, cli.ZeroConfig, singletons)
+	container, err := ZeroConstructSingletons[*zero.Container](ctx, cli.ZeroConfig, singletons)
 	kctx.FatalIfErrorf(err)
 	logger.Info("Listening on http://127.0.0.1:8080")
-	http.ListenAndServe("127.0.0.1:8080", mux)
+	http.ListenAndServe("127.0.0.1:8080", container)
 }

@@ -4,15 +4,18 @@ package main
 import (
   "database/sql"
   "log/slog"
+  "net/http"
   "context"
   "fmt"
   "github.com/alecthomas/zero"
   imp31feb4b39618eab1 "github.com/alecthomas/zero/providers/logging"
+  imp71bef56b62085424 "github.com/alecthomas/zero/providers/cron"
+  imp9b258f273adc01df "github.com/alecthomas/zero/providers/leases"
   imp9c34c006eb3c10fa "github.com/alecthomas/zero"
   impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
   impef7a81aa222750b7 "github.com/alecthomas/zero/providers"
-  "net/http"
   "reflect"
+  "time"
 )
 
 // Config contains combined Kong configuration for all types in [Construct].
@@ -78,6 +81,18 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		}
 		return any(o).(T), nil
 
+	case reflect.TypeOf((**imp9c34c006eb3c10fa.Container)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[*http.ServeMux](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p1, err := ZeroConstructSingletons[*imp71bef56b62085424.Scheduler](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o := impef7a81aa222750b7.NewContainer(p0, p1)
+		return any(o).(T), nil
+
 	case reflect.TypeOf((**DAL)(nil)).Elem():
 		p0, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
 		if err != nil {
@@ -91,13 +106,41 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		o, err := NewService(p0, p1)
+		p2, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := NewService(p0, p1, p2)
 		if err != nil {
 			return out, fmt.Errorf("*Service: %w", err)
+		}
+		return any(o).(T), nil
+
+	case reflect.TypeOf((**imp71bef56b62085424.Scheduler)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[context.Context](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p2, err := ZeroConstructSingletons[imp9b258f273adc01df.Leaser](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o := imp71bef56b62085424.NewScheduler(p0, p1, p2)
+		r0, err := ZeroConstructSingletons[*Service](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		err = o.Register("github.com/alecthomas/zero/_examples/service.Service.CheckUsers", time.Duration(5000000000), r0.CheckUsers)
+		if err != nil {
+			return out, fmt.Errorf("failed to register cron job github.com/alecthomas/zero/_examples/service.Service.CheckUsers: %w", err)
 		}
 		return any(o).(T), nil
 
@@ -113,18 +156,54 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		o := impef7a81aa222750b7.DefaultErrorHandler()
 		return any(o).(T), nil
 
+	case reflect.TypeOf((*imp9b258f273adc01df.Leaser)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[context.Context](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p2, err := ZeroConstructSingletons[impc24ab568b6f3f934.Driver](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p3, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := imp9b258f273adc01df.NewSQLLeaser(p0, p1, p2, p3)
+		if err != nil {
+			return out, fmt.Errorf("imp9b258f273adc01df.Leaser: %w", err)
+		}
+		return any(o).(T), nil
+
+	case reflect.TypeOf((*impc24ab568b6f3f934.Driver)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := impc24ab568b6f3f934.DriverForConfig(p0)
+		if err != nil {
+			return out, fmt.Errorf("impc24ab568b6f3f934.Driver: %w", err)
+		}
+		return any(o).(T), nil
+
 	case reflect.TypeOf((*impc24ab568b6f3f934.Migrations)(nil)).Elem():
-		r0 := Migrations()
+		r0 := imp9b258f273adc01df.SQLLeaserMigrations()
+		r1 := Migrations()
 		var result impc24ab568b6f3f934.Migrations
 		result = append(result, r0...)
+		result = append(result, r1...)
 		return any(result).(T), nil
 
 	case reflect.TypeOf((**http.ServeMux)(nil)).Elem():
+		mux := http.NewServeMux()
 		r0, err := ZeroConstructSingletons[*Service](ctx, config, singletons)
 		if err != nil {
 			return out, fmt.Errorf("*http.ServeMux: %w", err)
 		}
-		mux := http.NewServeMux()
 		errorHandler, err := ZeroConstructSingletons[zero.ErrorHandler](ctx, config, singletons)
 		if err != nil {
 			return out, err
@@ -153,5 +232,5 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		return any(mux).(T), nil
 
 	}
-	return out, fmt.Errorf("don't know how to construct %T", out)
+	return out, fmt.Errorf("don't know how to construct %s", reflect.TypeFor[T]())
 }

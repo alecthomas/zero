@@ -147,8 +147,8 @@ func (s *Service) OnUserCreated(user zero.Event[UserCreatedEvent]) error {
 	panic("not implemented")
 }
 
-// zero:cron 1h
-func (s *Service) CheckUsers() error {
+//zero:cron 1h
+func (s *Service) CheckUsers(ctx context.Context) error {
 	panic("not implemented")
 }
 

@@ -11,7 +11,9 @@ import (
 func TestMux(t *testing.T) {
 	config := ZeroConfig{
 		Config6fab5aa5f9534d38: sql.Config{
-			DSN: "postgres://user:password@localhost/dbname",
+			DSN:     "postgres://postgres:secret@localhost/zero-exemplar?sslmode=disable",
+			Create:  true,
+			Migrate: true,
 		},
 	}
 	// This should work but doesn't? Fix this later.
