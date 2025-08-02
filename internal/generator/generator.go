@@ -110,56 +110,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 
 				// If this is a scheduler provider with NewScheduler function, register cron jobs
 				if strings.Contains(ref.Ref, "Scheduler") && strings.Contains(provider.Function.FullName(), "NewScheduler") && len(graph.CronJobs) > 0 {
-					// First, collect the receiver types so we can construct them.
-					type Receiver struct {
-						Imp string
-						Typ string
-					}
-					receivers := map[Receiver]int{}
-					receiverIndex := 0
-					for _, cronJob := range graph.CronJobs {
-						receiver := cronJob.Function.Signature().Recv().Type()
-						ref := graph.TypeRef(receiver)
-						w.Import(ref.Import)
-						key := Receiver{ref.Import, ref.Ref}
-						if _, ok := receivers[key]; !ok {
-							receivers[key] = receiverIndex
-							receiverIndex++
-						}
-					}
-					for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b Receiver) int {
-						return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
-					}) {
-						index := receivers[receiver]
-						writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, "")
-					}
-
-					// Register each cron job
-					for _, cronJob := range graph.CronJobs {
-						receiver := cronJob.Function.Signature().Recv().Type()
-						ref := graph.TypeRef(receiver)
-						receiverIndex := receivers[Receiver{ref.Import, ref.Ref}]
-
-						// Create the job name from the full type signature
-						jobName := fmt.Sprintf("%s.%s", ref, cronJob.Function.Name())
-
-						// Get the schedule duration at generation time
-						schedule, scheduleErr := cronJob.Schedule.Duration()
-						if scheduleErr != nil {
-							w.L(`return out, fmt.Errorf("invalid cron schedule for %s: %%s", %q)`, jobName, scheduleErr.Error())
-							continue
-						}
-
-						// Register the job
-						w.Import("time")
-						w.L("err = o.Register(%q, time.Duration(%d), r%d.%s)", jobName, schedule.Nanoseconds(), receiverIndex, cronJob.Function.Name())
-						w.L("if err != nil {")
-						w.In(func(w *codewriter.Writer) {
-							w.Import("fmt")
-							w.L(`return out, fmt.Errorf("failed to register cron job %s: %%w", err)`, jobName)
-						})
-						w.L("}")
-					}
+					writeCronJobRegistration(w, graph)
 				}
 
 				w.L("return any(o).(T), nil")
@@ -498,6 +449,59 @@ func hash(s string) string {
 	h := fnv.New64a()
 	h.Write([]byte(s))
 	return fmt.Sprintf("%x", h.Sum64())
+}
+
+func writeCronJobRegistration(w *codewriter.Writer, graph *depgraph.Graph) {
+	// First, collect the receiver types so we can construct them.
+	type Receiver struct {
+		Imp string
+		Typ string
+	}
+	receivers := map[Receiver]int{}
+	receiverIndex := 0
+	for _, cronJob := range graph.CronJobs {
+		receiver := cronJob.Function.Signature().Recv().Type()
+		ref := graph.TypeRef(receiver)
+		w.Import(ref.Import)
+		key := Receiver{ref.Import, ref.Ref}
+		if _, ok := receivers[key]; !ok {
+			receivers[key] = receiverIndex
+			receiverIndex++
+		}
+	}
+	for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b Receiver) int {
+		return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
+	}) {
+		index := receivers[receiver]
+		writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, "")
+	}
+
+	// Register each cron job
+	for _, cronJob := range graph.CronJobs {
+		receiver := cronJob.Function.Signature().Recv().Type()
+		ref := graph.TypeRef(receiver)
+		receiverIndex := receivers[Receiver{ref.Import, ref.Ref}]
+
+		// Create the job name from the full type signature
+		jobName := fmt.Sprintf("%s.%s", ref, cronJob.Function.Name())
+
+		// Get the schedule duration at generation time
+		schedule, scheduleErr := cronJob.Schedule.Duration()
+		if scheduleErr != nil {
+			w.L(`return out, fmt.Errorf("invalid cron schedule for %s: %%s", %q)`, jobName, scheduleErr.Error())
+			continue
+		}
+
+		// Register the job
+		w.Import("time")
+		w.L("err = o.Register(%q, time.Duration(%d), r%d.%s)", jobName, schedule.Nanoseconds(), receiverIndex, cronJob.Function.Name())
+		w.L("if err != nil {")
+		w.In(func(w *codewriter.Writer) {
+			w.Import("fmt")
+			w.L(`return out, fmt.Errorf("failed to register cron job %s: %%w", err)`, jobName)
+		})
+		w.L("}")
+	}
 }
 
 func stableMapIter[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {
