@@ -2,6 +2,7 @@
 package depgraph
 
 import (
+	"context"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -9,6 +10,7 @@ import (
 	"hash/fnv"
 	"log"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -203,7 +205,7 @@ type Graph struct {
 
 // Analyse statically loads Go packages, then analyses them for //zero:... annotations in order to build the
 // Zero's dependency injection graph.
-func Analyse(dest string, options ...Option) (*Graph, error) {
+func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error) {
 	graph := &Graph{
 		Providers:      make(map[string]*Provider),
 		MultiProviders: make(map[string][]*Provider),
@@ -245,8 +247,21 @@ func Analyse(dest string, options ...Option) (*Graph, error) {
 		return nil, errors.Errorf("failed to load packages: %w", err)
 	}
 	// No error and no packages returned because "go mod tidy" needs to be run...super annoying.
+	// We'll run it and see if that fixes it.
 	if len(pkgs) == 0 {
-		return nil, errors.Errorf("no packages found, does 'go mod -C %q tidy' need to be run?", dest)
+		cmd := exec.CommandContext(ctx, "go", "mod", "-C", dest, "tidy")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return nil, errors.Errorf("failed to run 'go mod -C %q tidy': %w", dest, err)
+		}
+		pkgs, err = packages.Load(cfg, append(opts.patterns, dest)...)
+		if err != nil {
+			return nil, errors.Errorf("failed to load packages: %w", err)
+		}
+		if len(pkgs) == 0 {
+			return nil, errors.Errorf("failed to load any packages, try running 'go list -C %q' and checking for errors", dest)
+		}
 	}
 
 	providers := map[string][]*Provider{}

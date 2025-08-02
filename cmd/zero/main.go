@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -40,6 +41,7 @@ func main() {
 	if cli.Debug {
 		extraOptions = append(extraOptions, depgraph.WithDebug(true))
 	}
+	ctx := context.Background()
 
 	// Verify/add the version of zero being used.
 	err := ensureGoModuleVersion(kctx, version)
@@ -51,7 +53,7 @@ func main() {
 	// Combine explicit tags and tags from GOFLAGS
 	tags := append(cli.Tags, parseGoTags()...)
 
-	graph, err := depgraph.Analyse(cli.Dest,
+	graph, err := depgraph.Analyse(ctx, cli.Dest,
 		depgraph.WithRoots(cli.Root...),
 		depgraph.WithPatterns(cli.Patterns...),
 		depgraph.WithProviders(cli.Resolve...),

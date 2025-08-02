@@ -1,6 +1,7 @@
 package depgraph
 
 import (
+	"context"
 	"go/types"
 	"net/http"
 	"os"
@@ -380,7 +381,7 @@ func analyseTestCode(t *testing.T, code string, roots []string) *Graph {
 
 func analyseTestCodeWithError(t *testing.T, code string, roots []string) (*Graph, error) {
 	t.Helper()
-	return analyseCodeString(code, roots)
+	return analyseCodeString(t.Context(), code, roots)
 }
 
 func TestAnalyseAPIFunctions(t *testing.T) {
@@ -1182,7 +1183,7 @@ func (s *UserService) UpdateUser(ctx context.Context, id int, req *CreateUserReq
 }
 `
 
-	graph, err := analyseCodeString(testCode, []string{"*test.UserService", "*test.PostService", "*test.ProductService", "*test.FileService", "*test.NotificationService", "*test.CommentService"})
+	graph, err := analyseCodeString(t.Context(), testCode, []string{"*test.UserService", "*test.PostService", "*test.ProductService", "*test.FileService", "*test.NotificationService", "*test.CommentService"})
 	assert.NoError(t, err)
 	assert.Equal(t, 6, len(graph.APIs))
 }
@@ -1354,7 +1355,7 @@ func (s *UserService) ComplexCreate(ctx context.Context, req1 CreateUserRequest,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := analyseCodeString(tt.code, []string{"*test.UserService"})
+			_, err := analyseCodeString(t.Context(), tt.code, []string{"*test.UserService"})
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectedErr)
 		})
@@ -1626,7 +1627,7 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) err
 }
 `
 
-	graph, err := analyseCodeString(testCode, []string{"*test.UserService", "*test.PostService"})
+	graph, err := analyseCodeString(t.Context(), testCode, []string{"*test.UserService", "*test.PostService"})
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(graph.APIs))
 }
@@ -1658,7 +1659,7 @@ func (s *UserService) GetUserPost(ctx context.Context, userID UserID, postID str
 }
 `
 
-	graph, err := analyseCodeString(testCode, []string{"*test.UserService"})
+	graph, err := analyseCodeString(t.Context(), testCode, []string{"*test.UserService"})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(graph.APIs))
 
@@ -1670,7 +1671,7 @@ func (s *UserService) GetUserPost(ctx context.Context, userID UserID, postID str
 	assert.True(t, hasPostID)
 }
 
-func analyseCodeString(code string, roots []string) (*Graph, error) {
+func analyseCodeString(ctx context.Context, code string, roots []string) (*Graph, error) {
 	tmpDir, err := os.MkdirTemp("", "depgraph_test")
 	if err != nil {
 		return nil, err
@@ -1704,7 +1705,7 @@ go 1.21
 	}
 	defer os.Chdir(oldDir) //nolint:errcheck
 
-	return Analyse(".", WithRoots(roots...))
+	return Analyse(ctx, ".", WithRoots(roots...))
 }
 
 // findAPI finds an API in the slice by method, host, and path.
@@ -1750,7 +1751,7 @@ func ProvideService(cfg UsedConfig, ptrCfg *PointerUsedConfig) *Service {
 type Service struct{}
 `
 
-	graph, err := analyseCodeString(code, []string{"*test.Service"})
+	graph, err := analyseCodeString(t.Context(), code, []string{"*test.Service"})
 	if err != nil {
 		t.Fatalf("Failed to analyse code: %v", err)
 	}
@@ -1806,12 +1807,12 @@ type ServiceD struct{ B *ServiceB }
 `
 
 	// Test with all services as roots - should keep all providers
-	graph, err := analyseCodeString(code, []string{"*test.ServiceA", "*test.ServiceB", "*test.ServiceC", "*test.ServiceD"})
+	graph, err := analyseCodeString(t.Context(), code, []string{"*test.ServiceA", "*test.ServiceB", "*test.ServiceC", "*test.ServiceD"})
 	assert.NoError(t, err)
 	assert.Equal(t, 4, len(graph.Providers))
 
 	// Test with ServiceC as root - should keep ServiceA and ServiceC providers, remove ServiceB and ServiceD
-	graph, err = analyseCodeString(code, []string{"*test.ServiceC"})
+	graph, err = analyseCodeString(t.Context(), code, []string{"*test.ServiceC"})
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(graph.Providers))
 	_, hasServiceA := graph.Providers["*test.ServiceA"]
@@ -1824,7 +1825,7 @@ type ServiceD struct{ B *ServiceB }
 	assert.False(t, hasServiceD)
 
 	// Test with ServiceD as root - should keep ServiceB and ServiceD providers, remove ServiceA and ServiceC
-	graph, err = analyseCodeString(code, []string{"*test.ServiceD"})
+	graph, err = analyseCodeString(t.Context(), code, []string{"*test.ServiceD"})
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(graph.Providers))
 	_, hasServiceA = graph.Providers["*test.ServiceA"]
@@ -1837,7 +1838,7 @@ type ServiceD struct{ B *ServiceB }
 	assert.True(t, hasServiceD)
 
 	// Test with multiple roots - should keep all providers
-	graph, err = analyseCodeString(code, []string{"*test.ServiceC", "*test.ServiceD"})
+	graph, err = analyseCodeString(t.Context(), code, []string{"*test.ServiceC", "*test.ServiceD"})
 	assert.NoError(t, err)
 	assert.Equal(t, 4, len(graph.Providers))
 }
@@ -1865,7 +1866,7 @@ type Service struct{ Config *ConfigA }
 `
 
 	// Test with Service as root - should keep ConfigA but remove ConfigB
-	graph, err := analyseCodeString(code, []string{"*test.Service"})
+	graph, err := analyseCodeString(t.Context(), code, []string{"*test.Service"})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(graph.Providers))
 	assert.Equal(t, 1, len(graph.Configs))
@@ -1907,13 +1908,13 @@ func (s *ServiceB) PostOther(ctx context.Context, w http.ResponseWriter, r *http
 `
 
 	// Test with both API receiver types as explicit roots
-	graph, err := analyseCodeString(code, []string{"*test.ServiceA", "*test.ServiceB"})
+	graph, err := analyseCodeString(t.Context(), code, []string{"*test.ServiceA", "*test.ServiceB"})
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(graph.Providers))
 	assert.Equal(t, 2, len(graph.APIs))
 
 	// Test with only one API receiver type as root
-	graph, err = analyseCodeString(code, []string{"*test.ServiceA"})
+	graph, err = analyseCodeString(t.Context(), code, []string{"*test.ServiceA"})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(graph.Providers)) // Only ServiceA provider should be kept
 	assert.Equal(t, 2, len(graph.APIs))      // APIs are not pruned based on receivers
@@ -1953,7 +1954,7 @@ type ServiceB struct{}
 type ServiceC struct{ Config *ConfigA }
 `
 
-	graph, err := analyseCodeString(code, []string{"*test.ServiceA", "*test.ServiceB", "*test.ServiceC"})
+	graph, err := analyseCodeString(t.Context(), code, []string{"*test.ServiceA", "*test.ServiceB", "*test.ServiceC"})
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(graph.Providers))
 	assert.Equal(t, 1, len(graph.Configs))
@@ -2011,7 +2012,7 @@ func (s *ServiceB) PostOther(ctx context.Context, w http.ResponseWriter, r *http
 `
 
 	// Test with nil roots and APIs present - API receivers should be used as roots
-	graph, err := analyseCodeString(code, nil)
+	graph, err := analyseCodeString(t.Context(), code, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(graph.APIs))
 

@@ -24,7 +24,7 @@ func TestGenerator(t *testing.T) {
 
 	t.Chdir(dir)
 
-	graph, err := depgraph.Analyse(".", depgraph.WithProviders(
+	graph, err := depgraph.Analyse(t.Context(), ".", depgraph.WithProviders(
 		"github.com/alecthomas/zero/providers/sql.New",
 		"github.com/alecthomas/zero/providers/leases.NewMemoryLeaser",
 	))
@@ -110,7 +110,7 @@ func TestMultiProvider(t *testing.T) {
 
 	t.Chdir(dir)
 
-	graph, err := depgraph.Analyse(".", depgraph.WithProviders(
+	graph, err := depgraph.Analyse(t.Context(), ".", depgraph.WithProviders(
 		"github.com/alecthomas/zero/providers/sql.New",
 		"github.com/alecthomas/zero/providers/leases.NewMemoryLeaser",
 	))
@@ -164,7 +164,7 @@ func TestCronJobGeneration(t *testing.T) {
 
 	t.Chdir(dir)
 
-	graph, err := depgraph.Analyse(".", depgraph.WithProviders(
+	graph, err := depgraph.Analyse(t.Context(), ".", depgraph.WithProviders(
 		"github.com/alecthomas/zero/providers/sql.New",
 		"github.com/alecthomas/zero/providers/cron.NewScheduler",
 		"github.com/alecthomas/zero/providers/leases.NewMemoryLeaser",
@@ -239,7 +239,7 @@ func main() {}
 	createGoMod(t, filepath.Join(cwd, "../.."), dir)
 	t.Chdir(dir)
 
-	graph, err := depgraph.Analyse(".", depgraph.WithProviders(
+	graph, err := depgraph.Analyse(t.Context(), ".", depgraph.WithProviders(
 		"github.com/alecthomas/zero/providers/cron.NewScheduler",
 		"github.com/alecthomas/zero/providers/leases.NewMemoryLeaser",
 	))
@@ -315,7 +315,7 @@ func main() {}
 	createGoMod(t, filepath.Join(cwd, "../.."), dir)
 	t.Chdir(dir)
 
-	graph, err := depgraph.Analyse(".", depgraph.WithProviders(
+	graph, err := depgraph.Analyse(t.Context(), ".", depgraph.WithProviders(
 		"github.com/alecthomas/zero/providers/cron.NewScheduler",
 		"github.com/alecthomas/zero/providers/leases.NewMemoryLeaser",
 	))
