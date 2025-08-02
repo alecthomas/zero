@@ -1,0 +1,2 @@
+resolve = ["github.com/alecthomas/zero/providers/leases.NewSQLLeaser"]
+chdir = "./_examples/service"

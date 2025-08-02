@@ -244,6 +244,10 @@ func Analyse(dest string, options ...Option) (*Graph, error) {
 	if err != nil {
 		return nil, errors.Errorf("failed to load packages: %w", err)
 	}
+	// No error and no packages returned because "go mod tidy" needs to be run...super annoying.
+	if len(pkgs) == 0 {
+		return nil, errors.Errorf("no packages found, does 'go mod -C %q tidy' need to be run?", dest)
+	}
 
 	providers := map[string][]*Provider{}
 	for _, pkg := range pkgs {

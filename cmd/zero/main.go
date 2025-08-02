@@ -10,21 +10,23 @@ import (
 
 	"github.com/alecthomas/errors"
 	"github.com/alecthomas/kong"
+	kongtoml "github.com/alecthomas/kong-toml"
 	"github.com/alecthomas/zero/internal/depgraph"
 	"github.com/alecthomas/zero/internal/generator"
 	"github.com/kballard/go-shellquote"
 )
 
 var cli struct {
+	Config     kong.ConfigFlag    `help:"Path to the configuration file." placeholder:"FILE" short:"c"`
 	Version    kong.VersionFlag   `help:"Print the version and exit."`
 	Chdir      kong.ChangeDirFlag `help:"Change to this directory before running." placeholder:"DIR" short:"C"`
-	Debug      bool               `help:"Enable debug logging."`
-	Tags       []string           `help:"Tags to enable during type analysis (will also be read from $GOFLAGS)." placeholder:"TAG"`
-	OutputTags []string           `help:"Tags to add to generated code."`
-	Resolve    []string           `help:"Resolve an ambiguous type with this provider." placeholder:"REF"`
+	Debug      bool               `help:"Enable debug logging." short:"d"`
+	Tags       []string           `help:"Tags to enable during type analysis (will also be read from $GOFLAGS)." placeholder:"TAG" short:"t"`
+	OutputTags []string           `help:"Tags to add to generated code." placeholder:"TAG" short:"T"`
+	Resolve    []string           `help:"Resolve an ambiguous type with this provider." placeholder:"REF" short:"r"`
 	List       bool               `help:"List all dependencies." xor:"action"`
-	Root       []string           `help:"Prune dependencies outside these root types."  placeholder:"REF" short:"r"`
-	Dest       string             `help:"Destination package directory for generated files." arg:"" type:"existingdir"`
+	Root       []string           `help:"Prune dependencies outside these root types."  placeholder:"REF" short:"R"`
+	Dest       string             `help:"Destination package directory for generated files." default:"."`
 	Patterns   []string           `help:"Additional packages pattern to scan." arg:"" optional:""`
 }
 
@@ -33,7 +35,7 @@ func main() {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		version = info.Main.Version
 	}
-	kctx := kong.Parse(&cli, kong.Vars{"version": version})
+	kctx := kong.Parse(&cli, kong.Vars{"version": version}, kong.Configuration(kongtoml.Loader, ".zero.toml"))
 	extraOptions := []depgraph.Option{}
 	if cli.Debug {
 		extraOptions = append(extraOptions, depgraph.WithDebug(true))
@@ -41,6 +43,9 @@ func main() {
 
 	// Verify/add the version of zero being used.
 	err := ensureGoModuleVersion(kctx, version)
+	kctx.FatalIfErrorf(err)
+
+	cli.Dest, err = filepath.Abs(filepath.Join(string(cli.Chdir), cli.Dest))
 	kctx.FatalIfErrorf(err)
 
 	// Combine explicit tags and tags from GOFLAGS
