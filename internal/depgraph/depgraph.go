@@ -13,11 +13,13 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/alecthomas/errors"
 	"github.com/alecthomas/zero/internal/directiveparser"
+	"github.com/go-openapi/spec"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
 )
@@ -56,10 +58,12 @@ type API struct {
 	Pattern *directiveparser.DirectiveAPI
 	// Function is the function that handles the API
 	Function *types.Func
+	// Documentation is the extracted function comments
+	Documentation string
 	// Package is the package that contains the function
 	Package *packages.Package
-	// Options is a map of options for the API endpoint
-	Options map[string]string
+	// OpenAPI is the OpenAPI operation spec for this endpoint
+	OpenAPI *spec.Operation
 }
 
 func (a *API) Label(name string) string {
@@ -69,6 +73,235 @@ func (a *API) Label(name string) string {
 		}
 	}
 	return ""
+}
+
+// GenerateOpenAPIOperation creates an OpenAPI operation spec for this API endpoint
+func (a *API) GenerateOpenAPIOperation() *spec.Operation {
+	operation := &spec.Operation{
+		OperationProps: spec.OperationProps{
+			Description: a.extractDocumentation(),
+			Parameters:  a.generateParameters(),
+			Responses:   a.generateResponses(),
+			Tags:        []string{a.extractTag()},
+		},
+	}
+	return operation
+}
+
+func (a *API) extractDocumentation() string {
+	if a.Documentation != "" {
+		return a.Documentation
+	}
+	return ""
+}
+
+func (a *API) extractTag() string {
+	// Extract tag from package name or directive labels
+	if tag := a.Label("tag"); tag != "" {
+		return tag
+	}
+	return a.Package.Name
+}
+
+func (a *API) generateParameters() []spec.Parameter {
+	var parameters []spec.Parameter
+	signature := a.Function.Signature()
+	params := signature.Params()
+
+	for i := range params.Len() {
+		param := params.At(i)
+		paramType := param.Type()
+		paramName := param.Name()
+
+		// Skip context parameters
+		if isContextType(paramType) {
+			continue
+		}
+
+		// Handle different parameter types
+		if isStandardHTTPType(paramType) {
+			continue // Skip standard HTTP types
+		}
+
+		if isBodyParameterStruct(paramType) {
+			// Body parameter
+			schema := a.generateSchemaFromType(paramType)
+			parameters = append(parameters, spec.Parameter{
+				ParamProps: spec.ParamProps{
+					Name:     "body",
+					In:       "body",
+					Required: true,
+					Schema:   schema,
+				},
+			})
+		} else if isStringOrIntType(paramType) {
+			// Path or query parameter
+			parameterType := "string"
+			if strings.Contains(paramType.String(), "int") {
+				parameterType = "integer"
+			}
+
+			// Determine if it's a path parameter from the pattern
+			inType := "query"
+			if a.isPathParameter(paramName) {
+				inType = "path"
+			}
+
+			parameters = append(parameters, spec.Parameter{
+				ParamProps: spec.ParamProps{
+					Name:     paramName,
+					In:       inType,
+					Required: inType == "path",
+				},
+				SimpleSchema: spec.SimpleSchema{
+					Type: parameterType,
+				},
+			})
+		}
+	}
+
+	return parameters
+}
+
+func (a *API) generateResponses() *spec.Responses {
+	responses := &spec.Responses{
+		ResponsesProps: spec.ResponsesProps{
+			StatusCodeResponses: make(map[int]spec.Response),
+		},
+	}
+
+	signature := a.Function.Signature()
+	results := signature.Results()
+
+	if results.Len() == 0 {
+		// No return value - 204 No Content
+		responses.StatusCodeResponses[204] = spec.Response{
+			ResponseProps: spec.ResponseProps{
+				Description: "No Content",
+			},
+		}
+	} else if results.Len() == 1 && isErrorType(results.At(0).Type()) {
+		// Only error return - 204 No Content
+		responses.StatusCodeResponses[204] = spec.Response{
+			ResponseProps: spec.ResponseProps{
+				Description: "No Content",
+			},
+		}
+	} else if results.Len() >= 1 {
+		firstResult := results.At(0)
+		if !isErrorType(firstResult.Type()) {
+			// Has a return value - 200 OK
+			schema := a.generateSchemaFromType(firstResult.Type())
+			responses.StatusCodeResponses[200] = spec.Response{
+				ResponseProps: spec.ResponseProps{
+					Description: "Success",
+					Schema:      schema,
+				},
+			}
+		}
+	}
+
+	// Always add error responses
+	responses.StatusCodeResponses[400] = spec.Response{
+		ResponseProps: spec.ResponseProps{
+			Description: "Bad Request",
+		},
+	}
+	responses.StatusCodeResponses[500] = spec.Response{
+		ResponseProps: spec.ResponseProps{
+			Description: "Internal Server Error",
+		},
+	}
+
+	return responses
+}
+
+func (a *API) isPathParameter(paramName string) bool {
+	// Check if the parameter name is a wildcard in the parsed path structure
+	return a.Pattern.Wildcard(paramName)
+}
+
+func (a *API) generateSchemaFromType(t types.Type) *spec.Schema {
+	schema := &spec.Schema{}
+
+	// Remove pointer indirection
+	for {
+		if ptr, ok := t.(*types.Pointer); ok {
+			t = ptr.Elem()
+		} else {
+			break
+		}
+	}
+
+	switch typ := t.(type) {
+	case *types.Basic:
+		switch typ.Kind() {
+		case types.String:
+			schema.Type = []string{"string"}
+		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
+			types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
+			schema.Type = []string{"integer"}
+		case types.Float32, types.Float64:
+			schema.Type = []string{"number"}
+		case types.Bool:
+			schema.Type = []string{"boolean"}
+		default:
+			schema.Type = []string{"string"}
+		}
+	case *types.Struct:
+		schema.Type = []string{"object"}
+		schema.Properties = make(map[string]spec.Schema)
+
+		for i := range typ.NumFields() {
+			field := typ.Field(i)
+			if field.Exported() {
+				fieldName := getJSONFieldName(field, typ.Tag(i))
+				if fieldName != "" {
+					fieldSchema := a.generateSchemaFromType(field.Type())
+					schema.Properties[fieldName] = *fieldSchema
+				}
+			}
+		}
+	case *types.Slice:
+		schema.Type = []string{"array"}
+		itemSchema := a.generateSchemaFromType(typ.Elem())
+		schema.Items = &spec.SchemaOrArray{
+			Schema: itemSchema,
+		}
+	case *types.Named:
+		// Handle named types by looking at their underlying type
+		return a.generateSchemaFromType(typ.Underlying())
+	default:
+		// Fallback for unknown types
+		schema.Type = []string{"object"}
+	}
+
+	return schema
+}
+
+// getJSONFieldName returns the JSON field name from the struct tag if present,
+// otherwise returns the field name with the first letter lowercased.
+func getJSONFieldName(field *types.Var, tag string) string {
+	if tag != "" {
+		structTag := reflect.StructTag(tag)
+		if jsonTag := structTag.Get("json"); jsonTag != "" {
+			// Parse the JSON tag - it might have options like "name,omitempty"
+			parts := strings.Split(jsonTag, ",")
+			if parts[0] == "-" {
+				return "" // Field should be excluded
+			}
+			if parts[0] != "" {
+				return parts[0]
+			}
+		}
+	}
+
+	// No JSON tag found, lowercase the first letter
+	name := field.Name()
+	if len(name) > 0 {
+		return strings.ToLower(name[:1]) + name[1:]
+	}
+	return name
 }
 
 // CronJob represents a cron job method in the graph.
@@ -460,6 +693,76 @@ func (g *Graph) Graph() map[string][]string {
 	return result
 }
 
+// GenerateOpenAPISpec creates a complete OpenAPI specification from all API endpoints
+func (g *Graph) GenerateOpenAPISpec(title, version string) *spec.Swagger {
+	swagger := &spec.Swagger{
+		SwaggerProps: spec.SwaggerProps{
+			Swagger: "2.0",
+			Info: &spec.Info{
+				InfoProps: spec.InfoProps{
+					Title:   title,
+					Version: version,
+				},
+			},
+			Paths: &spec.Paths{
+				Paths: make(map[string]spec.PathItem),
+			},
+			Definitions: make(spec.Definitions),
+		},
+	}
+
+	// Group APIs by path
+	pathOperations := make(map[string]map[string]*spec.Operation)
+
+	for _, api := range g.APIs {
+		if api.Pattern == nil || api.OpenAPI == nil {
+			continue
+		}
+
+		path := api.Pattern.Path()
+		method := strings.ToLower(api.Pattern.Method)
+		if method == "" {
+			method = "get"
+		}
+
+		if pathOperations[path] == nil {
+			pathOperations[path] = make(map[string]*spec.Operation)
+		}
+		pathOperations[path][method] = api.OpenAPI
+	}
+
+	// Convert to PathItems
+	for path, operations := range pathOperations {
+		pathItem := spec.PathItem{}
+
+		if op, exists := operations["get"]; exists {
+			pathItem.Get = op
+		}
+		if op, exists := operations["post"]; exists {
+			pathItem.Post = op
+		}
+		if op, exists := operations["put"]; exists {
+			pathItem.Put = op
+		}
+		if op, exists := operations["patch"]; exists {
+			pathItem.Patch = op
+		}
+		if op, exists := operations["delete"]; exists {
+			pathItem.Delete = op
+		}
+		if op, exists := operations["head"]; exists {
+			pathItem.Head = op
+		}
+		if op, exists := operations["options"]; exists {
+			pathItem.Options = op
+		}
+
+		swagger.Paths.Paths[path] = pathItem
+	}
+
+	return swagger
+}
+
 var fset = token.NewFileSet()
 
 // Parse a directive from a comment. Will return (nil, nil) if a directive is not found.
@@ -651,12 +954,24 @@ func createAPI(fn *ast.FuncDecl, pkg *packages.Package, directive *directivepars
 		return nil, errors.Errorf("API method %s can only have one struct parameter for request body/query parameters", fn.Name.Name)
 	}
 
-	return &API{
-		Pattern:  directive,
-		Function: funcObj,
-		Package:  pkg,
-		Position: fset.Position(fn.Pos()),
-	}, nil
+	// Extract documentation from function comments
+	var documentation string
+	if fn.Doc != nil {
+		documentation = strings.TrimSpace(fn.Doc.Text())
+	}
+
+	api := &API{
+		Pattern:       directive,
+		Function:      funcObj,
+		Documentation: documentation,
+		Package:       pkg,
+		Position:      fset.Position(fn.Pos()),
+	}
+
+	// Generate OpenAPI operation spec
+	api.OpenAPI = api.GenerateOpenAPIOperation()
+
+	return api, nil
 }
 
 func createCron(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveCron) (*CronJob, error) {

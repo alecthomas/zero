@@ -6,7 +6,7 @@ Running `zero` on a codebase will generate a function that completely wires up a
 
 A core tenet of Zero Services it that it will work with the normal Go development lifecycle, without any additional steps. Your code should build and be testable out of the box. Code generation is only required for full service construction, but even then it's possible to construct and test the service without code generation. There's minimal lock-in with Zero, because your code is standard Go. The main exception to that is the request handlers, which remove request/response boilerplate.
 
-## Routes
+## Request Handlers
 
 Zero will automatically generate `http.Handler` implementations for any method annotated with `//zero:api`, providing request decoding, response encoding, path variable decoding, query parameter decoding, and error handling.
 
@@ -39,6 +39,132 @@ Responses may optionally implement the interface `zero.StatusCode` to control th
 As with response bodies, if the returned error type implements `http.Handler`, its `ServeHTTP()` method will be called.
 
 A default error handler may also be registered by creating a custom provider for `zero.ErrorHandler`.
+
+### OpenAPI Specification
+
+Use `zero --openapi` to generate an OpenAPI spec for your service. Note that there are currently limitations around
+fine-grained control of the generated spec', but the goal is to improve this as time permits.
+
+<details>
+
+<summary>eg. OpenAPI spec for the exemplar.</summary>
+
+```bash
+$ zero --openapi
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Zero API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/users": {
+      "get": {
+        "tags": [
+          "main"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "birthYear": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "main"
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "birthYear": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/users/{id}": {
+      "get": {
+        "tags": [
+          "main"
+        ],
+        "parameters": [
+          {
+            "type": "string",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "birthYear": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    }
+  }
+}
+```
+</details>
 
 ### Service Interfaces (NOT IMPLEMENTED)
 

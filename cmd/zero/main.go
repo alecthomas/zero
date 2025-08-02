@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,7 +26,8 @@ var cli struct {
 	Tags       []string           `help:"Tags to enable during type analysis (will also be read from $GOFLAGS)." placeholder:"TAG" short:"t"`
 	OutputTags []string           `help:"Tags to add to generated code." placeholder:"TAG" short:"T"`
 	Resolve    []string           `help:"Resolve an ambiguous type with this provider." placeholder:"REF" short:"r"`
-	List       bool               `help:"List all dependencies." xor:"action"`
+	List       bool               `group:"Actions:" help:"List all dependencies." xor:"action"`
+	OpenAPI    string             `group:"Actions:" name:"openapi" help:"Generate OpenAPI specification." xor:"action" placeholder:"TITLE:VERSION"`
 	Root       []string           `help:"Prune dependencies outside these root types."  placeholder:"REF" short:"R"`
 	Dest       string             `help:"Destination package directory for generated files." default:"."`
 	Patterns   []string           `help:"Additional packages pattern to scan." arg:"" optional:""`
@@ -73,13 +75,27 @@ func main() {
 		kctx.Exit(1)
 	}
 
-	if cli.List {
+	// Run actions if any
+	switch {
+	case cli.List:
 		g := graph.Graph()
 		for root, deps := range g {
 			fmt.Printf("%s\n", root)
 			for _, dep := range deps {
 				fmt.Printf("  %s\n", dep)
 			}
+		}
+		kctx.Exit(0)
+
+	case cli.OpenAPI != "":
+		title, version, ok := strings.Cut(cli.OpenAPI, ":")
+		if !ok {
+			kctx.Fatalf("expected --openapi=TITLE:VERSION")
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(graph.GenerateOpenAPISpec(title, version)); err != nil {
+			kctx.Fatalf("failed to encode OpenAPI spec: %v", err)
 		}
 		kctx.Exit(0)
 	}

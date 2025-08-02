@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/alecthomas/zero"
@@ -109,6 +110,7 @@ func (s *Service) OnUserCreated(user zero.Event[UserCreatedEvent]) error {
 //zero:cron 5s
 func (s *Service) CheckUsers(ctx context.Context) error {
 	s.logger.Info("CheckUsers cron job")
+	time.Sleep(7 * time.Second)
 	return nil
 }
 
