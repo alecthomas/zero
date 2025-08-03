@@ -46,6 +46,10 @@ type Provider struct {
 	Package  *packages.Package
 	Provides types.Type
 	Requires []types.Type
+	// IsGeneric indicates if this provider is a generic function
+	IsGeneric bool
+	// TypeParams holds the type parameters for generic providers
+	TypeParams *types.TypeParamList
 }
 
 // API represents a method that is an exposed API endpoint. API endpoints are annotated like so:
@@ -443,27 +447,29 @@ func WithTags(tags ...string) Option {
 }
 
 type Graph struct {
-	Dest           *types.Package
-	Providers      map[string]*Provider
-	MultiProviders map[string][]*Provider // Multiple providers for multi types
-	Configs        map[string]*Config
-	APIs           []*API
-	CronJobs       []*CronJob
-	Middleware     []*Middleware
-	Missing        map[*types.Func][]types.Type
+	Dest             *types.Package
+	Providers        map[string]*Provider
+	MultiProviders   map[string][]*Provider // Multiple providers for multi types
+	GenericProviders map[string][]*Provider // Generic providers by base type name
+	Configs          map[string]*Config
+	APIs             []*API
+	CronJobs         []*CronJob
+	Middleware       []*Middleware
+	Missing          map[*types.Func][]types.Type
 }
 
 // Analyse statically loads Go packages, then analyses them for //zero:... annotations in order to build the
 // Zero's dependency injection graph.
 func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error) {
 	graph := &Graph{
-		Providers:      make(map[string]*Provider),
-		MultiProviders: make(map[string][]*Provider),
-		Configs:        make(map[string]*Config),
-		APIs:           make([]*API, 0),
-		CronJobs:       make([]*CronJob, 0),
-		Middleware:     make([]*Middleware, 0),
-		Missing:        make(map[*types.Func][]types.Type),
+		Providers:        make(map[string]*Provider),
+		MultiProviders:   make(map[string][]*Provider),
+		GenericProviders: make(map[string][]*Provider),
+		Configs:          make(map[string]*Config),
+		APIs:             make([]*API, 0),
+		CronJobs:         make([]*CronJob, 0),
+		Middleware:       make([]*Middleware, 0),
+		Missing:          make(map[*types.Func][]types.Type),
 	}
 	opts := &graphOptions{}
 	for _, opt := range options {
@@ -588,6 +594,21 @@ func (g *Graph) TypeRef(t types.Type) Ref {
 		if named.Obj().Pkg() != nil {
 			pkg = named.Obj().Pkg().Path()
 			typeName = named.Obj().Name()
+
+			// Handle generic types with type arguments
+			if typeArgs := named.TypeArgs(); typeArgs != nil && typeArgs.Len() > 0 {
+				typeName += "["
+				for i := range typeArgs.Len() {
+					argType := typeArgs.At(i)
+					// Use types.TypeString for type arguments to avoid recursion
+					argString := types.TypeString(argType, types.RelativeTo(g.Dest))
+					typeName += argString
+					if i < typeArgs.Len()-1 {
+						typeName += ", "
+					}
+				}
+				typeName += "]"
+			}
 		} else {
 			// Built-in type
 			typeName = named.Obj().Name()
@@ -670,6 +691,13 @@ func (g *Graph) GetProviders(typeStr string) []*Provider {
 	if provider, exists := g.Providers[typeStr]; exists {
 		return []*Provider{provider}
 	}
+
+	// Check generic providers by base type
+	baseType := getBaseTypeNameFromString(typeStr)
+	if genericProviders, exists := g.GenericProviders[baseType]; exists {
+		return genericProviders
+	}
+
 	return nil
 }
 
@@ -698,6 +726,20 @@ func (g *Graph) Graph() map[string][]string {
 			}
 		}
 		result[typeStr] = deps
+	}
+
+	// Add generic providers and their dependencies
+	for baseType, providers := range g.GenericProviders {
+		for _, provider := range providers {
+			deps := make([]string, 0, len(provider.Requires))
+			for _, reqType := range provider.Requires {
+				depTypeStr := types.TypeString(reqType, types.RelativeTo(g.Dest))
+				deps = append(deps, depTypeStr)
+			}
+			// Use a key that indicates this is a generic provider
+			key := baseType + "[T]"
+			result[key] = deps
+		}
 	}
 
 	// Add configs (they have no dependencies)
@@ -816,8 +858,14 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 						return err
 					}
 					if provider != nil {
-						key := types.TypeString(provider.Provides, nil)
-						providers[key] = append(providers[key], provider)
+						if provider.IsGeneric {
+							// For generic providers, store by base type name
+							baseType := getBaseTypeName(provider.Provides)
+							graph.GenericProviders[baseType] = append(graph.GenericProviders[baseType], provider)
+						} else {
+							key := types.TypeString(provider.Provides, nil)
+							providers[key] = append(providers[key], provider)
+						}
 					}
 
 				case *directiveparser.DirectiveAPI:
@@ -917,13 +965,19 @@ func createProvider(fn *ast.FuncDecl, pkg *packages.Package, directive *directiv
 		requiredTypes[i] = params.At(i).Type()
 	}
 
+	// Check if this is a generic function
+	typeParams := sig.TypeParams()
+	isGeneric := typeParams != nil && typeParams.Len() > 0
+
 	return &Provider{
-		Directive: directive,
-		Function:  funcObj,
-		Package:   pkg,
-		Position:  fset.Position(fn.Pos()),
-		Provides:  providedType,
-		Requires:  requiredTypes,
+		Directive:  directive,
+		Function:   funcObj,
+		Package:    pkg,
+		Position:   fset.Position(fn.Pos()),
+		Provides:   providedType,
+		Requires:   requiredTypes,
+		IsGeneric:  isGeneric,
+		TypeParams: typeParams,
 	}, nil
 }
 
@@ -1339,7 +1393,7 @@ func findMissingDependencies(graph *Graph) {
 	for _, provider := range graph.Providers {
 		for _, required := range provider.Requires {
 			key := types.TypeString(required, nil)
-			if !provided[key] && !isProvidedByConfig(required, graph.Configs) {
+			if !provided[key] && !isProvidedByConfig(required, graph.Configs) && !canBeProvidedByGeneric(required, graph) {
 				// Check for duplicates before adding
 				existing := graph.Missing[provider.Function]
 				isDuplicate := false
@@ -1361,7 +1415,7 @@ func findMissingDependencies(graph *Graph) {
 		for _, provider := range providers {
 			for _, required := range provider.Requires {
 				key := types.TypeString(required, nil)
-				if !provided[key] && !isProvidedByConfig(required, graph.Configs) {
+				if !provided[key] && !isProvidedByConfig(required, graph.Configs) && !canBeProvidedByGeneric(required, graph) {
 					// Check for duplicates before adding
 					existing := graph.Missing[provider.Function]
 					isDuplicate := false
@@ -1385,7 +1439,7 @@ func findMissingDependencies(graph *Graph) {
 		if sig.Recv() != nil {
 			receiverType := sig.Recv().Type()
 			key := types.TypeString(receiverType, nil)
-			if !provided[key] && !isProvidedByConfig(receiverType, graph.Configs) {
+			if !provided[key] && !isProvidedByConfig(receiverType, graph.Configs) && !canBeProvidedByGeneric(receiverType, graph) {
 				// Check for duplicates before adding
 				existing := graph.Missing[api.Function]
 				isDuplicate := false
@@ -1406,7 +1460,7 @@ func findMissingDependencies(graph *Graph) {
 	for _, middleware := range graph.Middleware {
 		for _, required := range middleware.Requires {
 			key := types.TypeString(required, nil)
-			if !provided[key] && !isProvidedByConfig(required, graph.Configs) {
+			if !provided[key] && !isProvidedByConfig(required, graph.Configs) && !canBeProvidedByGeneric(required, graph) {
 				// Check for duplicates before adding
 				existing := graph.Missing[middleware.Function]
 				isDuplicate := false
@@ -1592,6 +1646,107 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 					}
 				}
 			}
+		} else {
+			// Check if this type can be provided by a generic provider
+			// First find the actual type object
+			var concreteType types.Type
+			for _, provider := range graph.Providers {
+				for _, req := range provider.Requires {
+					if types.TypeString(req, nil) == current {
+						concreteType = req
+						break
+					}
+				}
+				if concreteType != nil {
+					break
+				}
+			}
+			// Also check multi-providers
+			if concreteType == nil {
+				for _, providers := range graph.MultiProviders {
+					for _, provider := range providers {
+						for _, req := range provider.Requires {
+							if types.TypeString(req, nil) == current {
+								concreteType = req
+								break
+							}
+						}
+						if concreteType != nil {
+							break
+						}
+					}
+					if concreteType != nil {
+						break
+					}
+				}
+			}
+			// Also check APIs
+			if concreteType == nil {
+				for _, api := range graph.APIs {
+					if recv := api.Function.Signature().Recv(); recv != nil {
+						recvType := recv.Type()
+						if types.TypeString(recvType, nil) == current {
+							concreteType = recvType
+							break
+						}
+					}
+				}
+			}
+			// Also check middleware
+			if concreteType == nil {
+				for _, middleware := range graph.Middleware {
+					for _, req := range middleware.Requires {
+						if types.TypeString(req, nil) == current {
+							concreteType = req
+							break
+						}
+					}
+					if concreteType != nil {
+						break
+					}
+				}
+			}
+
+			if concreteType != nil {
+				if resolvedProvider := resolveGenericProviderWithType(graph, concreteType, pick); resolvedProvider != nil {
+					// Add the resolved generic provider as a concrete provider
+					graph.Providers[current] = resolvedProvider
+
+					// Add the generic provider's dependencies to processing queue
+					for _, required := range resolvedProvider.Requires {
+						requiredKey := types.TypeString(required, nil)
+						if !referenced[requiredKey] {
+							toProcess = append(toProcess, requiredKey)
+						}
+					}
+
+					// Handle directive requirements for generic providers
+					for _, requiredFuncName := range resolvedProvider.Directive.Require {
+						requiredFuncKey := resolvedProvider.Package.PkgPath + "/" + requiredFuncName
+						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
+							requiredKey := types.TypeString(requiredProvider.Provides, nil)
+							if !referenced[requiredKey] {
+								toProcess = append(toProcess, requiredKey)
+							}
+						}
+					}
+				} else {
+					// Check if there are ambiguous generic providers
+					baseType := getBaseTypeName(concreteType)
+					if genericProviders, exists := graph.GenericProviders[baseType]; exists && len(genericProviders) > 0 {
+						// Filter to providers that can actually provide this concrete type
+						validProviders := make([]*Provider, 0)
+						for _, genericProvider := range genericProviders {
+							if canProvideConcreteTypeWithConstraints(concreteType, genericProvider) {
+								validProviders = append(validProviders, genericProvider)
+							}
+						}
+						if len(validProviders) > 0 {
+							ambiguousProviders[current] = validProviders
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -1768,6 +1923,202 @@ func isMultiProvider(providers []*Provider) bool {
 
 // requireAppropriateScheduler automatically adds the appropriate scheduler provider
 // to the pick list based on whether cron jobs are present in the graph.
+// getBaseTypeName extracts the base type name from a type, handling generic types.
+// For example, "Topic[T]" becomes "Topic", "*Service" becomes "*Service"
+func getBaseTypeName(t types.Type) string {
+	// Handle pointer types
+	if ptr, ok := t.(*types.Pointer); ok {
+		return "*" + getBaseTypeName(ptr.Elem())
+	}
+
+	// Handle named types (including generic instances)
+	if named, ok := t.(*types.Named); ok {
+		if named.Obj().Pkg() != nil {
+			return named.Obj().Pkg().Path() + "." + named.Obj().Name()
+		}
+		return named.Obj().Name()
+	}
+
+	// For other types, fall back to string representation
+	return types.TypeString(t, nil)
+}
+
+// getBaseTypeNameFromString extracts base type name from a type string
+// For example, "pkg.Topic[User]" becomes "pkg.Topic"
+func getBaseTypeNameFromString(typeStr string) string {
+	// Find the first '[' to strip generic type arguments
+	if idx := strings.Index(typeStr, "["); idx != -1 {
+		return typeStr[:idx]
+	}
+	return typeStr
+}
+
+// canBeProvidedByGeneric checks if a required type can be satisfied by a generic provider
+func canBeProvidedByGeneric(requiredType types.Type, graph *Graph) bool {
+	baseType := getBaseTypeName(requiredType)
+
+	// Check if we have generic providers for this base type
+	providers, exists := graph.GenericProviders[baseType]
+	if !exists || len(providers) == 0 {
+		return false
+	}
+
+	// For generic types, we need to check if the type arguments satisfy the constraints
+	namedType, ok := requiredType.(*types.Named)
+	if !ok {
+		return false
+	}
+
+	// Get type arguments from the required type
+	typeArgs := namedType.TypeArgs()
+	if typeArgs == nil || typeArgs.Len() == 0 {
+		return false
+	}
+
+	// Check each provider to see if any can satisfy the constraints
+	for _, provider := range providers {
+		if provider.TypeParams == nil || provider.TypeParams.Len() == 0 {
+			continue
+		}
+
+		// Check if type arguments satisfy the constraints
+		if satisfiesConstraints(typeArgs, provider.TypeParams) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// resolveGenericProviderWithType finds a suitable generic provider for a concrete type,
+// applying the same weak provider logic as regular providers
+func resolveGenericProviderWithType(graph *Graph, concreteType types.Type, pick []string) *Provider {
+	baseType := getBaseTypeName(concreteType)
+	genericProviders, exists := graph.GenericProviders[baseType]
+	if !exists || len(genericProviders) == 0 {
+		return nil
+	}
+
+	// Filter to providers that can actually provide this concrete type
+	validProviders := make([]*Provider, 0)
+	for _, genericProvider := range genericProviders {
+		if canProvideConcreteTypeWithConstraints(concreteType, genericProvider) {
+			validProviders = append(validProviders, genericProvider)
+		}
+	}
+
+	if len(validProviders) == 0 {
+		return nil
+	}
+
+	// Apply the same logic as pickProvider for generic providers
+	var selectedGenericProvider *Provider
+	if len(validProviders) == 1 {
+		selectedGenericProvider = validProviders[0]
+	} else {
+		// Check for explicit picks
+		for _, provider := range validProviders {
+			key := provider.Function.FullName()
+			if slices.Contains(pick, key) {
+				selectedGenericProvider = provider
+				break
+			}
+		}
+
+		if selectedGenericProvider == nil {
+			// Filter to non-weak providers
+			var strong []*Provider
+			for _, provider := range validProviders {
+				if !provider.Directive.Weak {
+					strong = append(strong, provider)
+				}
+			}
+
+			if len(strong) == 1 {
+				selectedGenericProvider = strong[0]
+			}
+		}
+	}
+
+	if selectedGenericProvider == nil {
+		// If we have zero or multiple non-weak providers, it's ambiguous
+		return nil
+	}
+
+	// Create a new provider instance with the concrete type
+	concreteProvider := &Provider{
+		Position:   selectedGenericProvider.Position,
+		Directive:  selectedGenericProvider.Directive,
+		Function:   selectedGenericProvider.Function,
+		Package:    selectedGenericProvider.Package,
+		Provides:   concreteType,
+		Requires:   selectedGenericProvider.Requires,
+		IsGeneric:  true, // Keep this flag to indicate it needs type instantiation
+		TypeParams: selectedGenericProvider.TypeParams,
+	}
+
+	return concreteProvider
+}
+
+// canProvideConcreteTypeWithConstraints checks if a generic provider can provide a concrete type
+// and validates type constraints
+func canProvideConcreteTypeWithConstraints(concreteType types.Type, genericProvider *Provider) bool {
+	if !genericProvider.IsGeneric {
+		return false
+	}
+
+	// Check if base types match
+	baseType := getBaseTypeName(concreteType)
+	expectedBaseType := getBaseTypeName(genericProvider.Provides)
+
+	if baseType != expectedBaseType {
+		return false
+	}
+
+	// Extract type arguments from the concrete type
+	namedType, ok := concreteType.(*types.Named)
+	if !ok {
+		return false
+	}
+
+	typeArgs := namedType.TypeArgs()
+	if typeArgs == nil || typeArgs.Len() == 0 {
+		return false
+	}
+
+	// Check if type arguments satisfy the constraints
+	if genericProvider.TypeParams == nil || genericProvider.TypeParams.Len() == 0 {
+		return false
+	}
+
+	return satisfiesConstraints(typeArgs, genericProvider.TypeParams)
+}
+
+// satisfiesConstraints checks if the provided type arguments satisfy the type parameter constraints
+func satisfiesConstraints(typeArgs *types.TypeList, typeParams *types.TypeParamList) bool {
+	if typeArgs.Len() != typeParams.Len() {
+		return false
+	}
+
+	for i := range typeArgs.Len() {
+		typeArg := typeArgs.At(i)
+		typeParam := typeParams.At(i)
+
+		// Get the constraint for this type parameter
+		constraint := typeParam.Constraint()
+		if constraint == nil {
+			continue // No constraint means any type is acceptable
+		}
+
+		// Check if the type argument implements/satisfies the constraint
+		if !types.Implements(typeArg, constraint.Underlying().(*types.Interface)) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func requireAppropriateScheduler(graph *Graph, opts *graphOptions) {
 	// Check if any scheduler is already explicitly picked
 	hasScheduler := false

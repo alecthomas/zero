@@ -72,8 +72,18 @@ type Service struct {
 	logger *slog.Logger
 }
 
+//zero:provider weak
+func NewMemoryTopic[T any]() zero.Topic[T] {
+	return nil
+}
+
+//zero:provider weak
+func NewInMemoryTopic[T any]() zero.Topic[T] {
+	return nil
+}
+
 //zero:provider
-func NewService(dal *DAL, logger *slog.Logger, config ServiceConfig) (*Service, error) {
+func NewService(dal *DAL, logger *slog.Logger, topic zero.Topic[User], config ServiceConfig) (*Service, error) {
 	// Other initialisation
 	return &Service{dal: dal, logger: logger}, nil
 }

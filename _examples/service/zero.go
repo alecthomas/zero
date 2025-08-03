@@ -110,11 +110,15 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
+		p2, err := ZeroConstructSingletons[imp9c34c006eb3c10fa.Topic[User]](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		o, err := NewService(p0, p1, p2)
+		p3, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := NewService(p0, p1, p2, p3)
 		if err != nil {
 			return out, fmt.Errorf("*Service: %w", err)
 		}
@@ -154,6 +158,10 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 
 	case reflect.TypeOf((*imp9c34c006eb3c10fa.ErrorHandler)(nil)).Elem():
 		o := impef7a81aa222750b7.DefaultErrorHandler()
+		return any(o).(T), nil
+
+	case reflect.TypeOf((*imp9c34c006eb3c10fa.Topic[User])(nil)).Elem():
+		o := NewMemoryTopic[User]()
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp9b258f273adc01df.Leaser)(nil)).Elem():

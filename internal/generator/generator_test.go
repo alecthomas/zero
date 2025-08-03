@@ -275,6 +275,102 @@ func main() {}
 	assert.NoError(t, err, "Generated code should compile")
 }
 
+func TestGenericProviderGeneration(t *testing.T) {
+	cwd, err := os.Getwd()
+	assert.NoError(t, err)
+
+	dir := t.TempDir()
+
+	// Create a test file with generic providers
+	//nolint
+	err = os.WriteFile(filepath.Join(dir, "main.go"), []byte(`package main
+
+import (
+	"context"
+)
+
+type EventPayload interface {
+	EventID() string
+}
+
+type Topic[T any] interface {
+	Publish(ctx context.Context, msg T) error
+}
+
+type User struct {
+	Name string
+}
+
+func (u User) EventID() string {
+	return u.Name
+}
+
+//zero:provider
+func NewTopic[T any]() Topic[T] {
+	return nil
+}
+
+type Service struct {
+	topic Topic[User]
+}
+
+//zero:provider
+func NewService(topic Topic[User]) *Service {
+	return &Service{topic: topic}
+}
+
+var cli struct {
+	ZeroConfig
+}
+
+func main() {}
+`), 0644)
+	assert.NoError(t, err)
+
+	createGoMod(t, filepath.Join(cwd, "../.."), dir)
+	t.Chdir(dir)
+
+	graph, err := depgraph.Analyse(t.Context(), ".", depgraph.WithRoots("*test.Service"))
+	assert.NoError(t, err)
+
+	// Verify generic provider was detected
+	assert.Equal(t, 1, len(graph.GenericProviders), "Should have exactly one generic provider")
+	topicProviders := graph.GenericProviders["test.Topic"]
+	assert.Equal(t, 1, len(topicProviders), "Should have one Topic generic provider")
+	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
+	assert.True(t, topicProviders[0].IsGeneric)
+
+	// Verify regular providers were detected (Service + resolved Topic[User])
+	assert.Equal(t, 2, len(graph.Providers), "Should have Service provider and resolved generic provider")
+	serviceProvider := graph.Providers["*test.Service"]
+	assert.NotZero(t, serviceProvider)
+	assert.Equal(t, "NewService", serviceProvider.Function.Name())
+
+	// Verify no missing dependencies (generic provider should satisfy Topic[User])
+	assert.Equal(t, 0, len(graph.Missing), "Should have no missing dependencies")
+
+	// Generate the code
+	w, err := os.Create("zero.go")
+	assert.NoError(t, err)
+	err = Generate(w, graph)
+	_ = w.Close()
+	assert.NoError(t, err)
+
+	// Verify generated code contains generic provider instantiation
+	generatedCode := readFile(t)
+	assert.Contains(t, generatedCode, "NewTopic[User]()", "Should instantiate generic provider with concrete type")
+	assert.Contains(t, generatedCode, "case reflect.TypeOf((*Topic[User])(nil)).Elem():", "Should have case for Topic[User]")
+
+	goModTidy(t, dir)
+
+	// Test that the generated code compiles
+	cmd := exec.CommandContext(t.Context(), "go", "build", ".")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	assert.NoError(t, err, "Generated code should compile:\n%s", generatedCode)
+}
+
 func TestSchedulerWithCronJobs(t *testing.T) {
 	cwd, err := os.Getwd()
 	assert.NoError(t, err)

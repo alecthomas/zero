@@ -424,10 +424,32 @@ func writeProviderCall(w *codewriter.Writer, graph *depgraph.Graph, provider *de
 	returnsErr := provider.Function.Signature().Results().Len() == 2
 	w.Indent()
 	if returnsErr {
-		w.W("%s, err := %s(", resultVar, functionRef.Ref)
+		w.W("%s, err := %s", resultVar, functionRef.Ref)
 	} else {
-		w.W("%s := %s(", resultVar, functionRef.Ref)
+		w.W("%s := %s", resultVar, functionRef.Ref)
 	}
+
+	// Add type instantiation for generic providers
+	if provider.IsGeneric {
+		// Extract type arguments from the concrete type that this provider provides
+		typeArgs := extractTypeArguments(provider.Provides)
+		if len(typeArgs) > 0 {
+			w.W("[")
+			for i, typeArg := range typeArgs {
+				argRef := graph.TypeRef(typeArg)
+				if argRef.Import != "" {
+					w.Import(argRef.Import)
+				}
+				w.W("%s", argRef.Ref)
+				if i < len(typeArgs)-1 {
+					w.W(", ")
+				}
+			}
+			w.W("]")
+		}
+	}
+
+	w.W("(")
 	for i := range len(provider.Requires) {
 		w.W("%s%d", depVarPrefix, i)
 		if i < len(provider.Requires)-1 {
@@ -443,6 +465,20 @@ func writeProviderCall(w *codewriter.Writer, graph *depgraph.Graph, provider *de
 		})
 		w.L("}")
 	}
+}
+
+// extractTypeArguments extracts type arguments from a concrete generic type
+func extractTypeArguments(t types.Type) []types.Type {
+	if named, ok := t.(*types.Named); ok {
+		if typeArgs := named.TypeArgs(); typeArgs != nil {
+			result := make([]types.Type, typeArgs.Len())
+			for i := range typeArgs.Len() {
+				result[i] = typeArgs.At(i)
+			}
+			return result
+		}
+	}
+	return nil
 }
 
 func hash(s string) string {

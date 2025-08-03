@@ -2646,3 +2646,285 @@ func (s *Service) HourlyCleanup(ctx context.Context) error {
 	assert.Equal(t, "HourlyCleanup", cron.Function.Name())
 	assert.Equal(t, "1h", cron.Schedule.Schedule)
 }
+
+func TestAnalyseGenericProviders(t *testing.T) {
+	testCode := `package test
+
+import (
+	"context"
+)
+
+type EventPayload interface {
+	EventID() string
+}
+
+type Topic[T EventPayload] interface {
+	Publish(ctx context.Context, msg T) error
+}
+
+type User struct {
+	ID   string
+	Name string
+}
+
+func (u User) EventID() string {
+	return u.ID
+}
+
+//zero:provider
+func NewTopic[T EventPayload]() Topic[T] {
+	return nil
+}
+
+type Service struct {
+	topic Topic[User]
+}
+
+//zero:provider
+func NewService(topic Topic[User]) *Service {
+	return &Service{topic: topic}
+}
+`
+
+	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+
+	// Should have NewService provider and resolved generic NewTopic provider
+	assert.Equal(t, 2, len(graph.Providers)) // Service + resolved Topic[User]
+	assert.Equal(t, 1, len(graph.GenericProviders))
+
+	// Check that NewService is provided
+	serviceProvider := graph.Providers["*test.Service"]
+	assert.NotZero(t, serviceProvider)
+	assert.Equal(t, "NewService", serviceProvider.Function.Name())
+
+	// Check that NewTopic is a generic provider
+	topicProviders := graph.GenericProviders["test.Topic"]
+	assert.Equal(t, 1, len(topicProviders))
+	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
+
+	// NewService should have no missing dependencies because NewTopic[User] can be instantiated
+	assert.Equal(t, 0, len(graph.Missing[serviceProvider.Function]))
+}
+
+func TestAnalyseGenericProvidersWithConstraints(t *testing.T) {
+	testCode := `package test
+
+import (
+	"context"
+)
+
+type EventPayload interface {
+	EventID() string
+}
+
+type Topic[T EventPayload] interface {
+	Publish(ctx context.Context, msg T) error
+}
+
+type User struct {
+	ID   string
+	Name string
+}
+
+func (u User) EventID() string {
+	return u.ID
+}
+
+type Order struct {
+	ID     string
+	Amount int
+}
+
+func (o Order) EventID() string {
+	return o.ID
+}
+
+type InvalidType struct {
+	Name string
+}
+
+//zero:provider
+func NewTopic[T EventPayload]() Topic[T] {
+	return nil
+}
+
+type ServiceA struct {
+	userTopic Topic[User]
+}
+
+type ServiceB struct {
+	orderTopic Topic[Order]
+}
+
+type ServiceC struct {
+	invalidTopic Topic[InvalidType] // This should cause missing dependency
+}
+
+//zero:provider
+func NewServiceA(topic Topic[User]) *ServiceA {
+	return &ServiceA{userTopic: topic}
+}
+
+//zero:provider
+func NewServiceB(topic Topic[Order]) *ServiceB {
+	return &ServiceB{orderTopic: topic}
+}
+
+//zero:provider
+func NewServiceC(topic Topic[InvalidType]) *ServiceC {
+	return &ServiceC{invalidTopic: topic}
+}
+`
+
+	graph := analyseTestCode(t, testCode, []string{"*test.ServiceA", "*test.ServiceB", "*test.ServiceC"})
+
+	// Should have regular providers (ServiceA, ServiceB, ServiceC) + resolved providers (Topic[User], Topic[Order])
+	assert.Equal(t, 5, len(graph.Providers)) // 3 original + 2 resolved (Topic[InvalidType] cannot be resolved due to constraint violation)
+	assert.Equal(t, 1, len(graph.GenericProviders))
+
+	// Check that NewTopic is a generic provider
+	topicProviders := graph.GenericProviders["test.Topic"]
+	assert.Equal(t, 1, len(topicProviders))
+	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
+	assert.True(t, topicProviders[0].IsGeneric)
+
+	// ServiceA and ServiceB should have no missing dependencies
+	serviceAProvider := graph.Providers["*test.ServiceA"]
+	assert.NotZero(t, serviceAProvider)
+	assert.Equal(t, 0, len(graph.Missing[serviceAProvider.Function]))
+
+	serviceBProvider := graph.Providers["*test.ServiceB"]
+	assert.NotZero(t, serviceBProvider)
+	assert.Equal(t, 0, len(graph.Missing[serviceBProvider.Function]))
+
+	// ServiceC should have missing dependencies because InvalidType doesn't implement EventPayload
+	serviceCProvider := graph.Providers["*test.ServiceC"]
+	assert.NotZero(t, serviceCProvider)
+	// InvalidType doesn't implement EventPayload, so Topic[InvalidType] cannot be provided
+	assert.Equal(t, 1, len(graph.Missing[serviceCProvider.Function]))
+}
+
+func TestAnalyseGenericProvidersUserExample(t *testing.T) {
+	testCode := `package test
+
+import (
+	"context"
+)
+
+// User's example types
+type EventPayload interface {
+	EventID() string
+}
+
+type Topic[T EventPayload] interface {
+	Publish(ctx context.Context, msg T) error
+}
+
+type User struct {
+	ID   string
+	Name string
+}
+
+func (u User) EventID() string {
+	return u.ID
+}
+
+//zero:provider
+func NewTopic[T EventPayload]() Topic[T] {
+	return nil
+}
+
+type Service struct {
+	userTopic Topic[User]
+}
+
+//zero:provider
+func NewService(topic Topic[User]) *Service {
+	return &Service{userTopic: topic}
+}
+`
+
+	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+
+	// Should have the concrete service provider and resolved generic provider
+	assert.Equal(t, 2, len(graph.Providers)) // Service + resolved Topic[User]
+	serviceProvider := graph.Providers["*test.Service"]
+	assert.NotZero(t, serviceProvider)
+	assert.Equal(t, "NewService", serviceProvider.Function.Name())
+
+	// Should have the generic topic provider
+	assert.Equal(t, 1, len(graph.GenericProviders))
+	topicProviders := graph.GenericProviders["test.Topic"]
+	assert.Equal(t, 1, len(topicProviders))
+	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
+	assert.True(t, topicProviders[0].IsGeneric)
+
+	// The service should have no missing dependencies because Topic[User] can be satisfied by NewTopic[T]
+	assert.Equal(t, 0, len(graph.Missing[serviceProvider.Function]))
+
+	// Verify the dependency graph includes both
+	depGraph := graph.Graph()
+	_, hasService := depGraph["*test.Service"]
+	assert.True(t, hasService)
+	_, hasGenericTopic := depGraph["test.Topic[T]"]
+	assert.True(t, hasGenericTopic)
+}
+
+func TestGenericProvidersInGraphOutput(t *testing.T) {
+	testCode := `package test
+
+import (
+	"context"
+)
+
+type EventPayload interface {
+	EventID() string
+}
+
+type Topic[T EventPayload] interface {
+	Publish(ctx context.Context, msg T) error
+}
+
+type User struct {
+	ID   string
+	Name string
+}
+
+func (u User) EventID() string {
+	return u.ID
+}
+
+//zero:provider
+func NewTopic[T EventPayload]() Topic[T] {
+	return nil
+}
+
+type Service struct {
+	topic Topic[User]
+}
+
+//zero:provider
+func NewService(topic Topic[User]) *Service {
+	return &Service{topic: topic}
+}
+`
+
+	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+
+	// Check the dependency graph output
+	depGraph := graph.Graph()
+
+	// Should have entries for regular provider and generic provider
+	_, hasService := depGraph["*test.Service"]
+	assert.True(t, hasService)
+	_, hasGenericTopic := depGraph["test.Topic[T]"]
+	assert.True(t, hasGenericTopic)
+
+	// Generic provider should have no dependencies
+	assert.Equal(t, []string{}, depGraph["test.Topic[T]"])
+
+	// Service should depend on Topic[User]
+	serviceDeps := depGraph["*test.Service"]
+	assert.Equal(t, 1, len(serviceDeps))
+	assert.Equal(t, "Topic[User]", serviceDeps[0])
+}

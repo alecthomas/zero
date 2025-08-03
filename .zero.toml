@@ -1,2 +1,5 @@
-resolve = ["github.com/alecthomas/zero/providers/leases.NewSQLLeaser"]
+resolve = [
+    "github.com/alecthomas/zero/providers/leases.NewSQLLeaser",
+    "github.com/alecthomas/zero/_examples/service.NewMemoryTopic",
+]
 chdir = "./_examples/service"
