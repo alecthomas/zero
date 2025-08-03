@@ -1,6 +1,8 @@
 module github.com/alecthomas/zero
 
-go 1.24
+go 1.24.0
+
+toolchain go1.24.5
 
 require (
 	github.com/alecthomas/assert/v2 v2.11.0
@@ -8,9 +10,11 @@ require (
 	github.com/alecthomas/kong-toml v0.3.0
 	github.com/alecthomas/participle/v2 v2.1.4
 	github.com/dyninc/qstring v0.0.0-20160719172318-ab5840a88e81
+	github.com/go-openapi/spec v0.21.0
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/thnxdev/happy v0.1.6
+	go.jetify.com/typeid/v2 v2.0.0-alpha.3
 	golang.org/x/mod v0.26.0
 	modernc.org/sqlite v1.38.2
 )
@@ -20,8 +24,8 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
-	github.com/go-openapi/spec v0.21.0 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
+	github.com/gofrs/uuid/v5 v5.3.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect

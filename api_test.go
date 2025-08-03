@@ -12,7 +12,7 @@ type User struct {
 	Age  int    `json:"age"`
 }
 
-func (u User) ID() string { return u.Name }
+func (u User) EventID() string { return u.Name }
 
 func TestEvent(t *testing.T) {
 	synctest.Run(func() {

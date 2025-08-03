@@ -9,7 +9,7 @@ import (
 
 var buildInfo *debug.BuildInfo
 
-type Event[T interface{ ID() string }] struct {
+type Event[T any] struct {
 	SpecVersion     string    `json:"specversion"`
 	Type            string    `json:"type"`
 	Source          string    `json:"source"`
@@ -19,7 +19,7 @@ type Event[T interface{ ID() string }] struct {
 	Data            T         `json:"data"`
 }
 
-func New[T interface{ ID() string }](source string, created time.Time, data T) Event[T] {
+func New[T any](id, source string, created time.Time, data T) Event[T] {
 	t := reflect.TypeFor[T]()
 	typeName := t.PkgPath() + "." + t.Name()
 	return Event[T]{
@@ -27,7 +27,7 @@ func New[T interface{ ID() string }](source string, created time.Time, data T) E
 		Type:            typeName,
 		Source:          source,
 		Time:            created,
-		ID:              data.ID(),
+		ID:              id,
 		DataContentType: "application/json; charset=utf-8",
 		Data:            data,
 	}
