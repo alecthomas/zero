@@ -14,6 +14,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/alecthomas/zero"
+	"github.com/alecthomas/zero/providers/pubsub"
 	zerosql "github.com/alecthomas/zero/providers/sql"
 )
 
@@ -72,23 +73,23 @@ type Service struct {
 	logger *slog.Logger
 }
 
-//zero:config prefix="topic-${type}"
+//zero:config prefix="topic-${type}-"
 type TopicConfig[T any] struct {
 	Name string
 }
 
 //zero:provider weak
-func NewMemoryTopic[T any](config TopicConfig[T]) zero.Topic[T] {
+func NewMemoryTopic[T any](config TopicConfig[T]) pubsub.Topic[T] {
 	return nil
 }
 
 //zero:provider weak
-func NewInMemoryTopic[T any]() zero.Topic[T] {
+func NewInMemoryTopic[T any]() pubsub.Topic[T] {
 	return nil
 }
 
 //zero:provider
-func NewService(dal *DAL, logger *slog.Logger, topic zero.Topic[User], config ServiceConfig) (*Service, error) {
+func NewService(dal *DAL, logger *slog.Logger, topic pubsub.Topic[User], config ServiceConfig) (*Service, error) {
 	// Other initialisation
 	return &Service{dal: dal, logger: logger}, nil
 }
@@ -118,7 +119,7 @@ func (s *Service) GetUser(id string) (User, error) {
 }
 
 // zero:subscribe
-func (s *Service) OnUserCreated(user zero.Event[UserCreatedEvent]) error {
+func (s *Service) OnUserCreated(user pubsub.Event[UserCreatedEvent]) error {
 	panic("not implemented")
 }
 

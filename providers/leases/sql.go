@@ -108,7 +108,7 @@ func (s *SQLLeaser) renew(ctx context.Context) {
 			if err == nil {
 				return
 			}
-			s.log.Error("FATAL: failed to renew leases, terminating to avoid split brain", "err", err)
+			s.log.Error("FATAL: failed to renew leases, terminating to avoid split brain", "error", err)
 			os.Exit(1)
 
 		case <-time.After(jitter(time.Millisecond * 100)):
@@ -131,7 +131,7 @@ retry:
 			return nil, errors.Errorf("lease %s: failed to begin transaction: %w", key, err)
 		}
 		if err := s.acquireTx(timeoutCtx, tx, key); err != nil {
-			s.log.Debug("Failed to acquire lease, will retry", "err", err)
+			s.log.Debug("Failed to acquire lease, will retry", "error", err)
 			// Failed to acquire lease, rollback and fallthrough to the retry.
 			_ = tx.Rollback()
 			if errors.Is(err, context.DeadlineExceeded) {
