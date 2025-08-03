@@ -8,6 +8,7 @@ import (
 )
 
 func TestTypeRef(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		typeStr  string
@@ -59,6 +60,7 @@ func TestTypeRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Parse the type string into a types.Type
 			var typ types.Type
 			switch tt.typeStr {

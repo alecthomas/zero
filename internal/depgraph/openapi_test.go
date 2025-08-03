@@ -14,6 +14,7 @@ import (
 )
 
 func TestAPIGenerateOpenAPIOperation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		funcSig  string
@@ -182,6 +183,7 @@ func TestAPIGenerateOpenAPIOperation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			api := createMockAPI(t, tt.funcSig, tt.pattern)
 			definitions := make(spec.Definitions)
 			operation := api.GenerateOpenAPIOperation(definitions)
@@ -192,6 +194,7 @@ func TestAPIGenerateOpenAPIOperation(t *testing.T) {
 }
 
 func TestAPIGenerateSchemaFromType(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		typeExpr string
@@ -244,6 +247,7 @@ func TestAPIGenerateSchemaFromType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			api := createMockAPIWithType(t)
 			typ := parseTypeExpression(t, tt.typeExpr)
 			definitions := make(spec.Definitions)
@@ -255,6 +259,7 @@ func TestAPIGenerateSchemaFromType(t *testing.T) {
 }
 
 func TestAPIGenerateSchemaFromStructWithJSONTags(t *testing.T) {
+	t.Parallel()
 	api := createMockAPIWithType(t)
 
 	// Create a struct type with fields that have JSON tags
@@ -303,6 +308,7 @@ func TestAPIGenerateSchemaFromStructWithJSONTags(t *testing.T) {
 }
 
 func TestGraphGenerateOpenAPISpec(t *testing.T) {
+	t.Parallel()
 	graph := &Graph{
 		APIs: []*API{
 			createMockAPI(t, "GetUser:ctx context.Context,userID string:*User,error", &directiveparser.DirectiveAPI{
@@ -453,6 +459,7 @@ func TestGraphGenerateOpenAPISpec(t *testing.T) {
 }
 
 func TestAPIIsPathParameter(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		path      string
@@ -481,6 +488,7 @@ func TestAPIIsPathParameter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			segments := []directiveparser.Segment{}
 			if tt.path != "" {
 				if strings.Contains(tt.path, "{") {
@@ -684,6 +692,7 @@ func parseTypeExpression(t *testing.T, typeExpr string) types.Type {
 }
 
 func TestGraphGenerateOpenAPISpecWithNamedStructDefinitions(t *testing.T) {
+	t.Parallel()
 	graph := &Graph{
 		APIs: []*API{
 			createMockAPI(t, "CreateUser:ctx context.Context,req User:*User,error", &directiveparser.DirectiveAPI{

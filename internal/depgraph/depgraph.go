@@ -496,16 +496,27 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		logf = log.Printf
 	}
 
+	// Create a new FileSet for this analysis to avoid race conditions
+	fileset := token.NewFileSet()
 	cfg := &packages.Config{
 		Logf:       logf,
-		Fset:       fset,
+		Fset:       fileset,
 		BuildFlags: opts.buildFlags,
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedTypes | packages.NeedSyntax |
 			packages.NeedTypesInfo,
 	}
+
+	// If dest is an absolute path, set Dir to tell packages.Load which directory to use
+	var destPattern string
+	if filepath.IsAbs(dest) {
+		cfg.Dir = dest
+		destPattern = "."
+	} else {
+		destPattern = dest
+	}
 	opts.patterns = append(opts.patterns, "github.com/alecthomas/zero/providers/...")
-	pkgs, err := packages.Load(cfg, append(opts.patterns, dest)...)
+	pkgs, err := packages.Load(cfg, append(opts.patterns, destPattern)...)
 	if err != nil {
 		return nil, errors.Errorf("failed to load packages: %w", err)
 	}
@@ -518,7 +529,7 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		if err := cmd.Run(); err != nil {
 			return nil, errors.Errorf("failed to run 'go mod -C %q tidy': %w", dest, err)
 		}
-		pkgs, err = packages.Load(cfg, append(opts.patterns, dest)...)
+		pkgs, err = packages.Load(cfg, append(opts.patterns, destPattern)...)
 		if err != nil {
 			return nil, errors.Errorf("failed to load packages: %w", err)
 		}
@@ -532,7 +543,7 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		if pkg.PkgPath == destImport {
 			graph.Dest = pkg.Types
 		}
-		err := analysePackage(pkg, graph, providers)
+		err := analysePackage(pkg, graph, providers, fileset)
 		if err != nil {
 			return nil, err
 		}
@@ -840,8 +851,6 @@ func (g *Graph) GenerateOpenAPISpec(title, version string) *spec.Swagger {
 	return swagger
 }
 
-var fset = token.NewFileSet()
-
 // Parse a directive from a comment. Will return (nil, nil) if a directive is not found.
 func parseDirective(doc *ast.CommentGroup) (directiveparser.Directive, error) {
 	if doc == nil {
@@ -855,7 +864,7 @@ func parseDirective(doc *ast.CommentGroup) (directiveparser.Directive, error) {
 	return nil, nil
 }
 
-func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]*Provider) error {
+func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]*Provider, fset *token.FileSet) error {
 	for _, file := range pkg.Syntax {
 		for _, decl := range file.Decls {
 			switch decl := decl.(type) {
@@ -868,7 +877,7 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 				}
 				switch directive := directive.(type) {
 				case *directiveparser.DirectiveProvider:
-					provider, err := createProvider(decl, pkg, directive)
+					provider, err := createProvider(decl, pkg, directive, fset)
 					if err != nil {
 						return err
 					}
@@ -884,7 +893,7 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 					}
 
 				case *directiveparser.DirectiveAPI:
-					api, err := createAPI(decl, pkg, directive)
+					api, err := createAPI(decl, pkg, directive, fset)
 					if err != nil {
 						return err
 					}
@@ -893,7 +902,7 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 					}
 
 				case *directiveparser.DirectiveCron:
-					cron, err := createCron(decl, pkg, directive)
+					cron, err := createCron(decl, pkg, directive, fset)
 					if err != nil {
 						return err
 					}
@@ -902,7 +911,7 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 					}
 
 				case *directiveparser.DirectiveMiddleware:
-					middleware, err := createMiddleware(decl, pkg, directive)
+					middleware, err := createMiddleware(decl, pkg, directive, fset)
 					if err != nil {
 						return err
 					}
@@ -963,7 +972,7 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 	return nil
 }
 
-func createProvider(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveProvider) (*Provider, error) {
+func createProvider(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveProvider, fset *token.FileSet) (*Provider, error) {
 	obj := pkg.TypesInfo.ObjectOf(fn.Name)
 	if obj == nil {
 		return nil, nil
@@ -1014,7 +1023,7 @@ func createProvider(fn *ast.FuncDecl, pkg *packages.Package, directive *directiv
 	}, nil
 }
 
-func createAPI(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveAPI) (*API, error) {
+func createAPI(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveAPI, fset *token.FileSet) (*API, error) {
 	// API annotations are only valid on methods (functions with receivers)
 	if fn.Recv == nil {
 		return nil, errors.Errorf("//zero:api annotation is only valid on methods, not functions: %s", fn.Name.Name)
@@ -1081,7 +1090,7 @@ func createAPI(fn *ast.FuncDecl, pkg *packages.Package, directive *directivepars
 	return api, nil
 }
 
-func createCron(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveCron) (*CronJob, error) {
+func createCron(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveCron, fset *token.FileSet) (*CronJob, error) {
 	// Cron annotations are only valid on methods (functions with receivers)
 	if fn.Recv == nil {
 		return nil, errors.Errorf("//zero:cron annotation is only valid on methods, not functions: %s", fn.Name.Name)
@@ -1131,7 +1140,7 @@ func createCron(fn *ast.FuncDecl, pkg *packages.Package, directive *directivepar
 	}, nil
 }
 
-func createMiddleware(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveMiddleware) (*Middleware, error) {
+func createMiddleware(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveMiddleware, fset *token.FileSet) (*Middleware, error) {
 	obj := pkg.TypesInfo.ObjectOf(fn.Name)
 	if obj == nil {
 		return nil, errors.Errorf("failed to retrieve object for function %s", fn.Name.Name)

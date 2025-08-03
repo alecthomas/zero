@@ -7,6 +7,7 @@ import (
 )
 
 func TestPruneUnusedMiddleware(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -91,6 +92,7 @@ func (s *Service) DeleteUser() {}
 }
 
 func TestPruneMiddlewareWithMultipleLabels(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -135,6 +137,7 @@ func (s *Service) GetData() {}
 }
 
 func TestKeepAllMiddlewareWhenNoAPIs(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -144,6 +147,7 @@ import (
 
 //zero:middleware test
 func TestMiddleware() func(http.Handler) http.Handler {
+t.Parallel()
 	return func(next http.Handler) http.Handler {
 		return next
 	}
@@ -164,6 +168,7 @@ func UnusedMiddleware() func(http.Handler) http.Handler {
 }
 
 func TestMiddlewarePruningEdgeCases(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -221,6 +226,7 @@ func (s *Service) TestEndpoint() {}
 }
 
 func TestMiddlewarePruningWithLabelValues(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 

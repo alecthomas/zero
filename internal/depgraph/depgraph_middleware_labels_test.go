@@ -8,6 +8,7 @@ import (
 )
 
 func TestAnalyseMiddlewareWithLabelInjection(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -75,6 +76,7 @@ func AuthWithRole(admin string, moderator int, dal *DAL) func(http.Handler) http
 }
 
 func TestAnalyseMiddlewareWithInvalidLabelParameter(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -102,6 +104,7 @@ func Auth(wrongName string, dal *DAL) func(http.Handler) http.Handler {
 }
 
 func TestAnalyseMiddlewareWithMixedParameters(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -157,6 +160,7 @@ func ComplexAuth(authenticated string, level int, dal *DAL, logger *Logger) func
 }
 
 func TestAnalyseDirectMiddlewareNoLabelInjection(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -188,6 +192,7 @@ func CORS(next http.Handler) http.Handler {
 }
 
 func TestAnalyseMiddlewareWithIntLabels(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -225,6 +230,7 @@ func CacheMiddleware(maxAge int, timeout int, cache *Cache) func(http.Handler) h
 }
 
 func TestAnalyseMiddlewareWithInvalidIntParameter(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 

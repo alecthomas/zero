@@ -13,6 +13,7 @@ import (
 )
 
 func TestAnalyseSimpleProvider(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -33,6 +34,7 @@ func NewDB() *sql.DB {
 }
 
 func TestAnalyseProviderWithError(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -51,6 +53,7 @@ func NewDB() (*sql.DB, error) {
 }
 
 func TestAnalyseProviderWithDependencies(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -81,6 +84,7 @@ func NewDB(cfg *Config) (*sql.DB, error) {
 }
 
 func TestAnalyseMissingDependencies(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -104,6 +108,7 @@ func NewDB(cfg *Config) (*sql.DB, error) {
 }
 
 func TestAnalyseMultipleDependencies(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -141,6 +146,7 @@ func NewDB(cfg *Config, logger *log.Logger) (*sql.DB, error) {
 }
 
 func TestAnalyseInvalidProvider(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -154,6 +160,7 @@ func InvalidProvider() {
 }
 
 func TestAnalyseInvalidErrorReturn(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -168,6 +175,7 @@ func InvalidProvider() (string, string) {
 }
 
 func TestAnalyseNonProviderFunction(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package test
 
@@ -187,6 +195,7 @@ func NewService() *Service {
 }
 
 func TestAnalyseCircularDependencies(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package test
 
@@ -209,6 +218,7 @@ func NewB(a *A) *B {
 }
 
 func TestAnalyseConfigStruct(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package test
 
@@ -229,6 +239,7 @@ type Config struct {
 }
 
 func TestAnalyseProviderWithConfigDependency(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package test
 
@@ -256,6 +267,7 @@ func NewDB(cfg *Config) (*sql.DB, error) {
 }
 
 func TestAnalyseMultipleConfigs(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package test
 
@@ -285,6 +297,7 @@ func NewService(dbCfg *DatabaseConfig, srvCfg *ServerConfig) string {
 }
 
 func TestAnalyseConfigWithoutAnnotation(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package test
 
@@ -307,6 +320,7 @@ func NewService(cfg *Config) string {
 }
 
 func TestAnalyseConfigStructAndPointerAvailable(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package test
 
@@ -339,6 +353,7 @@ func NewDBWithPointer(cfg *Config) (string, error) {
 }
 
 func TestAnalyseConfigBothStructAndPointerDependencies(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package test
 
@@ -385,6 +400,7 @@ func analyseTestCodeWithError(t *testing.T, code string, roots []string) (*Graph
 }
 
 func TestAnalyseAPIFunctions(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -496,6 +512,7 @@ func (s *UserService) InternalHelper() string {
 }
 
 func TestAnalyseInvalidAPIAnnotation(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -512,6 +529,7 @@ func (s *Service) InvalidAPI() error {
 }
 
 func TestAnalyseAPIMinimalAnnotation(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -537,6 +555,7 @@ func (s *UserService) HealthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestAnalyseNonAPIFunction(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -564,6 +583,7 @@ func (s *Service) APIMethod() string {
 }
 
 func TestAnalyseMixedProvidersAndAPIs(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -633,6 +653,7 @@ func (s *UserService) CreateUser(req CreateUserRequest) string {
 }
 
 func TestAnalyseAPIAnnotationOnFunction(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -646,6 +667,7 @@ func StandaloneFunction() string {
 }
 
 func TestAnalyseAPIReceiverWithoutProvider(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -682,6 +704,7 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*s
 }
 
 func TestAnalyseAPIReceiverWithProvider(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -719,6 +742,7 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*s
 }
 
 func TestAnalyseAPIReceiverWithConfig(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -746,6 +770,7 @@ func (s *UserService) GetUsers(ctx context.Context) ([]string, error) {
 }
 
 func TestAnalyseMixedAPIReceiversSomeWithProviders(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -778,6 +803,7 @@ func (s *APIService) GetUser(ctx context.Context, id int) (*string, error) {
 }
 
 func TestAnalyseAPINoDuplicateMissingReceivers(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -820,6 +846,7 @@ func (s *UserService) DeleteUser(ctx context.Context, id int) error {
 }
 
 func TestAnalyseAPIWithHosts(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -870,6 +897,7 @@ func (s *APIService) GetUser(ctx context.Context, id int) (*string, error) {
 }
 
 func TestAnalyseAPIWithWildcards(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -934,6 +962,7 @@ func (s *FileService) DeleteStatic(ctx context.Context, path string) error {
 }
 
 func TestAnalyseAPIWithoutMethod(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -978,6 +1007,7 @@ func (s *Service) Status(ctx context.Context) error {
 }
 
 func TestAnalyseAPIInvalidPatterns(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		annotation  string
@@ -1022,6 +1052,7 @@ func TestAnalyseAPIInvalidPatterns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			testCode := `
 package main
 
@@ -1040,6 +1071,7 @@ func (s *Service) TestMethod() error {
 }
 
 func TestAnalyseAPIComplexPatterns(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -1118,6 +1150,7 @@ func (s *APIService) AdminAction(ctx context.Context, path string) error {
 }
 
 func TestAnalyseAPIParameterValidation(t *testing.T) {
+	t.Parallel()
 	// Test valid parameter types
 	testCode := `
 package main
@@ -1189,6 +1222,7 @@ func (s *UserService) UpdateUser(ctx context.Context, id int, req *CreateUserReq
 }
 
 func TestAnalyseAPIInvalidParameterTypes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		code        string
@@ -1355,6 +1389,7 @@ func (s *UserService) ComplexCreate(ctx context.Context, req1 CreateUserRequest,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := analyseCodeString(t.Context(), tt.code, []string{"*test.UserService"})
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectedErr)
@@ -1363,6 +1398,7 @@ func (s *UserService) ComplexCreate(ctx context.Context, req1 CreateUserRequest,
 }
 
 func TestAnalyseWeakProviderDirectiveRequirements(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -1413,6 +1449,7 @@ func SQLCron(db *sql.DB) string {
 }
 
 func TestAnalyseWeakProviderDirectiveRequirementsChain(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -1477,6 +1514,7 @@ func CacheManager(db *sql.DB, cache Cache) string {
 }
 
 func TestAnalyseWeakMultiProviderNotIncludedUnlessNeeded(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -1520,6 +1558,7 @@ func GetServiceName(s Service) string {
 }
 
 func TestAnalyseWeakMultiProviderIncludedWhenRequired(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -1565,6 +1604,7 @@ func SpecialHandler() string {
 }
 
 func TestAnalyseInvalidRequireDirective(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -1580,6 +1620,7 @@ func WeakProvider() string {
 }
 
 func TestAnalyseRequireNonProviderFunction(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -1599,6 +1640,7 @@ func WeakProvider() int {
 }
 
 func TestAnalyseAPIValidParameterTypes(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -1633,6 +1675,7 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) err
 }
 
 func TestAnalyseAPIWildcardParameterMapping(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -1694,18 +1737,7 @@ go 1.21
 		return nil, err
 	}
 
-	// Save current directory and change to tmpDir
-	oldDir, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	err = os.Chdir(tmpDir)
-	if err != nil {
-		return nil, err
-	}
-	defer os.Chdir(oldDir) //nolint:errcheck
-
-	return Analyse(ctx, ".", WithRoots(roots...))
+	return Analyse(ctx, tmpDir, WithRoots(roots...))
 }
 
 // findAPI finds an API in the slice by method, host, and path.
@@ -1725,6 +1757,7 @@ func findAPI(t *testing.T, apis []*API, method, host, path string) *API {
 }
 
 func TestRemoveUnusedConfigs(t *testing.T) {
+	t.Parallel()
 	code := `
 package main
 
@@ -1775,6 +1808,7 @@ type Service struct{}
 }
 
 func TestAnalyseWithRootTypePruning(t *testing.T) {
+	t.Parallel()
 	code := `
 package test
 
@@ -1844,6 +1878,7 @@ type ServiceD struct{ B *ServiceB }
 }
 
 func TestAnalyseWithRootTypePruningConfigs(t *testing.T) {
+	t.Parallel()
 	code := `
 package test
 
@@ -1877,6 +1912,7 @@ type Service struct{ Config *ConfigA }
 }
 
 func TestAnalyseWithRootTypePruningAPIReceivers(t *testing.T) {
+	t.Parallel()
 	code := `
 package test
 
@@ -1921,6 +1957,7 @@ func (s *ServiceB) PostOther(ctx context.Context, w http.ResponseWriter, r *http
 }
 
 func TestAnalyseWithNilRoots(t *testing.T) {
+	t.Parallel()
 	code := `
 package test
 
@@ -1975,6 +2012,7 @@ type ServiceC struct{ Config *ConfigA }
 }
 
 func TestAnalyseWithNilRootsAndAPIs(t *testing.T) {
+	t.Parallel()
 	code := `
 package test
 
@@ -2032,6 +2070,7 @@ func (s *ServiceB) PostOther(ctx context.Context, w http.ResponseWriter, r *http
 }
 
 func TestGraph(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2079,6 +2118,7 @@ type Service struct {
 }
 
 func TestGraphWithConfigs(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2122,6 +2162,7 @@ type Service struct {}
 }
 
 func TestFunctionRef(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2159,6 +2200,7 @@ type Service struct{}
 }
 
 func TestAnalyseMiddlewareFunctions(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package test
 
@@ -2260,6 +2302,7 @@ func NewDAL() *DAL {
 }
 
 func TestAnalyseInvalidMiddlewareFunction(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package test
 
@@ -2281,6 +2324,7 @@ type Service struct{}
 }
 
 func TestAnalyseMultiProviders(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2330,6 +2374,7 @@ type Service struct {
 }
 
 func TestAnalyseMixedMultiAndNonMultiProviders(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2358,6 +2403,7 @@ type Service struct {
 }
 
 func TestAnalyseMultiProvidersOnly(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2402,6 +2448,7 @@ type Service struct {
 }
 
 func TestAnalyseMultiProviderPruning(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2445,6 +2492,7 @@ type Service struct {
 }
 
 func TestAnalyseCronFunctions(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2489,6 +2537,7 @@ func (s *CronService) DailyTask(ctx context.Context) error {
 }
 
 func TestAnalyseCronAnnotationOnFunction(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2504,6 +2553,7 @@ func StandaloneCronFunction(ctx context.Context) error {
 }
 
 func TestAnalyseCronInvalidSignatureNoParameters(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2519,6 +2569,7 @@ func (s *CronService) InvalidCron() error {
 }
 
 func TestAnalyseCronInvalidSignatureTooManyParameters(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2536,6 +2587,7 @@ func (s *CronService) InvalidCron(ctx context.Context, extra string) error {
 }
 
 func TestAnalyseCronInvalidSignatureWrongParameterType(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2551,6 +2603,7 @@ func (s *CronService) InvalidCron(notContext string) error {
 }
 
 func TestAnalyseCronInvalidSignatureNoReturnValue(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2567,6 +2620,7 @@ func (s *CronService) InvalidCron(ctx context.Context) {
 }
 
 func TestAnalyseCronInvalidSignatureTooManyReturnValues(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2584,6 +2638,7 @@ func (s *CronService) InvalidCron(ctx context.Context) (string, error) {
 }
 
 func TestAnalyseCronInvalidSignatureWrongReturnType(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2601,6 +2656,7 @@ func (s *CronService) InvalidCron(ctx context.Context) string {
 }
 
 func TestAnalyseMixedProvidersAPIsCrons(t *testing.T) {
+	t.Parallel()
 	testCode := `
 package main
 
@@ -2648,6 +2704,7 @@ func (s *Service) HourlyCleanup(ctx context.Context) error {
 }
 
 func TestAnalyseGenericProviders(t *testing.T) {
+	t.Parallel()
 	testCode := `package test
 
 import (
@@ -2707,6 +2764,7 @@ func NewService(topic Topic[User]) *Service {
 }
 
 func TestAnalyseGenericProvidersWithConstraints(t *testing.T) {
+	t.Parallel()
 	testCode := `package test
 
 import (
@@ -2805,6 +2863,7 @@ func NewServiceC(topic Topic[InvalidType]) *ServiceC {
 }
 
 func TestAnalyseGenericProvidersUserExample(t *testing.T) {
+	t.Parallel()
 	testCode := `package test
 
 import (
@@ -2871,6 +2930,7 @@ func NewService(topic Topic[User]) *Service {
 }
 
 func TestGenericProvidersInGraphOutput(t *testing.T) {
+	t.Parallel()
 	testCode := `package test
 
 import (
@@ -2930,6 +2990,7 @@ func NewService(topic Topic[User]) *Service {
 }
 
 func TestAnalyseGenericConfigs(t *testing.T) {
+	t.Parallel()
 	testCode := `package test
 
 //zero:config prefix="conf-${type}-"
@@ -2968,6 +3029,7 @@ type Product struct {
 }
 
 func TestGenericConfigsInGraphOutput(t *testing.T) {
+	t.Parallel()
 	testCode := `package test
 
 //zero:config prefix="conf-${type}-"
@@ -3001,6 +3063,7 @@ type User struct {
 }
 
 func TestGenericConfigPrefixSubstitution(t *testing.T) {
+	t.Parallel()
 	testCode := `package test
 
 //zero:config prefix="conf-${type}-"
@@ -3039,6 +3102,7 @@ func NewHTTPService(config Config[HTTPClient]) *Service[HTTPClient] {
 }
 
 func TestToKebabCase(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected string
@@ -3054,6 +3118,7 @@ func TestToKebabCase(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
 			actual := toKebabCase(tt.input)
 			assert.Equal(t, tt.expected, actual)
 		})
