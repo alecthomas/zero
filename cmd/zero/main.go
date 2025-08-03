@@ -27,9 +27,9 @@ var cli struct {
 	OutputTags     []string           `help:"Tags to add to generated code." placeholder:"TAG" short:"T"`
 	Resolve        []string           `help:"Resolve an ambiguous type with this provider." placeholder:"REF" short:"r"`
 	List           bool               `group:"Actions:" help:"List all dependencies." xor:"action"`
-	OpenAPI        bool               `group:"Actions:" name:"openapi" help:"Generate OpenAPI specification." xor:"action" and:"openapi"`
-	OpenAPITitle   string             `help:"Title for the OpenAPI specification." placeholder:"TITLE" name:"openapi-title" and:"openapi" default:"My Zero Service"`
-	OpenAPIVersion string             `help:"Version for the OpenAPI specification." placeholder:"VERSION" name:"openapi-version" and:"openapi" default:"dev"`
+	OpenAPI        bool               `group:"Actions:" name:"openapi" help:"Generate OpenAPI specification." xor:"action"`
+	OpenAPITitle   string             `help:"Title for the OpenAPI specification." placeholder:"TITLE" name:"openapi-title" default:"My Zero Service"`
+	OpenAPIVersion string             `help:"Version for the OpenAPI specification." placeholder:"VERSION" name:"openapi-version" default:"dev"`
 	Root           []string           `help:"Prune dependencies outside these root types."  placeholder:"REF" short:"R"`
 	Dest           string             `help:"Destination package directory for generated files." default:"."`
 	Patterns       []string           `help:"Additional packages pattern to scan." arg:"" optional:""`
