@@ -42,7 +42,7 @@ A default error handler may also be registered by creating a custom provider for
 
 ### OpenAPI Specification
 
-Use `zero --openapi` to generate an OpenAPI spec for your service. Note that there are currently limitations around
+Use `zero --openapi --openapi-title=TITLE --openapi-version=VERSION` to generate an OpenAPI spec for your service. Note that there are currently limitations around
 fine-grained control of the generated spec', but the goal is to improve this as time permits.
 
 <details>
@@ -251,8 +251,8 @@ Weak providers are marked with `weak`, and may be overridden implicitly by creat
 Weak providers are selected if any of the following conditions are true:
 
 - They are the only provider of that type.
-- They been explicitly selected by the user.
-- They are injected by another provider.
+- They were explicitly selected by the user.
+- They are injected by another provider via `require=<provider>`.
 
 ### Multi-providers
 
@@ -271,7 +271,7 @@ func World() []string { return []string{"world"} }
 
 ### Explicit dependencies
 
-A weak provider may also explicitly request other weak dependencies be injected. This is useful when an injected parameter of the provider is itself reliant on an optional weak type.
+A weak provider may also explicitly request other weak dependencies be injected by using `require=<provider>`. This is useful when an injected parameter of the provider is itself reliant on an optional weak type.
 
 eg. In this example the `SQLCron()` provider requires that the migrations provided by `CronSQLMigrations()` have already been applied to `*sql.DB`, which in turn requires `[]Migration`. By explicitly specifiying `require=CronSQLMigrations`, the previously ignored weak provider will be added.
 
