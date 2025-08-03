@@ -38,10 +38,10 @@ func (PostgresDriver) TranslateError(err error) error {
 func (PostgresDriver) Denormalise(query string) string {
 	placeholderRe := regexp.MustCompile(`\?`)
 	i := 0
-	return string(placeholderRe.ReplaceAllFunc([]byte(query), func(b []byte) []byte {
+	return placeholderRe.ReplaceAllStringFunc(query, func(b string) string {
 		i++
-		return []byte(fmt.Sprintf("$%d", i))
-	}))
+		return fmt.Sprintf("$%d", i)
+	})
 }
 
 func (PostgresDriver) Open(dsn string) (*sql.DB, error) {

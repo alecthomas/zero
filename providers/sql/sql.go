@@ -36,7 +36,7 @@ type Driver interface {
 	Open(dsn string) (*sql.DB, error)
 	// Denormalise converts a query that uses ? placeholders to its native format.
 	Denormalise(query string) string
-	// RecreateDatabase optionally drops, then creates a database.
+	// RecreateDatabase drops then creates a database.
 	RecreateDatabase(ctx context.Context, dsn string) error
 }
 
