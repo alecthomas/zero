@@ -10,7 +10,7 @@ import (
 	"slices"
 
 	"github.com/alecthomas/kong"
-	"github.com/alecthomas/zero"
+	"github.com/alecthomas/zero/providers/pubsub"
 	zerosql "github.com/alecthomas/zero/providers/sql"
 )
 
@@ -143,7 +143,7 @@ func ProvideSliceB() []string {
 }
 
 // zero:subscribe
-func (s *Service) OnUserCreated(user zero.Event[UserCreatedEvent]) error {
+func (s *Service) OnUserCreated(user pubsub.Event[UserCreatedEvent]) error {
 	panic("not implemented")
 }
 

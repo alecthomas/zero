@@ -26,7 +26,7 @@ func New[T any](id, source string, created time.Time, data T) Event[T] {
 		SpecVersion:     "1.0",
 		Type:            typeName,
 		Source:          source,
-		Time:            created,
+		Time:            created.UTC(),
 		ID:              id,
 		DataContentType: "application/json; charset=utf-8",
 		Data:            data,

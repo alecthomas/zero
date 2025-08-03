@@ -201,6 +201,26 @@ This can be very useful for testing.
 
 A struct annotated with `//zero:config [prefix="<prefix>"]` will be used as embedded [Kong](https://github.com/alecthomas/kong)-annotated configuration, with corresponding config loading from JSON/YAML/HCL. These config structs can in turn be used during dependency injection.
 
+The variable `${root}` contains the `lower-kebab-case` transformation of the type, and can be interpolated into `prefix`. This is useful for generic configuration to uniquely identify the flags.
+
+eg. The following code will result in the following flags, one from each concrete `StorageConfig` type.
+
+```
+--storage-user-path=PATH
+--storage-address-path=PATH
+```
+
+```go
+//zero:config prefix="storage-${type}-"
+type StorageConfig[T any] struct {
+	Path string `help:"Path to the data root." required:""`
+}
+
+//zero:provider
+func Storage(uconf StorageConfig[User], aconf StorageConfig[Address]) *Store { ... }
+```
+
+
 ## Middleware
 
 A function annotated with `//zero:middleware [<label>]` will be automatically used as HTTP middleware for any method matching the given `<label>` if provided, or applied globally if not. Option values can be retrieved from the request with `zero.HandlerOptions(r)`.

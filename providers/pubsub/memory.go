@@ -12,10 +12,10 @@ type InMemoryTopic[T any] struct {
 	messages chan T
 }
 
-// NewInMemoryTopic creates a new in-memory [Topic].
+// NewMemoryTopic creates a new in-memory [Topic].
 //
 //zero:provider weak
-func NewInMemoryTopic[T any](config TopicConfig[T], logger *slog.Logger) Topic[T] {
+func NewMemoryTopic[T any](logger *slog.Logger) Topic[T] {
 	return &InMemoryTopic[T]{
 		logger:   logger,
 		messages: make(chan T, 128),
@@ -37,7 +37,10 @@ func (i *InMemoryTopic[T]) Subscribe(ctx context.Context, handler func(context.C
 	go func() {
 		for {
 			select {
-			case msg := <-i.messages:
+			case msg, ok := <-i.messages:
+				if !ok {
+					return
+				}
 				if err := handler(ctx, msg); err != nil {
 					i.logger.Error("Failed to handle message", "error", err)
 				}
@@ -46,5 +49,10 @@ func (i *InMemoryTopic[T]) Subscribe(ctx context.Context, handler func(context.C
 			}
 		}
 	}()
+	return nil
+}
+
+func (i *InMemoryTopic[T]) Close() error {
+	close(i.messages)
 	return nil
 }

@@ -47,6 +47,8 @@ type Topic[T any] interface {
 	Publish(ctx context.Context, msg T) error
 	// Subscribe subscribes to a topic.
 	Subscribe(ctx context.Context, handler func(context.Context, T) error) error
+	// Close the topic.
+	Close() error
 }
 
 // NewID returns a unique identifier for the given type.
