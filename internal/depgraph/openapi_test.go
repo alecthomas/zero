@@ -53,7 +53,7 @@ func TestAPIGenerateOpenAPIOperation(t *testing.T) {
 										Description: "Success",
 										Schema: &spec.Schema{
 											SchemaProps: spec.SchemaProps{
-												Type: []string{"object"},
+												Ref: spec.MustCreateRef("#/definitions/test.User"),
 											},
 										},
 									},
@@ -94,8 +94,7 @@ func TestAPIGenerateOpenAPIOperation(t *testing.T) {
 								Required: true,
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Type:       []string{"object"},
-										Properties: make(map[string]spec.Schema),
+										Ref: spec.MustCreateRef("#/definitions/test.CreateUserRequest"),
 									},
 								},
 							},
@@ -109,7 +108,7 @@ func TestAPIGenerateOpenAPIOperation(t *testing.T) {
 										Description: "Success",
 										Schema: &spec.Schema{
 											SchemaProps: spec.SchemaProps{
-												Type: []string{"object"},
+												Ref: spec.MustCreateRef("#/definitions/test.User"),
 											},
 										},
 									},
@@ -184,7 +183,8 @@ func TestAPIGenerateOpenAPIOperation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			api := createMockAPI(t, tt.funcSig, tt.pattern)
-			operation := api.GenerateOpenAPIOperation()
+			definitions := make(spec.Definitions)
+			operation := api.GenerateOpenAPIOperation(definitions)
 
 			assert.Equal(t, tt.expected, operation)
 		})
@@ -246,7 +246,8 @@ func TestAPIGenerateSchemaFromType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			api := createMockAPIWithType(t)
 			typ := parseTypeExpression(t, tt.typeExpr)
-			schema := api.generateSchemaFromType(typ)
+			definitions := make(spec.Definitions)
+			schema := api.generateSchemaFromType(typ, definitions)
 
 			assert.Equal(t, tt.expected, schema)
 		})
@@ -272,7 +273,8 @@ func TestAPIGenerateSchemaFromStructWithJSONTags(t *testing.T) {
 	}
 
 	structType := types.NewStruct(fields, tags)
-	schema := api.generateSchemaFromType(structType)
+	definitions := make(spec.Definitions)
+	schema := api.generateSchemaFromType(structType, definitions)
 
 	expected := &spec.Schema{
 		SchemaProps: spec.SchemaProps{
@@ -319,10 +321,7 @@ func TestGraphGenerateOpenAPISpec(t *testing.T) {
 		},
 	}
 
-	// Generate OpenAPI operations for each API
-	for _, api := range graph.APIs {
-		api.OpenAPI = api.GenerateOpenAPIOperation()
-	}
+	// OpenAPI operations are now generated internally with shared definitions
 
 	expected := &spec.Swagger{
 		SwaggerProps: spec.SwaggerProps{
@@ -360,7 +359,7 @@ func TestGraphGenerateOpenAPISpec(t *testing.T) {
 														Description: "Success",
 														Schema: &spec.Schema{
 															SchemaProps: spec.SchemaProps{
-																Type: []string{"object"},
+																Ref: spec.MustCreateRef("#/definitions/test.User"),
 															},
 														},
 													},
@@ -395,8 +394,7 @@ func TestGraphGenerateOpenAPISpec(t *testing.T) {
 												Required: true,
 												Schema: &spec.Schema{
 													SchemaProps: spec.SchemaProps{
-														Type:       []string{"object"},
-														Properties: make(map[string]spec.Schema),
+														Ref: spec.MustCreateRef("#/definitions/test.CreateUserRequest"),
 													},
 												},
 											},
@@ -410,7 +408,7 @@ func TestGraphGenerateOpenAPISpec(t *testing.T) {
 														Description: "Success",
 														Schema: &spec.Schema{
 															SchemaProps: spec.SchemaProps{
-																Type: []string{"object"},
+																Ref: spec.MustCreateRef("#/definitions/test.User"),
 															},
 														},
 													},
@@ -434,7 +432,19 @@ func TestGraphGenerateOpenAPISpec(t *testing.T) {
 					},
 				},
 			},
-			Definitions: make(spec.Definitions),
+			Definitions: spec.Definitions{
+				"test.CreateUserRequest": spec.Schema{
+					SchemaProps: spec.SchemaProps{
+						Type:       []string{"object"},
+						Properties: make(map[string]spec.Schema),
+					},
+				},
+				"test.User": spec.Schema{
+					SchemaProps: spec.SchemaProps{
+						Type: []string{"object"},
+					},
+				},
+			},
 		},
 	}
 
@@ -487,6 +497,7 @@ func TestAPIIsPathParameter(t *testing.T) {
 							segments = append(segments, directiveparser.LiteralSegment{Literal: part})
 						}
 					}
+
 				} else {
 					segments = append(segments, directiveparser.LiteralSegment{Literal: strings.TrimPrefix(tt.path, "/")})
 				}
@@ -573,9 +584,21 @@ func createTypeFromString(typeStr string) types.Type {
 	case "error":
 		return types.Universe.Lookup("error").Type()
 	case "*User":
-		return types.NewPointer(types.NewStruct([]*types.Var{}, []string{}))
+		// Create a named User type first
+		pkg := types.NewPackage("test", "test")
+		userStruct := types.NewStruct([]*types.Var{}, []string{})
+		userNamed := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "User", nil), userStruct, nil)
+		return types.NewPointer(userNamed)
+	case "User":
+		// Create a named User type
+		pkg := types.NewPackage("test", "test")
+		userStruct := types.NewStruct([]*types.Var{}, []string{})
+		return types.NewNamed(types.NewTypeName(token.NoPos, pkg, "User", nil), userStruct, nil)
 	case "CreateUserRequest":
-		return types.NewStruct([]*types.Var{}, []string{})
+		// Create a named CreateUserRequest type
+		pkg := types.NewPackage("test", "test")
+		requestStruct := types.NewStruct([]*types.Var{}, []string{})
+		return types.NewNamed(types.NewTypeName(token.NoPos, pkg, "CreateUserRequest", nil), requestStruct, nil)
 	default:
 		// Fallback to string for unknown types
 		return types.Typ[types.String]
@@ -658,4 +681,45 @@ func parseTypeExpression(t *testing.T, typeExpr string) types.Type {
 	default:
 		return types.Typ[types.String] // fallback
 	}
+}
+
+func TestGraphGenerateOpenAPISpecWithNamedStructDefinitions(t *testing.T) {
+	graph := &Graph{
+		APIs: []*API{
+			createMockAPI(t, "CreateUser:ctx context.Context,req User:*User,error", &directiveparser.DirectiveAPI{
+				Method: "POST",
+				Segments: []directiveparser.Segment{
+					directiveparser.LiteralSegment{Literal: "users"},
+				},
+			}),
+			createMockAPI(t, "GetUser:ctx context.Context,userID string:*User,error", &directiveparser.DirectiveAPI{
+				Method: "GET",
+				Segments: []directiveparser.Segment{
+					directiveparser.LiteralSegment{Literal: "users"},
+					directiveparser.WildcardSegment{Name: "userID"},
+				},
+			}),
+		},
+	}
+
+	swagger := graph.GenerateOpenAPISpec("Test API", "1.0.0")
+
+	// Verify that User type is in definitions
+	_, exists := swagger.Definitions["test.User"]
+	assert.Equal(t, true, exists)
+
+	// Verify that operations reference the definition
+	postOp := swagger.Paths.Paths["/users"].Post
+	if postOp == nil {
+		t.Fatal("POST operation is nil")
+	}
+	bodyParam := postOp.Parameters[0]
+	assert.Equal(t, "#/definitions/test.User", bodyParam.Schema.Ref.String())
+
+	getOp := swagger.Paths.Paths["/users/{userID}"].Get
+	if getOp == nil {
+		t.Fatal("GET operation is nil")
+	}
+	responseSchema := getOp.Responses.StatusCodeResponses[200].Schema
+	assert.Equal(t, "#/definitions/test.User", responseSchema.Ref.String())
 }

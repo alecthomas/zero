@@ -76,12 +76,12 @@ func (a *API) Label(name string) string {
 }
 
 // GenerateOpenAPIOperation creates an OpenAPI operation spec for this API endpoint
-func (a *API) GenerateOpenAPIOperation() *spec.Operation {
+func (a *API) GenerateOpenAPIOperation(definitions spec.Definitions) *spec.Operation {
 	operation := &spec.Operation{
 		OperationProps: spec.OperationProps{
 			Description: a.extractDocumentation(),
-			Parameters:  a.generateParameters(),
-			Responses:   a.generateResponses(),
+			Parameters:  a.generateParameters(definitions),
+			Responses:   a.generateResponses(definitions),
 			Tags:        []string{a.extractTag()},
 		},
 	}
@@ -103,7 +103,7 @@ func (a *API) extractTag() string {
 	return a.Package.Name
 }
 
-func (a *API) generateParameters() []spec.Parameter {
+func (a *API) generateParameters(definitions spec.Definitions) []spec.Parameter {
 	var parameters []spec.Parameter
 	signature := a.Function.Signature()
 	params := signature.Params()
@@ -125,7 +125,7 @@ func (a *API) generateParameters() []spec.Parameter {
 
 		if isBodyParameterStruct(paramType) {
 			// Body parameter
-			schema := a.generateSchemaFromType(paramType)
+			schema := a.generateSchemaFromType(paramType, definitions)
 			parameters = append(parameters, spec.Parameter{
 				ParamProps: spec.ParamProps{
 					Name:     "body",
@@ -163,7 +163,7 @@ func (a *API) generateParameters() []spec.Parameter {
 	return parameters
 }
 
-func (a *API) generateResponses() *spec.Responses {
+func (a *API) generateResponses(definitions spec.Definitions) *spec.Responses {
 	responses := &spec.Responses{
 		ResponsesProps: spec.ResponsesProps{
 			StatusCodeResponses: make(map[int]spec.Response),
@@ -191,7 +191,7 @@ func (a *API) generateResponses() *spec.Responses {
 		firstResult := results.At(0)
 		if !isErrorType(firstResult.Type()) {
 			// Has a return value - 200 OK
-			schema := a.generateSchemaFromType(firstResult.Type())
+			schema := a.generateSchemaFromType(firstResult.Type(), definitions)
 			responses.StatusCodeResponses[200] = spec.Response{
 				ResponseProps: spec.ResponseProps{
 					Description: "Success",
@@ -221,7 +221,7 @@ func (a *API) isPathParameter(paramName string) bool {
 	return a.Pattern.Wildcard(paramName)
 }
 
-func (a *API) generateSchemaFromType(t types.Type) *spec.Schema {
+func (a *API) generateSchemaFromType(t types.Type, definitions spec.Definitions) *spec.Schema {
 	schema := &spec.Schema{}
 
 	// Remove pointer indirection
@@ -257,20 +257,37 @@ func (a *API) generateSchemaFromType(t types.Type) *spec.Schema {
 			if field.Exported() {
 				fieldName := getJSONFieldName(field, typ.Tag(i))
 				if fieldName != "" {
-					fieldSchema := a.generateSchemaFromType(field.Type())
+					fieldSchema := a.generateSchemaFromType(field.Type(), definitions)
 					schema.Properties[fieldName] = *fieldSchema
 				}
 			}
 		}
 	case *types.Slice:
 		schema.Type = []string{"array"}
-		itemSchema := a.generateSchemaFromType(typ.Elem())
+		itemSchema := a.generateSchemaFromType(typ.Elem(), definitions)
 		schema.Items = &spec.SchemaOrArray{
 			Schema: itemSchema,
 		}
 	case *types.Named:
-		// Handle named types by looking at their underlying type
-		return a.generateSchemaFromType(typ.Underlying())
+		// For named types, create a reference to a shared definition
+		typeName := typ.Obj().Name()
+		pkg := typ.Obj().Pkg()
+		var defName string
+		if pkg != nil {
+			defName = pkg.Name() + "." + typeName
+		} else {
+			defName = typeName
+		}
+
+		// Add to definitions if not already present
+		if _, exists := definitions[defName]; !exists {
+			underlyingSchema := a.generateSchemaFromType(typ.Underlying(), definitions)
+			definitions[defName] = *underlyingSchema
+		}
+
+		// Return a reference schema
+		schema.Ref = spec.MustCreateRef("#/definitions/" + defName)
+		return schema
 	default:
 		// Fallback for unknown types
 		schema.Type = []string{"object"}
@@ -711,11 +728,11 @@ func (g *Graph) GenerateOpenAPISpec(title, version string) *spec.Swagger {
 		},
 	}
 
-	// Group APIs by path
+	// Group APIs by path and generate operations with shared definitions
 	pathOperations := make(map[string]map[string]*spec.Operation)
 
 	for _, api := range g.APIs {
-		if api.Pattern == nil || api.OpenAPI == nil {
+		if api.Pattern == nil {
 			continue
 		}
 
@@ -728,7 +745,10 @@ func (g *Graph) GenerateOpenAPISpec(title, version string) *spec.Swagger {
 		if pathOperations[path] == nil {
 			pathOperations[path] = make(map[string]*spec.Operation)
 		}
-		pathOperations[path][method] = api.OpenAPI
+
+		// Generate operation with shared definitions
+		operation := api.GenerateOpenAPIOperation(swagger.Definitions)
+		pathOperations[path][method] = operation
 	}
 
 	// Convert to PathItems
@@ -969,7 +989,7 @@ func createAPI(fn *ast.FuncDecl, pkg *packages.Package, directive *directivepars
 	}
 
 	// Generate OpenAPI operation spec
-	api.OpenAPI = api.GenerateOpenAPIOperation()
+	// OpenAPI operation will be generated during spec generation with shared definitions
 
 	return api, nil
 }
