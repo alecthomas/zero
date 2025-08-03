@@ -72,8 +72,13 @@ type Service struct {
 	logger *slog.Logger
 }
 
+//zero:config prefix="topic-${type}"
+type TopicConfig[T any] struct {
+	Name string
+}
+
 //zero:provider weak
-func NewMemoryTopic[T any]() zero.Topic[T] {
+func NewMemoryTopic[T any](config TopicConfig[T]) zero.Topic[T] {
 	return nil
 }
 

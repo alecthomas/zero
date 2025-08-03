@@ -19,6 +19,7 @@ import (
 
 	"github.com/alecthomas/errors"
 	"github.com/alecthomas/zero/internal/directiveparser"
+	"github.com/alecthomas/zero/internal/strcase"
 	"github.com/go-openapi/spec"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
@@ -347,6 +348,10 @@ type Config struct {
 	Position  token.Position
 	Type      types.Type
 	Directive *directiveparser.DirectiveConfig
+	// IsGeneric indicates if this config is a generic type
+	IsGeneric bool
+	// TypeParams holds the type parameters for generic configs
+	TypeParams *types.TypeParamList
 }
 
 // Middleware represents a function that is an HTTP middleware. Middleware functions are annotated like so:
@@ -452,6 +457,7 @@ type Graph struct {
 	MultiProviders   map[string][]*Provider // Multiple providers for multi types
 	GenericProviders map[string][]*Provider // Generic providers by base type name
 	Configs          map[string]*Config
+	GenericConfigs   map[string][]*Config // Generic configs by base type name
 	APIs             []*API
 	CronJobs         []*CronJob
 	Middleware       []*Middleware
@@ -466,6 +472,7 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		MultiProviders:   make(map[string][]*Provider),
 		GenericProviders: make(map[string][]*Provider),
 		Configs:          make(map[string]*Config),
+		GenericConfigs:   make(map[string][]*Config),
 		APIs:             make([]*API, 0),
 		CronJobs:         make([]*CronJob, 0),
 		Middleware:       make([]*Middleware, 0),
@@ -749,6 +756,14 @@ func (g *Graph) Graph() map[string][]string {
 		}
 	}
 
+	// Add generic configs
+	for baseType := range g.GenericConfigs {
+		key := baseType + "[T]"
+		if _, exists := result[key]; !exists {
+			result[key] = []string{}
+		}
+	}
+
 	return result
 }
 
@@ -912,11 +927,29 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 					case *directiveparser.DirectiveConfig:
 						configType := pkg.TypesInfo.TypeOf(typeSpec.Name)
 						if configType != nil {
-							key := types.TypeString(configType, nil)
-							graph.Configs[key] = &Config{
-								Position:  fset.Position(typeSpec.Pos()),
-								Type:      configType,
-								Directive: directive,
+							// Check if this is a generic config
+							var typeParams *types.TypeParamList
+							var isGeneric bool
+							if named, ok := configType.(*types.Named); ok {
+								typeParams = named.TypeParams()
+								isGeneric = typeParams != nil && typeParams.Len() > 0
+							}
+
+							config := &Config{
+								Position:   fset.Position(typeSpec.Pos()),
+								Type:       configType,
+								Directive:  directive,
+								IsGeneric:  isGeneric,
+								TypeParams: typeParams,
+							}
+
+							if isGeneric {
+								// For generic configs, store by base type name
+								baseType := getBaseTypeName(configType)
+								graph.GenericConfigs[baseType] = append(graph.GenericConfigs[baseType], config)
+							} else {
+								key := types.TypeString(configType, nil)
+								graph.Configs[key] = config
 							}
 						}
 
@@ -1393,7 +1426,7 @@ func findMissingDependencies(graph *Graph) {
 	for _, provider := range graph.Providers {
 		for _, required := range provider.Requires {
 			key := types.TypeString(required, nil)
-			if !provided[key] && !isProvidedByConfig(required, graph.Configs) && !canBeProvidedByGeneric(required, graph) {
+			if !provided[key] && !isProvidedByConfig(required, graph) && !canBeProvidedByGeneric(required, graph) {
 				// Check for duplicates before adding
 				existing := graph.Missing[provider.Function]
 				isDuplicate := false
@@ -1415,7 +1448,7 @@ func findMissingDependencies(graph *Graph) {
 		for _, provider := range providers {
 			for _, required := range provider.Requires {
 				key := types.TypeString(required, nil)
-				if !provided[key] && !isProvidedByConfig(required, graph.Configs) && !canBeProvidedByGeneric(required, graph) {
+				if !provided[key] && !isProvidedByConfig(required, graph) && !canBeProvidedByGeneric(required, graph) {
 					// Check for duplicates before adding
 					existing := graph.Missing[provider.Function]
 					isDuplicate := false
@@ -1439,7 +1472,7 @@ func findMissingDependencies(graph *Graph) {
 		if sig.Recv() != nil {
 			receiverType := sig.Recv().Type()
 			key := types.TypeString(receiverType, nil)
-			if !provided[key] && !isProvidedByConfig(receiverType, graph.Configs) && !canBeProvidedByGeneric(receiverType, graph) {
+			if !provided[key] && !isProvidedByConfig(receiverType, graph) && !canBeProvidedByGeneric(receiverType, graph) {
 				// Check for duplicates before adding
 				existing := graph.Missing[api.Function]
 				isDuplicate := false
@@ -1460,7 +1493,7 @@ func findMissingDependencies(graph *Graph) {
 	for _, middleware := range graph.Middleware {
 		for _, required := range middleware.Requires {
 			key := types.TypeString(required, nil)
-			if !provided[key] && !isProvidedByConfig(required, graph.Configs) && !canBeProvidedByGeneric(required, graph) {
+			if !provided[key] && !isProvidedByConfig(required, graph) && !canBeProvidedByGeneric(required, graph) {
 				// Check for duplicates before adding
 				existing := graph.Missing[middleware.Function]
 				isDuplicate := false
@@ -1478,17 +1511,58 @@ func findMissingDependencies(graph *Graph) {
 	}
 }
 
-func isProvidedByConfig(requiredType types.Type, configs map[string]*Config) bool {
+func isProvidedByConfig(requiredType types.Type, graph *Graph) bool {
 	// Check if the required type is directly provided as a config
 	key := types.TypeString(requiredType, nil)
-	if _, exists := configs[key]; exists {
+	if _, exists := graph.Configs[key]; exists {
 		return true
 	}
 
 	// If required type is a pointer, check if the underlying type is a config
 	if ptrType, ok := requiredType.(*types.Pointer); ok {
 		underlyingKey := types.TypeString(ptrType.Elem(), nil)
-		if _, exists := configs[underlyingKey]; exists {
+		if _, exists := graph.Configs[underlyingKey]; exists {
+			return true
+		}
+	}
+
+	// Check if the required type can be provided by a generic config
+	if canBeProvidedByGenericConfig(requiredType, graph) {
+		return true
+	}
+
+	return false
+}
+
+// canBeProvidedByGenericConfig checks if a required type can be satisfied by a generic config
+func canBeProvidedByGenericConfig(requiredType types.Type, graph *Graph) bool { //nolint
+	baseType := getBaseTypeName(requiredType)
+
+	// Check if we have generic configs for this base type
+	configs, exists := graph.GenericConfigs[baseType]
+	if !exists || len(configs) == 0 {
+		return false
+	}
+
+	// For generic types, we need to check if the type arguments satisfy the constraints
+	namedType, ok := requiredType.(*types.Named)
+	if !ok {
+		return false
+	}
+
+	typeArgs := namedType.TypeArgs()
+	if typeArgs == nil || typeArgs.Len() == 0 {
+		return false
+	}
+
+	// Check if any generic config can provide this concrete type
+	for _, config := range configs {
+		if config.TypeParams == nil || config.TypeParams.Len() == 0 {
+			continue
+		}
+
+		// Check if type arguments satisfy the constraints
+		if satisfiesConstraints(typeArgs, config.TypeParams) {
 			return true
 		}
 	}
@@ -1730,6 +1804,9 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 							}
 						}
 					}
+				} else if resolvedConfig := resolveGenericConfigWithType(graph, concreteType); resolvedConfig != nil {
+					// Add the resolved generic config as a concrete config
+					graph.Configs[current] = resolvedConfig
 				} else {
 					// Check if there are ambiguous generic providers
 					baseType := getBaseTypeName(concreteType)
@@ -1784,6 +1861,21 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 	for key := range graph.Configs {
 		if !isConfigReferenced(key, referenced) {
 			delete(graph.Configs, key)
+		}
+	}
+
+	// Remove unreferenced generic configs
+	for baseType := range graph.GenericConfigs {
+		// Check if any concrete instantiation of this generic config is referenced
+		isReferenced := false
+		for refKey := range referenced {
+			if strings.HasPrefix(refKey, baseType+"[") {
+				isReferenced = true
+				break
+			}
+		}
+		if !isReferenced {
+			delete(graph.GenericConfigs, baseType)
 		}
 	}
 
@@ -1954,7 +2046,7 @@ func getBaseTypeNameFromString(typeStr string) string {
 }
 
 // canBeProvidedByGeneric checks if a required type can be satisfied by a generic provider
-func canBeProvidedByGeneric(requiredType types.Type, graph *Graph) bool {
+func canBeProvidedByGeneric(requiredType types.Type, graph *Graph) bool { //nolint
 	baseType := getBaseTypeName(requiredType)
 
 	// Check if we have generic providers for this base type
@@ -2046,13 +2138,27 @@ func resolveGenericProviderWithType(graph *Graph, concreteType types.Type, pick 
 	}
 
 	// Create a new provider instance with the concrete type
+	// Resolve requirements by substituting type parameters with concrete types
+	resolvedRequires := make([]types.Type, len(selectedGenericProvider.Requires))
+	copy(resolvedRequires, selectedGenericProvider.Requires)
+
+	// Extract type arguments from the concrete type for substitution
+	if namedType, ok := concreteType.(*types.Named); ok {
+		if typeArgs := namedType.TypeArgs(); typeArgs != nil && typeArgs.Len() > 0 {
+			// Substitute type parameters in requirements
+			for i, req := range resolvedRequires {
+				resolvedRequires[i] = substituteTypeParams(req, selectedGenericProvider.TypeParams, typeArgs)
+			}
+		}
+	}
+
 	concreteProvider := &Provider{
 		Position:   selectedGenericProvider.Position,
 		Directive:  selectedGenericProvider.Directive,
 		Function:   selectedGenericProvider.Function,
 		Package:    selectedGenericProvider.Package,
 		Provides:   concreteType,
-		Requires:   selectedGenericProvider.Requires,
+		Requires:   resolvedRequires,
 		IsGeneric:  true, // Keep this flag to indicate it needs type instantiation
 		TypeParams: selectedGenericProvider.TypeParams,
 	}
@@ -2138,5 +2244,176 @@ func requireAppropriateScheduler(graph *Graph, opts *graphOptions) {
 			schedulerToRequire = "github.com/alecthomas/zero/providers/cron.NewNullScheduler"
 		}
 		opts.pick = append(opts.pick, schedulerToRequire)
+	}
+}
+
+// resolveGenericConfigWithType finds a suitable generic config for a concrete type
+func resolveGenericConfigWithType(graph *Graph, concreteType types.Type) *Config {
+	baseType := getBaseTypeName(concreteType)
+	genericConfigs, exists := graph.GenericConfigs[baseType]
+	if !exists || len(genericConfigs) == 0 {
+		return nil
+	}
+
+	// Filter to configs that can actually provide this concrete type
+	validConfigs := make([]*Config, 0)
+	for _, genericConfig := range genericConfigs {
+		if canProvideConcreteConfigWithConstraints(concreteType, genericConfig) {
+			validConfigs = append(validConfigs, genericConfig)
+		}
+	}
+
+	if len(validConfigs) == 0 {
+		return nil
+	}
+
+	// For now, just pick the first valid generic config
+	// TODO: Apply similar logic as pickProvider if needed
+	selectedGenericConfig := validConfigs[0]
+
+	// Create a new concrete config instance with substituted prefix
+	concreteConfig := &Config{
+		Position:   selectedGenericConfig.Position,
+		Type:       concreteType,
+		Directive:  selectedGenericConfig.Directive,
+		IsGeneric:  false,
+		TypeParams: nil,
+	}
+
+	// Handle prefix substitution if the directive has a prefix
+	if selectedGenericConfig.Directive.Prefix != "" {
+		// Extract the type name for substitution
+		var typeName string
+		if named, ok := concreteType.(*types.Named); ok {
+			if typeArgs := named.TypeArgs(); typeArgs != nil && typeArgs.Len() > 0 {
+				// Get the first type argument for substitution
+				firstArg := typeArgs.At(0)
+				if namedArg, ok := firstArg.(*types.Named); ok {
+					typeName = namedArg.Obj().Name()
+				} else {
+					typeName = types.TypeString(firstArg, nil)
+				}
+			}
+		}
+
+		if typeName != "" {
+			kebabTypeName := toKebabCase(typeName)
+			newPrefix := strings.ReplaceAll(selectedGenericConfig.Directive.Prefix, "${type}", kebabTypeName)
+			concreteConfig.Directive = &directiveparser.DirectiveConfig{
+				Prefix: newPrefix,
+			}
+		}
+	}
+
+	return concreteConfig
+}
+
+// canProvideConcreteConfigWithConstraints checks if a generic config can provide a concrete type
+func canProvideConcreteConfigWithConstraints(concreteType types.Type, genericConfig *Config) bool {
+	if genericConfig.TypeParams == nil || genericConfig.TypeParams.Len() == 0 {
+		return false
+	}
+
+	namedType, ok := concreteType.(*types.Named)
+	if !ok {
+		return false
+	}
+
+	typeArgs := namedType.TypeArgs()
+	if typeArgs == nil || typeArgs.Len() == 0 {
+		return false
+	}
+
+	// Check if type arguments satisfy the constraints
+	return satisfiesConstraints(typeArgs, genericConfig.TypeParams)
+}
+
+// toKebabCase converts a type name to kebab-case using strcase.
+// For example: "MyService" -> "my-service", "HTTPClient" -> "http-client"
+func toKebabCase(typeName string) string {
+	parts := strcase.Split(typeName)
+	for i, part := range parts {
+		parts[i] = strings.ToLower(part)
+	}
+	return strings.Join(parts, "-")
+}
+
+// substituteTypeParams substitutes type parameters in a type with concrete type arguments
+func substituteTypeParams(t types.Type, typeParams *types.TypeParamList, typeArgs *types.TypeList) types.Type {
+	switch typ := t.(type) {
+	case *types.Named:
+		// If this is a generic type with type arguments, substitute them
+		if typ.TypeArgs() != nil && typ.TypeArgs().Len() > 0 {
+			// Create new type arguments by substituting each one
+			newArgs := make([]types.Type, typ.TypeArgs().Len())
+			for i := range typ.TypeArgs().Len() {
+				oldArg := typ.TypeArgs().At(i)
+				newArgs[i] = substituteTypeParams(oldArg, typeParams, typeArgs)
+			}
+
+			// Create a new instantiated type with the substituted arguments
+			inst, err := types.Instantiate(nil, typ.Origin(), newArgs, false)
+			if err != nil {
+				return typ // fallback to original type if instantiation fails
+			}
+			return inst
+		}
+		return typ
+
+	case *types.TypeParam:
+		// Find the corresponding concrete type argument
+		for i := range typeParams.Len() {
+			if typeParams.At(i) == typ {
+				if i < typeArgs.Len() {
+					return typeArgs.At(i)
+				}
+			}
+		}
+		return typ
+
+	case *types.Pointer:
+		// Recursively substitute in the element type
+		elem := substituteTypeParams(typ.Elem(), typeParams, typeArgs)
+		if elem != typ.Elem() {
+			return types.NewPointer(elem)
+		}
+		return typ
+
+	case *types.Slice:
+		// Recursively substitute in the element type
+		elem := substituteTypeParams(typ.Elem(), typeParams, typeArgs)
+		if elem != typ.Elem() {
+			return types.NewSlice(elem)
+		}
+		return typ
+
+	case *types.Array:
+		// Recursively substitute in the element type
+		elem := substituteTypeParams(typ.Elem(), typeParams, typeArgs)
+		if elem != typ.Elem() {
+			return types.NewArray(elem, typ.Len())
+		}
+		return typ
+
+	case *types.Map:
+		// Recursively substitute in key and value types
+		key := substituteTypeParams(typ.Key(), typeParams, typeArgs)
+		elem := substituteTypeParams(typ.Elem(), typeParams, typeArgs)
+		if key != typ.Key() || elem != typ.Elem() {
+			return types.NewMap(key, elem)
+		}
+		return typ
+
+	case *types.Chan:
+		// Recursively substitute in the element type
+		elem := substituteTypeParams(typ.Elem(), typeParams, typeArgs)
+		if elem != typ.Elem() {
+			return types.NewChan(typ.Dir(), elem)
+		}
+		return typ
+
+	default:
+		// For other types (basic types, interfaces, etc.), no substitution needed
+		return typ
 	}
 }

@@ -371,6 +371,112 @@ func main() {}
 	assert.NoError(t, err, "Generated code should compile:\n%s", generatedCode)
 }
 
+func TestGenericConfigGeneration(t *testing.T) {
+	cwd, err := os.Getwd()
+	assert.NoError(t, err)
+
+	dir := t.TempDir()
+
+	// Create a test file with generic configs
+	//nolint
+	err = os.WriteFile(filepath.Join(dir, "main.go"), []byte(`package main
+
+//zero:config prefix="conf-${type}-"
+type Config[T any] struct {
+	Value string
+}
+
+//zero:provider
+func New[T any](config Config[T]) *Service[T] {
+	return &Service[T]{}
+}
+
+type Service[T any] struct {}
+
+type User struct {
+	Name string
+}
+
+type HTTPClient struct {
+	URL string
+}
+
+type XMLAPIGateway struct {
+	Endpoint string
+}
+
+//zero:provider
+func NewHTTPService(config Config[HTTPClient]) *Service[HTTPClient] {
+	return &Service[HTTPClient]{}
+}
+
+//zero:provider
+func NewXMLService(config Config[XMLAPIGateway]) *Service[XMLAPIGateway] {
+	return &Service[XMLAPIGateway]{}
+}
+
+var cli struct {
+	ZeroConfig
+}
+
+func main() {}
+`), 0644)
+	assert.NoError(t, err)
+
+	createGoMod(t, filepath.Join(cwd, "../.."), dir)
+	t.Chdir(dir)
+
+	graph, err := depgraph.Analyse(t.Context(), ".", depgraph.WithRoots("*test.Service[test.HTTPClient]", "*test.Service[test.XMLAPIGateway]"))
+	assert.NoError(t, err)
+
+	// Verify generic config was detected
+	assert.Equal(t, 1, len(graph.GenericConfigs), "Should have exactly one generic config")
+	configProviders := graph.GenericConfigs["test.Config"]
+	assert.Equal(t, 1, len(configProviders), "Should have one Config generic config")
+	assert.True(t, configProviders[0].IsGeneric)
+	assert.Equal(t, "conf-${type}-", configProviders[0].Directive.Prefix)
+
+	// Verify concrete configs were resolved
+	httpConfigKey := "test.Config[test.HTTPClient]"
+	_, hasHTTPConfig := graph.Configs[httpConfigKey]
+	assert.True(t, hasHTTPConfig, "Should have resolved HTTP client config")
+
+	xmlConfigKey := "test.Config[test.XMLAPIGateway]"
+	_, hasXMLConfig := graph.Configs[xmlConfigKey]
+	assert.True(t, hasXMLConfig, "Should have resolved XML API gateway config")
+
+	// Check that the prefixes were substituted correctly
+	if httpConfig, exists := graph.Configs[httpConfigKey]; exists {
+		assert.Equal(t, "conf-http-client-", httpConfig.Directive.Prefix)
+	}
+	if xmlConfig, exists := graph.Configs[xmlConfigKey]; exists {
+		assert.Equal(t, "conf-xmlapi-gateway-", xmlConfig.Directive.Prefix)
+	}
+
+	// Generate the code
+	w, err := os.Create("zero.go")
+	assert.NoError(t, err)
+	err = Generate(w, graph)
+	_ = w.Close()
+	assert.NoError(t, err)
+
+	// Verify generated code contains the configs with substituted prefixes
+	generatedCode := readFile(t)
+	assert.Contains(t, generatedCode, "conf-http-client-", "Should contain HTTP client substituted prefix")
+	assert.Contains(t, generatedCode, "conf-xmlapi-gateway-", "Should contain XML API gateway substituted prefix")
+	assert.Contains(t, generatedCode, "case reflect.TypeOf((*Config[HTTPClient])(nil)).Elem():", "Should have case for Config[HTTPClient]")
+	assert.Contains(t, generatedCode, "case reflect.TypeOf((*Config[XMLAPIGateway])(nil)).Elem():", "Should have case for Config[XMLAPIGateway]")
+
+	goModTidy(t, dir)
+
+	// Test that the generated code compiles
+	cmd := exec.CommandContext(t.Context(), "go", "build", ".")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	assert.NoError(t, err, "Generated code should compile:\n%s", generatedCode)
+}
+
 func TestSchedulerWithCronJobs(t *testing.T) {
 	cwd, err := os.Getwd()
 	assert.NoError(t, err)

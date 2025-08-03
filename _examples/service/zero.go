@@ -21,6 +21,7 @@ import (
 // Config contains combined Kong configuration for all types in [Construct].
 type ZeroConfig struct {
 	Config9c6b7595816de4c ServiceConfig `embed:"" prefix:"server-"`
+	Configb3dceda6a27f4df3 TopicConfig[User] `embed:"" prefix:"topic-user"`
 	Config2127feb0b75ea2fe imp31feb4b39618eab1.SlogConfig `embed:"" prefix:"log-"`
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:"" prefix:"sql-"`
 }
@@ -45,6 +46,12 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 
 	case reflect.TypeOf((*ServiceConfig)(nil)).Elem():
 		return any(config.Config9c6b7595816de4c).(T), nil
+
+	case reflect.TypeOf((**TopicConfig[User])(nil)).Elem(): // Handle pointer to config.
+		return any(&config.Configb3dceda6a27f4df3).(T), nil
+
+	case reflect.TypeOf((*TopicConfig[User])(nil)).Elem():
+		return any(config.Configb3dceda6a27f4df3).(T), nil
 
 	case reflect.TypeOf((**imp31feb4b39618eab1.SlogConfig)(nil)).Elem(): // Handle pointer to config.
 		return any(&config.Config2127feb0b75ea2fe).(T), nil
@@ -161,7 +168,11 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp9c34c006eb3c10fa.Topic[User])(nil)).Elem():
-		o := NewMemoryTopic[User]()
+		p0, err := ZeroConstructSingletons[TopicConfig[User]](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o := NewMemoryTopic[User](p0)
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp9b258f273adc01df.Leaser)(nil)).Elem():

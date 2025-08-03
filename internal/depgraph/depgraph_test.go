@@ -2928,3 +2928,134 @@ func NewService(topic Topic[User]) *Service {
 	assert.Equal(t, 1, len(serviceDeps))
 	assert.Equal(t, "Topic[User]", serviceDeps[0])
 }
+
+func TestAnalyseGenericConfigs(t *testing.T) {
+	testCode := `package test
+
+//zero:config prefix="conf-${type}-"
+type Config[T any] struct {
+	Value string
+}
+
+//zero:provider
+func New[T any](config Config[T]) *Service[T] {
+	return &Service[T]{}
+}
+
+type Service[T any] struct {}
+
+type User struct {
+	Name string
+}
+
+type Product struct {
+	ID int
+}
+`
+
+	graph := analyseTestCode(t, testCode, []string{"test.Config[T]", "test.Service[T]"})
+
+	// Check that Config is a generic config
+	configProviders := graph.GenericConfigs["test.Config"]
+	assert.Equal(t, 1, len(configProviders))
+	assert.True(t, configProviders[0].IsGeneric)
+	assert.Equal(t, "conf-${type}-", configProviders[0].Directive.Prefix)
+
+	// Check that New is a generic provider
+	serviceProviders := graph.GenericProviders["*test.Service"]
+	assert.Equal(t, 1, len(serviceProviders))
+	assert.Equal(t, "New", serviceProviders[0].Function.Name())
+}
+
+func TestGenericConfigsInGraphOutput(t *testing.T) {
+	testCode := `package test
+
+//zero:config prefix="conf-${type}-"
+type Config[T any] struct {
+	Value string
+}
+
+//zero:provider
+func New[T any](config Config[T]) *Service[T] {
+	return &Service[T]{}
+}
+
+type Service[T any] struct {}
+
+type User struct {
+	Name string
+}
+`
+
+	graph := analyseTestCode(t, testCode, []string{"test.Config[T]", "test.Service[T]"})
+
+	depGraph := graph.Graph()
+
+	// Should have generic config in output
+	_, hasGenericConfig := depGraph["test.Config[T]"]
+	assert.True(t, hasGenericConfig)
+
+	// Should have generic provider in output
+	_, hasGenericService := depGraph["*test.Service[T]"]
+	assert.True(t, hasGenericService)
+}
+
+func TestGenericConfigPrefixSubstitution(t *testing.T) {
+	testCode := `package test
+
+//zero:config prefix="conf-${type}-"
+type Config[T any] struct {
+	Value string
+}
+
+//zero:provider
+func New[T any](config Config[T]) *Service[T] {
+	return &Service[T]{}
+}
+
+type Service[T any] struct {}
+
+type HTTPClient struct {
+	URL string
+}
+
+//zero:provider
+func NewHTTPService(config Config[HTTPClient]) *Service[HTTPClient] {
+	return &Service[HTTPClient]{}
+}
+`
+
+	graph := analyseTestCode(t, testCode, []string{"*test.Service[test.HTTPClient]"})
+
+	// The concrete Config[HTTPClient] should be resolved with substituted prefix
+	concreteConfigKey := "test.Config[test.HTTPClient]"
+	_, hasConcreteConfig := graph.Configs[concreteConfigKey]
+	assert.True(t, hasConcreteConfig)
+
+	// Check that the prefix was substituted correctly
+	if concreteConfig, exists := graph.Configs[concreteConfigKey]; exists {
+		assert.Equal(t, "conf-http-client-", concreteConfig.Directive.Prefix)
+	}
+}
+
+func TestToKebabCase(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"HTTPClient", "http-client"},
+		{"MyService", "my-service"},
+		{"APIGateway", "api-gateway"},
+		{"User", "user"},
+		{"DatabaseConnection", "database-connection"},
+		{"XMLParser", "xml-parser"},
+		{"JSONEncoder", "json-encoder"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			actual := toKebabCase(tt.input)
+			assert.Equal(t, tt.expected, actual)
+		})
+	}
+}
