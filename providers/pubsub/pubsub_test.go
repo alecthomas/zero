@@ -41,15 +41,24 @@ func testPubSub(t *testing.T, topic Topic[User]) { //nolint
 	t.Cleanup(func() {
 		assert.NoError(t, topic.Close())
 	})
+
 	var received0 atomic.Int32
-	var received1 atomic.Int32
-	err := topic.Subscribe(t.Context(), func(ctx context.Context, u User) error {
+	err := topic.Subscribe(t.Context(), "first", func(ctx context.Context, u User) error {
 		received0.Add(1)
 		return nil
 	})
 	assert.NoError(t, err)
-	err = topic.Subscribe(t.Context(), func(ctx context.Context, u User) error {
+
+	var received1 atomic.Int32
+	err = topic.Subscribe(t.Context(), "first", func(ctx context.Context, u User) error {
 		received1.Add(1)
+		return nil
+	})
+	assert.NoError(t, err)
+
+	var received2 atomic.Int32
+	err = topic.Subscribe(t.Context(), "second", func(ctx context.Context, u User) error {
+		received2.Add(1)
 		return nil
 	})
 	assert.NoError(t, err)
@@ -64,5 +73,6 @@ func testPubSub(t *testing.T, topic Topic[User]) { //nolint
 
 	assert.True(t, received0.Load() > 4, "received0 = %d", received0.Load())
 	assert.True(t, received1.Load() > 4, "received1 = %d", received1.Load())
+	assert.Equal(t, received2.Load(), 16, "received2 = %d", received2.Load())
 	assert.True(t, received0.Load()+received1.Load() == 16, "received0 = %d + received1 = %d", received0.Load(), received1.Load())
 }

@@ -11,6 +11,7 @@ import (
   imp31feb4b39618eab1 "github.com/alecthomas/zero/providers/logging"
   imp57144815321973d3 "github.com/alecthomas/zero/providers/pubsub"
   imp71bef56b62085424 "github.com/alecthomas/zero/providers/cron"
+  imp897f1a742b20547b "github.com/alecthomas/zero/providers/pubsub/postgres"
   imp9b258f273adc01df "github.com/alecthomas/zero/providers/leases"
   imp9c34c006eb3c10fa "github.com/alecthomas/zero"
   impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
@@ -23,7 +24,7 @@ import (
 type ZeroConfig struct {
 	Config9c6b7595816de4c ServiceConfig `embed:"" prefix:"server-"`
 	Configb3dceda6a27f4df3 TopicConfig[User] `embed:"" prefix:"topic-user-"`
-	Config2127feb0b75ea2fe imp31feb4b39618eab1.SlogConfig `embed:"" prefix:"log-"`
+	Configef92e6d1a86c2c7f imp31feb4b39618eab1.Config `embed:"" prefix:"log-"`
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:"" prefix:"sql-"`
 }
 
@@ -54,11 +55,11 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 	case reflect.TypeOf((*TopicConfig[User])(nil)).Elem():
 		return any(config.Configb3dceda6a27f4df3).(T), nil
 
-	case reflect.TypeOf((**imp31feb4b39618eab1.SlogConfig)(nil)).Elem(): // Handle pointer to config.
-		return any(&config.Config2127feb0b75ea2fe).(T), nil
+	case reflect.TypeOf((**imp31feb4b39618eab1.Config)(nil)).Elem(): // Handle pointer to config.
+		return any(&config.Configef92e6d1a86c2c7f).(T), nil
 
-	case reflect.TypeOf((*imp31feb4b39618eab1.SlogConfig)(nil)).Elem():
-		return any(config.Config2127feb0b75ea2fe).(T), nil
+	case reflect.TypeOf((*imp31feb4b39618eab1.Config)(nil)).Elem():
+		return any(config.Configef92e6d1a86c2c7f).(T), nil
 
 	case reflect.TypeOf((**impc24ab568b6f3f934.Config)(nil)).Elem(): // Handle pointer to config.
 		return any(&config.Config6fab5aa5f9534d38).(T), nil
@@ -157,11 +158,11 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		return any(o).(T), nil
 
 	case reflect.TypeOf((**slog.Logger)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[imp31feb4b39618eab1.SlogConfig](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[imp31feb4b39618eab1.Config](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		o := imp31feb4b39618eab1.ProvideSlogger(p0)
+		o := imp31feb4b39618eab1.ProvideLogger(p0)
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp9c34c006eb3c10fa.ErrorHandler)(nil)).Elem():
@@ -212,10 +213,12 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 
 	case reflect.TypeOf((*impc24ab568b6f3f934.Migrations)(nil)).Elem():
 		r0 := imp9b258f273adc01df.SQLLeaserMigrations()
-		r1 := Migrations()
+		r1 := imp897f1a742b20547b.Migrations()
+		r2 := Migrations()
 		var result impc24ab568b6f3f934.Migrations
 		result = append(result, r0...)
 		result = append(result, r1...)
+		result = append(result, r2...)
 		return any(result).(T), nil
 
 	case reflect.TypeOf((**http.ServeMux)(nil)).Elem():

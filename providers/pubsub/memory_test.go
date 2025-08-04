@@ -8,6 +8,6 @@ import (
 
 func TestMemoryPubSub(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	topic := NewMemoryTopic[User](logger)
+	topic := NewMemoryTopic[User](t.Context(), logger)
 	testPubSub(t, topic)
 }

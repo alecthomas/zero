@@ -131,7 +131,7 @@ func (s *Service) CheckUsers(ctx context.Context) error {
 }
 
 var cli struct {
-	Dev bool `help:"Run in development mode."`
+	SQLDumpMigrations string `help:"Dump SQL migrations." type:"existingdir"`
 	ZeroConfig
 }
 
@@ -141,6 +141,15 @@ func main() {
 	})
 	ctx := context.Background()
 	singletons := map[reflect.Type]any{}
+
+	if cli.SQLDumpMigrations != "" {
+		migrations, err := ZeroConstructSingletons[zerosql.Migrations](ctx, cli.ZeroConfig, singletons)
+		kctx.FatalIfErrorf(err)
+		err = zerosql.DumpMigrations(migrations, cli.SQLDumpMigrations)
+		kctx.FatalIfErrorf(err)
+		kctx.Exit(0)
+	}
+
 	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, cli.ZeroConfig, singletons)
 	kctx.FatalIfErrorf(err)
 	container, err := ZeroConstructSingletons[*zero.Container](ctx, cli.ZeroConfig, singletons)

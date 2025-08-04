@@ -356,6 +356,9 @@ eg.
 001_users_create.sql
 ```
 
+> [!NOTE]
+> External provider migrations should use `<id>`'s in the range 00001-00099.
+
 Here's an example of providing migrations from an embedded FS (recommended):
 
 ```go

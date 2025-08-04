@@ -9,13 +9,13 @@ import (
 )
 
 //zero:config prefix="log-"
-type SlogConfig struct {
+type Config struct {
 	Level slog.Level `help:"The default logging level." default:"info"`
 	JSON  bool       `help:"Enable JSON logging."`
 }
 
 //zero:provider weak
-func ProvideSlogger(config SlogConfig) *slog.Logger {
+func ProvideLogger(config Config) *slog.Logger {
 	var handler slog.Handler
 	if config.JSON {
 		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{

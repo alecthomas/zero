@@ -45,22 +45,33 @@ type EventPayload interface {
 type Topic[T any] interface {
 	// Publish publishes a message to the topic.
 	Publish(ctx context.Context, msg T) error
-	// Subscribe subscribes to a topic.
-	Subscribe(ctx context.Context, handler func(context.Context, T) error) error
+	// Subscribe to a named subscription on this topic.
+	//
+	// Each subscription will receive a copy of every message. If multiple consumers subscribe to the same subscription,
+	// events will be received in round-robin.
+	//
+	// Cancelling the context will cancel the subscription.
+	Subscribe(ctx context.Context, subscription string, handler func(context.Context, T) error) error
 	// Close the topic.
 	Close() error
 }
 
-// NewID returns a unique identifier for the given type.
+// TopicName returns the name of the topic for a type.
 //
-// The string is a [TypeID](https://github.com/jetify-com/typeid), with the type name as the prefix.
-func NewID[T any]() string {
+// The name is a lower_snake_case string derived from the type name.
+func TopicName[T any]() string {
 	t := reflect.TypeFor[T]()
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
-	// CamelCase -> snake_case
-	name := strings.ReplaceAll(strings.ToLower(strings.Join(strcase.Split(t.Name()), "_")), "__", "_")
+	return strings.ReplaceAll(strings.ToLower(strings.Join(strcase.Split(t.Name()), "_")), "__", "_")
+}
+
+// NewID returns a unique identifier for the given type.
+//
+// The string is a [TypeID](https://github.com/jetify-com/typeid), with the [TopicName] as the prefix.
+func NewID[T any]() string {
+	name := TopicName[T]()
 	return typeid.MustGenerate(name).String()
 }
 
