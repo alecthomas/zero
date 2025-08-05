@@ -7,6 +7,7 @@ go 1.24.5
 require (
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.12.1
+	github.com/alecthomas/kong-toml v0.4.0
 	github.com/alecthomas/zero v0.0.0-00010101000000-000000000000
 )
 
@@ -28,6 +29,7 @@ require (
 	github.com/lmittmann/tint v1.1.2 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
+	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	go.jetify.com/typeid/v2 v2.0.0-alpha.3 // indirect
 	golang.org/x/crypto v0.37.0 // indirect

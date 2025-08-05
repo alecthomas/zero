@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/sqlc-dev/sqlc/refs/heads/main/internal/config/v_two.json
+version: "2"
+sql:
+  - schema: "providers/pubsub/postgres/migrations"
+    queries: "providers/pubsub/postgres/queries.sql"
+    engine: "postgresql"
+    analyzer:
+      database: false
+    gen:
+      go:
+        build_tags: "postgres"
+        omit_unused_structs: true
+        query_parameter_limit: 5
+        package: "internal"
+        out: "providers/pubsub/postgres/internal"
+        overrides:
+          - db_type: "pg_catalog.interval"
+            go_type:
+              import: ""
+              type: "Duration"

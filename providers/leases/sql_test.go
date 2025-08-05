@@ -1,25 +1,16 @@
 package leases
 
 import (
-	"log/slog"
-	"os"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
-	"github.com/alecthomas/zero/providers/sql"
+	"github.com/alecthomas/zero/providers/logging/loggingtest"
+	"github.com/alecthomas/zero/providers/sql/sqltest"
 )
 
 func testSQLLeaser(t *testing.T, dsn string) { //nolint
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{}))
-	config := sql.Config{
-		Create:  true,
-		Migrate: true,
-		DSN:     dsn,
-	}
-	driver, err := sql.DriverForConfig(config)
-	assert.NoError(t, err)
-	db, err := sql.New(t.Context(), config, logger, SQLLeaserMigrations())
-	assert.NoError(t, err)
+	logger := loggingtest.NewForTesting()
+	db, driver := sqltest.NewForTesting(t, dsn, SQLLeaserMigrations())
 	leaser, err := NewSQLLeaser(t.Context(), logger, driver, db)
 	assert.NoError(t, err)
 	testLeases(t, leaser)

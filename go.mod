@@ -7,7 +7,7 @@ toolchain go1.24.5
 require (
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.12.1
-	github.com/alecthomas/kong-toml v0.3.0
+	github.com/alecthomas/kong-toml v0.4.0
 	github.com/alecthomas/participle/v2 v2.1.4
 	github.com/dyninc/qstring v0.0.0-20160719172318-ab5840a88e81
 	github.com/go-openapi/spec v0.21.0
@@ -52,6 +52,7 @@ require (
 	github.com/alecthomas/repr v0.5.0 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
+	github.com/jpillora/backoff v1.0.0
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/lmittmann/tint v1.1.2
 	github.com/psanford/memfs v0.0.0-20241019191636-4ef911798f9b

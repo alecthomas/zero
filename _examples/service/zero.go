@@ -23,8 +23,8 @@ import (
 // Config contains combined Kong configuration for all types in [Construct].
 type ZeroConfig struct {
 	Config9c6b7595816de4c ServiceConfig `embed:"" prefix:"server-"`
-	Configb3dceda6a27f4df3 TopicConfig[User] `embed:"" prefix:"topic-user-"`
 	Configef92e6d1a86c2c7f imp31feb4b39618eab1.Config `embed:"" prefix:"log-"`
+	Config8762d3d40c807570 imp897f1a742b20547b.Config[User] `embed:"" prefix:"topic-user-"`
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:"" prefix:"sql-"`
 }
 
@@ -49,17 +49,17 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 	case reflect.TypeOf((*ServiceConfig)(nil)).Elem():
 		return any(config.Config9c6b7595816de4c).(T), nil
 
-	case reflect.TypeOf((**TopicConfig[User])(nil)).Elem(): // Handle pointer to config.
-		return any(&config.Configb3dceda6a27f4df3).(T), nil
-
-	case reflect.TypeOf((*TopicConfig[User])(nil)).Elem():
-		return any(config.Configb3dceda6a27f4df3).(T), nil
-
 	case reflect.TypeOf((**imp31feb4b39618eab1.Config)(nil)).Elem(): // Handle pointer to config.
 		return any(&config.Configef92e6d1a86c2c7f).(T), nil
 
 	case reflect.TypeOf((*imp31feb4b39618eab1.Config)(nil)).Elem():
 		return any(config.Configef92e6d1a86c2c7f).(T), nil
+
+	case reflect.TypeOf((**imp897f1a742b20547b.Config[User])(nil)).Elem(): // Handle pointer to config.
+		return any(&config.Config8762d3d40c807570).(T), nil
+
+	case reflect.TypeOf((*imp897f1a742b20547b.Config[User])(nil)).Elem():
+		return any(config.Config8762d3d40c807570).(T), nil
 
 	case reflect.TypeOf((**impc24ab568b6f3f934.Config)(nil)).Elem(): // Handle pointer to config.
 		return any(&config.Config6fab5aa5f9534d38).(T), nil
@@ -151,9 +151,28 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, err
 		}
-		err = o.Register("github.com/alecthomas/zero/_examples/service.Service.CheckUsers", time.Duration(5000000000), r0.CheckUsers)
+		err = o.Register("github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron", time.Duration(5000000000), r0.CheckUsersCron)
 		if err != nil {
-			return out, fmt.Errorf("failed to register cron job github.com/alecthomas/zero/_examples/service.Service.CheckUsers: %w", err)
+			return out, fmt.Errorf("failed to register cron job github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron: %w", err)
+		}
+		return any(o).(T), nil
+
+	case reflect.TypeOf((**imp897f1a742b20547b.Listener)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[context.Context](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p2, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := imp897f1a742b20547b.NewPostgresListener(p0, p1, p2)
+		if err != nil {
+			return out, fmt.Errorf("*imp897f1a742b20547b.Listener: %w", err)
 		}
 		return any(o).(T), nil
 
@@ -193,11 +212,26 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp57144815321973d3.Topic[User])(nil)).Elem():
-		p0, err := ZeroConstructSingletons[TopicConfig[User]](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[context.Context](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		o := NewMemoryTopic[User](p0)
+		p1, err := ZeroConstructSingletons[*imp897f1a742b20547b.Listener](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p2, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		p3, err := ZeroConstructSingletons[imp897f1a742b20547b.Config[User]](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := imp897f1a742b20547b.New[User](p0, p1, p2, p3)
+		if err != nil {
+			return out, fmt.Errorf("imp57144815321973d3.Topic[User]: %w", err)
+		}
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*impc24ab568b6f3f934.Driver)(nil)).Elem():

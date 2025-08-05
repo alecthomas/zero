@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"math/rand/v2"
 	"os"
 	"time"
 
 	"github.com/alecthomas/errors"
+	"github.com/alecthomas/zero/internal"
 	zerosql "github.com/alecthomas/zero/providers/sql"
 )
 
@@ -97,12 +97,15 @@ func (s *SQLLeaser) renew(ctx context.Context) {
 	// Attempt to renew the leases until the context times out, at which point we take the nuclear
 	// option of terminating the process.
 	for {
-		nextExpires := time.Now().UTC().Add(time.Second * 5)
+		nextExpires := time.Now().UTC().Add(time.Second * 30)
 		_, err := s.db.ExecContext(ctx, s.q(`
 			UPDATE leases
 			SET expires = ?
 			WHERE holder = ?
 		`), nextExpires, s.holder)
+		if err == nil {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			if err == nil {
@@ -111,7 +114,7 @@ func (s *SQLLeaser) renew(ctx context.Context) {
 			s.log.Error("FATAL: failed to renew leases, terminating to avoid split brain", "error", err)
 			os.Exit(1)
 
-		case <-time.After(jitter(time.Millisecond * 100)):
+		case <-time.After(internal.Jitter(time.Millisecond * 100)):
 		}
 	}
 }
@@ -161,7 +164,7 @@ retry:
 		select {
 		case <-timeoutCtx.Done():
 			break retry
-		case <-time.After(jitter(time.Second)):
+		case <-time.After(internal.Jitter(time.Second)):
 		}
 	}
 
@@ -225,9 +228,3 @@ func (s *SQLLeaser) acquireTx(ctx context.Context, tx *sql.Tx, key string) error
 }
 
 func (s *SQLLeaser) Close() error { close(s.stop); return nil }
-
-// Jitter n ± 10%
-func jitter(n time.Duration) time.Duration {
-	ni := int64(n)
-	return time.Duration(ni + rand.Int64N(ni/10) - ni/20) //nolint
-}

@@ -65,7 +65,7 @@ type Migrations []fs.FS
 type Config struct {
 	Create  bool   `help:"Create (or recreate) the database."`
 	Migrate bool   `help:"Apply migrations during connection establishment."`
-	DSN     string `default:"${sqldsn}" required:"" help:"DSN for the SQL connection."`
+	DSN     string `default:"${sqldsn}" help:"DSN for the SQL connection."`
 }
 
 // DriverForConfig returns the [Driver] associated with the given [Config].
@@ -158,7 +158,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, migrations Mig
 	dsn := config.DSN
 	if config.Create {
 		if err := CreateDatabase(ctx, dsn); err != nil {
-			return nil, errors.Errorf("failed to create database: %w", err)
+			return nil, errors.WithStack(err)
 		}
 	}
 	db, err = Open(dsn)
@@ -266,7 +266,7 @@ func Migrate(ctx context.Context, logger *slog.Logger, dsn string, db *sql.DB, m
 			_ = tx.Rollback()
 			return errors.Errorf("failed to read migration file %q: %w", file.Name(), err)
 		}
-		logger.Debug("Applying migration", "file", file.Name(), "ddl", string(sql))
+		logger.Debug("Applying migration", "file", file.Name())
 		if _, err := tx.ExecContext(ctx, string(sql)); err != nil {
 			_ = tx.Rollback()
 			return errors.Errorf("failed to apply migration %q: %w", file.Name(), err)

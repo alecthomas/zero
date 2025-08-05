@@ -1,0 +1,3 @@
+[topic-user]
+backoff = { retries = 5, min = "5s", max = "15s", exponent = 1.8 }
+dlq = { lifetime = "120h", enabled = true }

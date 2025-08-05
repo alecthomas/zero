@@ -45,13 +45,8 @@ type EventPayload interface {
 type Topic[T any] interface {
 	// Publish publishes a message to the topic.
 	Publish(ctx context.Context, msg T) error
-	// Subscribe to a named subscription on this topic.
-	//
-	// Each subscription will receive a copy of every message. If multiple consumers subscribe to the same subscription,
-	// events will be received in round-robin.
-	//
-	// Cancelling the context will cancel the subscription.
-	Subscribe(ctx context.Context, subscription string, handler func(context.Context, T) error) error
+	// Subscribe subscribes to a topic.
+	Subscribe(ctx context.Context, handler func(ctx context.Context, event T) error) error
 	// Close the topic.
 	Close() error
 }

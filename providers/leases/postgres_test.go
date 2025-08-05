@@ -2,8 +2,12 @@
 
 package leases
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/alecthomas/zero/providers/sql/sqltest"
+)
 
 func TestPostgresLeaser(t *testing.T) {
-	testSQLLeaser(t, "postgres://postgres:secret@localhost:5432/zero-test?sslmode=disable")
+	testSQLLeaser(t, sqltest.PostgresDSN)
 }

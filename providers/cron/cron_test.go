@@ -2,8 +2,6 @@ package cron
 
 import (
 	"context"
-	"log/slog"
-	"os"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -11,6 +9,7 @@ import (
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/alecthomas/zero/providers/leases"
+	"github.com/alecthomas/zero/providers/logging/loggingtest"
 )
 
 func TestNextRun(t *testing.T) {
@@ -33,7 +32,7 @@ func TestScheduler(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
-		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		logger := loggingtest.NewForTesting()
 		leaser := leases.NewMemoryLeaser()
 		s := NewScheduler(ctx, logger, leaser)
 

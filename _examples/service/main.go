@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alecthomas/kong"
+	kongtoml "github.com/alecthomas/kong-toml"
 	"github.com/alecthomas/zero"
 	"github.com/alecthomas/zero/providers/pubsub"
 	zerosql "github.com/alecthomas/zero/providers/sql"
@@ -73,21 +74,6 @@ type Service struct {
 	logger *slog.Logger
 }
 
-//zero:config prefix="topic-${type}-"
-type TopicConfig[T any] struct {
-	Name string
-}
-
-//zero:provider weak
-func NewMemoryTopic[T any](config TopicConfig[T]) pubsub.Topic[T] {
-	return nil
-}
-
-//zero:provider weak
-func NewInMemoryTopic[T any]() pubsub.Topic[T] {
-	return nil
-}
-
 //zero:provider
 func NewService(dal *DAL, logger *slog.Logger, topic pubsub.Topic[User], config ServiceConfig) (*Service, error) {
 	// Other initialisation
@@ -124,21 +110,25 @@ func (s *Service) OnUserCreated(user pubsub.Event[UserCreatedEvent]) error {
 }
 
 //zero:cron 5s
-func (s *Service) CheckUsers(ctx context.Context) error {
+func (s *Service) CheckUsersCron(ctx context.Context) error {
 	s.logger.Info("CheckUsers cron job")
-	time.Sleep(7 * time.Second)
+	time.Sleep(time.Second * 7)
 	return nil
 }
 
 var cli struct {
-	SQLDumpMigrations string `help:"Dump SQL migrations." type:"existingdir"`
+	Config            kong.ConfigFlag `help:"Path to the configuration file."`
+	SQLDumpMigrations string          `help:"Dump SQL migrations." type:"existingdir"`
 	ZeroConfig
 }
 
 func main() {
-	kctx := kong.Parse(&cli, kong.Vars{
-		"sqldsn": "postgres://postgres:secret@localhost:5432/zero-exempler?sslmode=disable",
-	})
+	kctx := kong.Parse(&cli,
+		kong.Configuration(kongtoml.Loader, "zero-exemplar.toml"),
+		kong.Vars{
+			"sqldsn": "postgres://postgres:secret@localhost:5432/zero-exempler?sslmode=disable",
+		},
+	)
 	ctx := context.Background()
 	singletons := map[reflect.Type]any{}
 

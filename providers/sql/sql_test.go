@@ -2,10 +2,10 @@ package sql
 
 import (
 	"database/sql"
-	"log/slog"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
+	"github.com/alecthomas/zero/providers/logging/loggingtest"
 	"github.com/psanford/memfs"
 )
 
@@ -15,7 +15,7 @@ func testDB(t *testing.T, dsn string) {
 	err := fs.WriteFile("000_init.sql", []byte(`CREATE TABLE users (name VARCHAR(255) NOT NULL PRIMARY KEY)`), 0600)
 	assert.NoError(t, err)
 
-	logger := slog.New(slog.DiscardHandler)
+	logger := loggingtest.NewForTesting()
 	config := Config{DSN: dsn, Create: true, Migrate: true}
 
 	var db *sql.DB
