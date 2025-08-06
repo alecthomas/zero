@@ -170,7 +170,7 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, err
 		}
-		o, err := imp897f1a742b20547b.NewPostgresListener(p0, p1, p2)
+		o, err := imp897f1a742b20547b.NewListener(p0, p1, p2)
 		if err != nil {
 			return out, fmt.Errorf("*imp897f1a742b20547b.Listener: %w", err)
 		}
@@ -216,19 +216,23 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[*imp897f1a742b20547b.Listener](ctx, config, singletons)
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
+		p2, err := ZeroConstructSingletons[*imp897f1a742b20547b.Listener](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		p3, err := ZeroConstructSingletons[imp897f1a742b20547b.Config[User]](ctx, config, singletons)
+		p3, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		o, err := imp897f1a742b20547b.New[User](p0, p1, p2, p3)
+		p4, err := ZeroConstructSingletons[imp897f1a742b20547b.Config[User]](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		o, err := imp897f1a742b20547b.New[User](p0, p1, p2, p3, p4)
 		if err != nil {
 			return out, fmt.Errorf("imp57144815321973d3.Topic[User]: %w", err)
 		}

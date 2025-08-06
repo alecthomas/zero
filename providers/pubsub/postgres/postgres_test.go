@@ -15,7 +15,7 @@ import (
 func TestPostgresPubSubBaseline(t *testing.T) {
 	logger := loggingtest.NewForTesting()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
-	listener, err := NewPostgresListener(t.Context(), logger, db)
+	listener, err := NewListener(t.Context(), logger, db)
 	assert.NoError(t, err)
 	topic, err := New(t.Context(), logger, listener, db, DefaultConfig[pubsubtest.User]())
 	assert.NoError(t, err)

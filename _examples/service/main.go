@@ -50,8 +50,8 @@ func (d *DAL) GetUsers() ([]User, error) {
 }
 
 func (d *DAL) CreateUser(user User) error {
-	nextId := slices.Max(slices.Collect(maps.Keys(d.users))) + 1
-	d.users[nextId] = user
+	nextID := slices.Max(slices.Collect(maps.Keys(d.users))) + 1
+	d.users[nextID] = user
 	return nil
 }
 
@@ -66,7 +66,7 @@ func Authenticate(role string) func(next http.Handler) http.Handler {
 
 //zero:config prefix="server-"
 type ServiceConfig struct {
-	Bind string ``
+	Bind string `help:"The address to bind the server to."`
 }
 
 type Service struct {

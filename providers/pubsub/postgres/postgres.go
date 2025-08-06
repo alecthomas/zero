@@ -51,12 +51,12 @@ type Listener struct {
 	listeners  map[int64]ListenerCallback
 }
 
-// NewPostgresListener issues a LISTEN command to the PostgreSQL database and fans out notifications to local listeners.
+// NewListener issues a LISTEN command to the PostgreSQL database and fans out notifications to local listeners.
 //
 // It consumes a single connection.
 //
 //zero:provider
-func NewPostgresListener(ctx context.Context, logger *slog.Logger, db *sql.DB) (*Listener, error) {
+func NewListener(ctx context.Context, logger *slog.Logger, db *sql.DB) (*Listener, error) {
 	// We need a pgx.Conn to wait for notifications, so we need to explicitly unwrap the underlying connection.
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -207,6 +207,15 @@ func New[T any](
 	config Config[T],
 ) (pubsub.Topic[T], error) {
 	topic := pubsub.TopicName[T]()
+	logger.Debug("Registered topic",
+		"topic", topic,
+		"backoff-retries", config.RetryConfig.Retries,
+		"backoff-min", config.RetryConfig.Min,
+		"backoff-max", config.RetryConfig.Max,
+		"backoff-exponent", config.RetryConfig.Exponent,
+		"dlq-enabled", config.DeadLetterConfig.Enabled,
+		"dlq-lifetime", config.DeadLetterConfig.Lifetime,
+	)
 	queries := internal.New(db)
 	topicRow, err := queries.CreateTopic(ctx, internal.CreateTopicParams{
 		Name:              topic,
