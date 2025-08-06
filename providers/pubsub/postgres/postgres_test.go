@@ -12,18 +12,12 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func TestPubSubBaseline(t *testing.T) {
+func TestPostgresPubSubBaseline(t *testing.T) {
 	logger := loggingtest.NewForTesting()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	listener, err := NewPostgresListener(t.Context(), logger, db)
 	assert.NoError(t, err)
-	topic, err := New(
-		t.Context(),
-		logger,
-		listener,
-		db,
-		DefaultConfig[pubsubtest.User](),
-	)
+	topic, err := New(t.Context(), logger, listener, db, DefaultConfig[pubsubtest.User]())
 	assert.NoError(t, err)
 	pubsubtest.RunPubSubTest(t, topic)
 }

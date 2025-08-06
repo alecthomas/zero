@@ -1,6 +1,6 @@
 //go:build sqlite
 
-package sql
+package sql_test
 
 import (
 	"path/filepath"

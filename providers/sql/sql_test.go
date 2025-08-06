@@ -1,11 +1,12 @@
-package sql
+package sql_test
 
 import (
 	"database/sql"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
-	"github.com/alecthomas/zero/providers/logging/loggingtest"
+	zerosql "github.com/alecthomas/zero/providers/sql"
+	"github.com/alecthomas/zero/providers/sql/sqltest"
 	"github.com/psanford/memfs"
 )
 
@@ -15,19 +16,17 @@ func testDB(t *testing.T, dsn string) {
 	err := fs.WriteFile("000_init.sql", []byte(`CREATE TABLE users (name VARCHAR(255) NOT NULL PRIMARY KEY)`), 0600)
 	assert.NoError(t, err)
 
-	logger := loggingtest.NewForTesting()
-	config := Config{DSN: dsn, Create: true, Migrate: true}
+	config := zerosql.Config{DSN: dsn, Create: true, Migrate: true}
 
 	var db *sql.DB
 	t.Run("RecreateConnect", func(t *testing.T) {
-		db, err = New(t.Context(), config, logger, Migrations{fs})
-		assert.NoError(t, err)
+		db, _ = sqltest.NewForTesting(t, dsn, zerosql.Migrations{fs})
 	})
 	if db == nil {
 		return
 	}
 
-	driver, err := DriverForConfig(config)
+	driver, err := zerosql.DriverForConfig(config)
 	assert.NoError(t, err)
 
 	t.Run("Insert", func(t *testing.T) {
@@ -51,7 +50,7 @@ func testDB(t *testing.T, dsn string) {
 
 	t.Run("Insert", func(t *testing.T) {
 		_, err = db.ExecContext(t.Context(), `INSERT INTO users (name) VALUES ('Alice')`)
-		assert.IsError(t, driver.TranslateError(err), ErrConstraint)
+		assert.IsError(t, driver.TranslateError(err), zerosql.ErrConstraint)
 	})
 
 }

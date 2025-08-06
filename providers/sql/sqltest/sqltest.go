@@ -26,7 +26,8 @@ func NewForTesting(t *testing.T, dsn string, migrations zerosql.Migrations) (*sq
 
 	// Acquire flock to ensure exclusive access to the database.
 	scheme, _, _ := strings.Cut(dsn, "://")
-	release, err := flock.Acquire(t.Context(), "/tmp/zero-"+scheme+"-test.lock", time.Second*30)
+	lockFile := "/tmp/zero-" + scheme + "-test.lock"
+	release, err := flock.Acquire(t.Context(), lockFile, time.Second*30)
 	assert.NoError(t, err)
 	t.Cleanup(func() {
 		err = release()

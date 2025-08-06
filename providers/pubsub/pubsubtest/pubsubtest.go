@@ -48,7 +48,7 @@ func RunPubSubTest(t *testing.T, topic pubsub.Topic[User]) { //nolint
 		if received0.Load()+received1.Load() == 16 {
 			return
 		}
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Second * 1)
 	}
 	t.Fatalf("received0 = %d + received1 = %d", received0.Load(), received1.Load())
 }

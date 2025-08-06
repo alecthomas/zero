@@ -1,6 +1,6 @@
 //go:build mysql
 
-package sql
+package sql_test
 
 import "testing"
 

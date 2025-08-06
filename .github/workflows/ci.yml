@@ -12,11 +12,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: cashapp/activate-hermit@v1
       - run: docker compose up -d --wait
-      - run: go test ./...
+      - run: just test
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: cashapp/activate-hermit@v1
-      - run: golangci-lint run
+      - run: just lint
