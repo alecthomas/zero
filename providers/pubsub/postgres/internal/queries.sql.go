@@ -217,63 +217,6 @@ func (q *Queries) GetPendingEventCount(ctx context.Context, topicID int64) (int6
 	return count, err
 }
 
-const getPendingEvents = `-- name: GetPendingEvents :many
-SELECT
-  id::BIGINT,
-  created_at::TIMESTAMP,
-  last_updated::TIMESTAMP,
-  topic_id::BIGINT,
-  state::pubsub_event_state,
-  cloudevents_id::VARCHAR(64),
-  message::JSONB,
-  headers::JSONB
-FROM pubsub_get_pending_events($1, $2)
-`
-
-type GetPendingEventsRow struct {
-	ID            int64
-	CreatedAt     time.Time
-	LastUpdated   time.Time
-	TopicID       int64
-	State         PubsubEventState
-	CloudeventsID string
-	Message       json.RawMessage
-	Headers       json.RawMessage
-}
-
-// GetPendingEvents returns pending events ready for processing in a topic.
-func (q *Queries) GetPendingEvents(ctx context.Context, topicID int64, maxCount int64) ([]GetPendingEventsRow, error) {
-	rows, err := q.db.QueryContext(ctx, getPendingEvents, topicID, maxCount)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetPendingEventsRow
-	for rows.Next() {
-		var i GetPendingEventsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.CreatedAt,
-			&i.LastUpdated,
-			&i.TopicID,
-			&i.State,
-			&i.CloudeventsID,
-			&i.Message,
-			&i.Headers,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getTopicByName = `-- name: GetTopicByName :one
 SELECT id, created_at, name, max_retries, initial_backoff, backoff_max, backoff_multiplier, dlq_enabled, dlq_max_age FROM pubsub_topics WHERE name = $1
 `

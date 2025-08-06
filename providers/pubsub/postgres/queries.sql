@@ -81,19 +81,6 @@ FROM pubsub_events e
 LEFT JOIN pubsub_dead_letters dl ON e.id = dl.event_id
 WHERE e.topic_id = sqlc.arg(topic_id);
 
--- GetPendingEvents returns pending events ready for processing in a topic.
--- name: GetPendingEvents :many
-SELECT
-  id::BIGINT,
-  created_at::TIMESTAMP,
-  last_updated::TIMESTAMP,
-  topic_id::BIGINT,
-  state::pubsub_event_state,
-  cloudevents_id::VARCHAR(64),
-  message::JSONB,
-  headers::JSONB
-FROM pubsub_get_pending_events(sqlc.arg(topic_id), sqlc.arg(max_count));
-
 -- ClearStuckEvents transitions stuck active events back to pending state.
 -- This is used to recover from crashed subscribers that left events in active state.
 -- name: ClearStuckEvents :one

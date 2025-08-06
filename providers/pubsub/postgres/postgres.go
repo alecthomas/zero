@@ -247,24 +247,14 @@ func (t *Topic[T]) processBacklog(ctx context.Context) {
 	for {
 		delay := zerointernal.Jitter(time.Second * 5)
 
-		eventRows, err := t.queries.GetPendingEvents(ctx, t.topicID, 10)
+		processed, err := t.processOneBacklogEvent(ctx)
 		if err != nil {
-			t.logger.Error("Failed to get pending events", "error", err)
+			t.logger.Error("Backlog processing failed", "error", err)
 			delay = retry.Duration()
-		} else {
-			retry.Reset()
-
-			for _, eventRow := range eventRows {
-				var event pubsub.Event[T]
-				err = json.Unmarshal(eventRow.Message, &event)
-				if err != nil {
-					t.logger.Error("Failed to unmarshal event", "error", err, "event", eventRow.ID, "topic", t.topic)
-					continue
-				}
-				if err := t.processEvent(ctx, eventRow.ID, event.Payload()); err != nil {
-					t.logger.Error("Failed to process event", "error", err)
-				}
-			}
+		} else if processed {
+			// If we successfully process an event, immediately try to process another one under the assumption
+			// that there's more in the backlog. Once we hit the end of the backlog the delay will kick in.
+			continue
 		}
 
 		select {
@@ -274,6 +264,24 @@ func (t *Topic[T]) processBacklog(ctx context.Context) {
 		case <-time.After(delay):
 		}
 	}
+}
+
+func (t *Topic[T]) processOneBacklogEvent(ctx context.Context) (processed bool, err error) {
+	eventRow, err := t.queries.ClaimNextEvent(ctx, t.topicID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Errorf("failed to get pending events for topic %s: %w", t.topic, err)
+	}
+	var event pubsub.Event[T]
+	if err := json.Unmarshal(eventRow.Message, &event); err != nil {
+		return false, errors.Errorf("failed to unmarshal event %d on topic %s: %w", eventRow.ID, t.topic, err)
+	}
+	if err := t.processEvent(ctx, eventRow.ID, event.Payload()); err != nil {
+		return false, errors.Errorf("failed to process event %d on topic %s: %w", eventRow.ID, t.topic, err)
+	}
+	return true, nil
 }
 
 // Called when the LISTENER receives a notification
