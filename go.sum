@@ -6,12 +6,6 @@ github.com/alecthomas/errors v0.8.2 h1:PLif19+0yYe+MRyCNjphmSzD3uAXnmdDzHIdlP2xk
 github.com/alecthomas/errors v0.8.2/go.mod h1:0DQf6/xQp3f9rv+k72g2NmeTW2lC74kXA6b/8dN9BwY=
 github.com/alecthomas/kong v1.12.1 h1:iq6aMJDcFYP9uFrLdsiZQ2ZMmcshduyGv4Pek0MQPW0=
 github.com/alecthomas/kong v1.12.1/go.mod h1:p2vqieVMeTAnaC83txKtXe8FLke2X07aruPWXyMPQrU=
-github.com/alecthomas/kong-toml v0.3.0 h1:cKDUonU3kU3GCMPEod1uxHcw9Ah5IbuzUfTdIlHiIYs=
-github.com/alecthomas/kong-toml v0.3.0/go.mod h1:hRVV9iGmqYsFqs17jFQgqhkjYIxiklbfy95xJ3nlpKI=
-github.com/alecthomas/kong-toml v0.3.1 h1:r3WCz48qRGljMb1kYiu6rBYq1Eey1RLv6EXNWEFgd5Y=
-github.com/alecthomas/kong-toml v0.3.1/go.mod h1:hRVV9iGmqYsFqs17jFQgqhkjYIxiklbfy95xJ3nlpKI=
-github.com/alecthomas/kong-toml v0.3.2 h1:t6NWE9c7sZBgwGQWP98ZZ/xIfCmxxD/NctUY05W3zo4=
-github.com/alecthomas/kong-toml v0.3.2/go.mod h1:hRVV9iGmqYsFqs17jFQgqhkjYIxiklbfy95xJ3nlpKI=
 github.com/alecthomas/kong-toml v0.4.0 h1:sSK/HHi2M5jqSXYTxmuxkdZcJ+ip9jhYvwcjDGcaJBQ=
 github.com/alecthomas/kong-toml v0.4.0/go.mod h1:hRVV9iGmqYsFqs17jFQgqhkjYIxiklbfy95xJ3nlpKI=
 github.com/alecthomas/participle/v2 v2.1.4 h1:W/H79S8Sat/krZ3el6sQMvMaahJ+XcM9WSI2naI7w2U=

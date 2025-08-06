@@ -3,9 +3,7 @@ package sqltest
 
 import (
 	"database/sql"
-	"encoding/hex"
-	"fmt"
-	"hash/fnv"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,10 +25,8 @@ func NewForTesting(t *testing.T, dsn string, migrations zerosql.Migrations) (*sq
 	logger := loggingtest.NewForTesting()
 
 	// Acquire flock to ensure exclusive access to the database.
-	h := fnv.New64a()
-	h.Write([]byte(dsn))
-	flockID := fmt.Sprintf("zero-test-%s.lock", hex.EncodeToString(h.Sum(nil)))
-	release, err := flock.Acquire(t.Context(), "/tmp/"+flockID, time.Second*30)
+	scheme, _, _ := strings.Cut(dsn, "://")
+	release, err := flock.Acquire(t.Context(), "/tmp/zero-"+scheme+"-test.lock", time.Second*30)
 	assert.NoError(t, err)
 	t.Cleanup(func() {
 		err = release()
