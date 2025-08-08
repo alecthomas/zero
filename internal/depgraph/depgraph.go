@@ -1616,7 +1616,8 @@ func importPathForDir(dir string) (string, error) {
 
 // Types used internally by Zero's generated code.
 var internalTypes = []string{
-	"github.com/alecthomas/zero.ErrorHandler",
+	"github.com/alecthomas/zero.ErrorEncoder",
+	"github.com/alecthomas/zero.ResponseEncoder",
 }
 
 // pruneUnreferencedTypes removes providers and configs that are not transitively referenced from the given roots

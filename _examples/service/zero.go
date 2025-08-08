@@ -184,8 +184,12 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		o := imp31feb4b39618eab1.ProvideLogger(p0)
 		return any(o).(T), nil
 
-	case reflect.TypeOf((*imp9c34c006eb3c10fa.ErrorHandler)(nil)).Elem():
-		o := impef7a81aa222750b7.DefaultErrorHandler()
+	case reflect.TypeOf((*imp9c34c006eb3c10fa.ErrorEncoder)(nil)).Elem():
+		o := impef7a81aa222750b7.DefaultErrorEncoder()
+		return any(o).(T), nil
+
+	case reflect.TypeOf((*imp9c34c006eb3c10fa.ResponseEncoder)(nil)).Elem():
+		o := impef7a81aa222750b7.DefaultResponseEncoder()
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp9b258f273adc01df.Leaser)(nil)).Elem():
@@ -265,30 +269,35 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, fmt.Errorf("*http.ServeMux: %w", err)
 		}
-		errorHandler, err := ZeroConstructSingletons[zero.ErrorHandler](ctx, config, singletons)
+		encodeError, err := ZeroConstructSingletons[zero.ErrorEncoder](ctx, config, singletons)
 		if err != nil {
 			return out, err
 		}
-		_ = errorHandler
+		encodeResponse, err := ZeroConstructSingletons[zero.ResponseEncoder](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
+		_ = encodeError
+		_ = encodeResponse
 		mux.Handle("GET /users", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			out, herr := r0.ListUsers()
-			zero.EncodeResponse[[]User](r, w, errorHandler, out, herr)
+			encodeResponse(r, w, encodeError, out, herr)
 		}))
 		// Parameters for the Authenticate middleware
 		m0p0 := "admin"
 		mux.Handle("POST /users", Authenticate(m0p0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p0, err := zero.DecodeRequest[User]("POST", r)
 			if err != nil {
-				errorHandler(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+				encodeError(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
 				return
 			}
 			herr := r0.CreateUser(p0)
-			zero.EncodeResponse[zero.EmptyResponse](r, w, errorHandler, nil, herr)
+			encodeResponse(r, w, encodeError, nil, herr)
 		})))
 		mux.Handle("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p0 := r.PathValue("id")
 			out, herr := r0.GetUser(p0)
-			zero.EncodeResponse[User](r, w, errorHandler, out, herr)
+			encodeResponse(r, w, encodeError, out, herr)
 		}))
 		return any(mux).(T), nil
 

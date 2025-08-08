@@ -17,6 +17,13 @@ func (s Struct) Method([pathVar0, pathVar1 string][, req Request]) ([<response>,
 
 `http.ServeMux` is used for routing and thus the pattern syntax is identical.
 
+## Request decoding
+
+Here's how Zero decodes requests into Go types:
+
+1. If the method is a PUT, POST or PATCH its body will be decoded into the request type.
+2. For all other methods, the Go type will be decoded from the query parameters and must be a struct with optional tags of the form `qstring:"<name>"`.
+
 ### Response encoding
 
 Depending on the type of the <response> value, the response will be encoded in the following ways:
@@ -34,11 +41,13 @@ Depending on the type of the <response> value, the response will be encoded in t
 
 Responses may optionally implement the interface `zero.StatusCode` to control the returned HTTP status code.
 
+Additionally, if the default Zero encoding scheme is not to your liking you can provide a custom provider for `zero.ResponseEncoder`.
+
 ### Error responses
 
 As with response bodies, if the returned error type implements `http.Handler`, its `ServeHTTP()` method will be called.
 
-A default error handler may also be registered by creating a custom provider for `zero.ErrorHandler`.
+A default error handler may also be registered by creating a custom provider for `zero.ErrorEncoder`.
 
 ### OpenAPI Specification
 
@@ -54,8 +63,8 @@ $ zero --openapi
 {
   "swagger": "2.0",
   "info": {
-    "title": "Zero API",
-    "version": "1.0.0"
+    "title": "My Zero Service",
+    "version": "dev"
   },
   "paths": {
     "/users": {
@@ -69,15 +78,7 @@ $ zero --openapi
             "schema": {
               "type": "array",
               "items": {
-                "type": "object",
-                "properties": {
-                  "birthYear": {
-                    "type": "integer"
-                  },
-                  "name": {
-                    "type": "string"
-                  }
-                }
+                "$ref": "#/definitions/main.User"
               }
             }
           },
@@ -99,15 +100,7 @@ $ zero --openapi
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "birthYear": {
-                  "type": "integer"
-                },
-                "name": {
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/main.User"
             }
           }
         ],
@@ -141,15 +134,7 @@ $ zero --openapi
           "200": {
             "description": "Success",
             "schema": {
-              "type": "object",
-              "properties": {
-                "birthYear": {
-                  "type": "integer"
-                },
-                "name": {
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/main.User"
             }
           },
           "400": {
@@ -158,6 +143,19 @@ $ zero --openapi
           "500": {
             "description": "Internal Server Error"
           }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "main.User": {
+      "type": "object",
+      "properties": {
+        "birthYear": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
         }
       }
     }
