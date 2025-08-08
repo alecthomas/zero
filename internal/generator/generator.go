@@ -192,7 +192,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 				}
 
 				// Register the handlers across receiver types.
-				w.Import("github.com/alecthomas/zero")
+				writeZeroConstructSingletonByName(w, "logger", "*slog.Logger", "")
 				writeZeroConstructSingletonByName(w, "encodeError", "zero.ErrorEncoder", "")
 				writeZeroConstructSingletonByName(w, "encodeResponse", "zero.ResponseEncoder", "")
 				w.L("_ = encodeError")
@@ -278,9 +278,9 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 						if responseType != nil {
 							ref := graph.TypeRef(responseType)
 							w.Import(ref.Import)
-							w.L(`encodeResponse(r, w, encodeError, out, %s)`, errorValue)
+							w.L(`encodeResponse(logger, r, w, encodeError, out, %s)`, errorValue)
 						} else if hasError {
-							w.L(`encodeResponse(r, w, encodeError, nil, %s)`, errorValue)
+							w.L(`encodeResponse(logger, r, w, encodeError, nil, %s)`, errorValue)
 						}
 					})
 					w.L("}))%s", closing)
@@ -327,7 +327,7 @@ func writeParameterConstruction(w *codewriter.Writer, graph *depgraph.Graph, par
 				w.Import("fmt")
 				w.L(`return out, err`)
 			} else {
-				w.L(`encodeError(w, fmt.Sprintf("path parameter %s must be a valid integer: %%s", err), http.StatusBadRequest)`, paramName)
+				w.L(`encodeError(logger, w, fmt.Sprintf("path parameter %s must be a valid integer: %%s", err), http.StatusBadRequest)`, paramName)
 				w.L("return")
 			}
 		})
@@ -354,7 +354,7 @@ func writeParameterConstruction(w *codewriter.Writer, graph *depgraph.Graph, par
 			w.L(`%s, err := zero.DecodeRequest[%s]("%s", r)`, varName, ref.Ref, httpMethod)
 			w.L("if err != nil {")
 			w.In(func(w *codewriter.Writer) {
-				w.L(`encodeError(w, fmt.Sprintf("invalid request: %%s", err), http.StatusBadRequest)`)
+				w.L(`encodeError(logger, w, fmt.Sprintf("invalid request: %%s", err), http.StatusBadRequest)`)
 				w.L("return")
 			})
 			w.L("}")

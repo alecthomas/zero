@@ -55,6 +55,7 @@ linters:
     - goconst
     - gochecknoinits
     - durationcheck
+    - embeddedstructfieldcheck
   settings:
     dupl:
       threshold: 100
@@ -94,6 +95,9 @@ linters:
         text: error returned from external package is unwrapped
       - linters: [staticcheck]
         text: QF1008
+      - text: "Error return value of `w.Write` is not checked"
+        linters: [errcheck]
+        path: (.+)_test\.go$
     paths:
       - third_party$
       - builtin$

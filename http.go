@@ -3,7 +3,11 @@ package zero
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
+	"maps"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -14,12 +18,12 @@ import (
 // ErrorEncoder represents a function for handling errors from Zero's generated code.
 //
 // A custom provider can override this.
-type ErrorEncoder func(w http.ResponseWriter, msg string, code int)
+type ErrorEncoder func(logger *slog.Logger, w http.ResponseWriter, msg string, code int)
 
 // ResponseEncoder represents a function for encoding the response body into JSON and writing it to the response writer.
 //
 // A custom provider can override this.
-type ResponseEncoder func(r *http.Request, w http.ResponseWriter, errorEncoder ErrorEncoder, data any, outErr error)
+type ResponseEncoder func(logger *slog.Logger, r *http.Request, w http.ResponseWriter, errorEncoder ErrorEncoder, data any, outErr error)
 
 // Middleware is a convenience type for Zero middleware.
 type Middleware func(http.Handler) http.Handler
@@ -75,27 +79,139 @@ func DecodeRequest[T any](method string, r *http.Request) (T, error) {
 	return result, nil
 }
 
+// EncodeError is the default error encoder.
+//
+// The response will be JSON in the form:
+//
+//	{
+//	  "error": "error message",
+//	  "code": code
+//	}
+func EncodeError(logger *slog.Logger, w http.ResponseWriter, msg string, status int) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	eerr := json.NewEncoder(w).Encode(map[string]string{"error": msg, "code": strconv.Itoa(status)})
+	if eerr != nil {
+		logger.Error("Failed to encode error", "error", msg, "status", status)
+	}
+}
+
 // EncodeResponse encodes the response body into JSON and writes it to the response writer.
-func EncodeResponse[T any](r *http.Request, w http.ResponseWriter, errorEncoder ErrorEncoder, data T, outErr error) {
+func EncodeResponse(logger *slog.Logger, r *http.Request, w http.ResponseWriter, errorEncoder ErrorEncoder, data any, outErr error) {
 	if outErr != nil {
 		var handler http.Handler
 		if errors.As(outErr, &handler) {
 			handler.ServeHTTP(w, nil)
 		} else {
-			errorEncoder(w, outErr.Error(), http.StatusInternalServerError)
+			errorEncoder(logger, w, outErr.Error(), http.StatusInternalServerError)
 		}
-	} else if handler, ok := any(data).(http.Handler); ok {
-		handler.ServeHTTP(w, r)
-	} else {
-		statusCode := http.StatusOK
-		statusCoder, ok := any(data).(StatusCode)
-		if ok {
-			statusCode = statusCoder.StatusCode()
+		return
+	}
+	statusCode := http.StatusOK
+	statusCoder, ok := data.(StatusCode)
+	if ok {
+		statusCode = statusCoder.StatusCode()
+	}
+
+	switch data := data.(type) {
+	case http.Handler:
+		data.ServeHTTP(w, r)
+
+	case string:
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(statusCode)
+		_, err := w.Write([]byte(data))
+		if err != nil {
+			logger.Error("Failed to write response", "error", err)
+			return
 		}
+
+	case []byte:
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(statusCode)
+		_, err := w.Write(data)
+		if err != nil {
+			logger.Error("Failed to write response", "error", err)
+			return
+		}
+
+	case io.ReadCloser:
+		defer func() {
+			err := data.Close()
+			if err != nil {
+				logger.Error("Failed to close response", "error", err)
+				return
+			}
+		}()
+		w.Header().Set("Content-Type", "application/octet-stream")
+		if named, ok := data.(interface{ Name() string }); ok {
+			w.Header().Set("Content-Disposition", "attachment; "+contentDispositionFilename(named.Name()))
+		}
+		w.WriteHeader(statusCode)
+		_, err := io.Copy(w, data)
+		if err != nil {
+			logger.Error("Failed to write response", "error", err)
+			return
+		}
+
+	case io.Reader:
+		w.Header().Set("Content-Type", "application/octet-stream")
+		if named, ok := data.(interface{ Name() string }); ok {
+			w.Header().Set("Content-Disposition", "attachment; "+contentDispositionFilename(named.Name()))
+		}
+		w.WriteHeader(statusCode)
+		_, err := io.Copy(w, data)
+		if err != nil {
+			logger.Error("Failed to write response", "error", err)
+			return
+		}
+
+	case *http.Response:
+		defer func() {
+			err := data.Body.Close()
+			if err != nil {
+				logger.Error("Failed to close response", "error", err)
+				return
+			}
+		}()
+		maps.Copy(w.Header(), data.Header)
+		w.WriteHeader(data.StatusCode)
+		_, err := io.Copy(w, data.Body)
+		if err != nil {
+			logger.Error("Failed to write response", "error", err)
+			return
+		}
+
+	default:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(data) //nolint
+		err := json.NewEncoder(w).Encode(data) //nolint
+		if err != nil {
+			logger.Error("Failed to encode response", "error", err)
+		}
 	}
+}
+
+func isASCII(s string) bool {
+	for _, r := range s {
+		if r > 127 {
+			return false
+		}
+	}
+	return true
+}
+
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+func escapeQuotes(s string) string {
+	return quoteEscaper.Replace(s)
+}
+
+func contentDispositionFilename(name string) string {
+	if isASCII(name) {
+		return `filename="` + escapeQuotes(name) + `"`
+	}
+	return "filename*=UTF-8''" + url.QueryEscape(name)
 }
 
 // EmptyResponse is used for handlers that don't return any content.

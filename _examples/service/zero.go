@@ -269,6 +269,10 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		if err != nil {
 			return out, fmt.Errorf("*http.ServeMux: %w", err)
 		}
+		logger, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		if err != nil {
+			return out, err
+		}
 		encodeError, err := ZeroConstructSingletons[zero.ErrorEncoder](ctx, config, singletons)
 		if err != nil {
 			return out, err
@@ -281,23 +285,23 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		_ = encodeResponse
 		mux.Handle("GET /users", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			out, herr := r0.ListUsers()
-			encodeResponse(r, w, encodeError, out, herr)
+			encodeResponse(logger, r, w, encodeError, out, herr)
 		}))
 		// Parameters for the Authenticate middleware
 		m0p0 := "admin"
 		mux.Handle("POST /users", Authenticate(m0p0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p0, err := zero.DecodeRequest[User]("POST", r)
 			if err != nil {
-				encodeError(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+				encodeError(logger, w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
 				return
 			}
 			herr := r0.CreateUser(p0)
-			encodeResponse(r, w, encodeError, nil, herr)
+			encodeResponse(logger, r, w, encodeError, nil, herr)
 		})))
 		mux.Handle("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p0 := r.PathValue("id")
 			out, herr := r0.GetUser(p0)
-			encodeResponse(r, w, encodeError, out, herr)
+			encodeResponse(logger, r, w, encodeError, out, herr)
 		}))
 		return any(mux).(T), nil
 
