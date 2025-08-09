@@ -3,9 +3,11 @@ package generator
 import (
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,11 +48,7 @@ func TestGenerator(t *testing.T) {
 
 	goModTidy(t, dir)
 
-	cmd := exec.CommandContext(t.Context(), "go", "run", ".", "--help")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err = cmd.Run()
-	assert.NoError(t, err, "zero.go:\n%s", readFile(t))
+	execIn(t, dir, "go", "run", ".", "--help")
 }
 
 func readFile(t *testing.T) string {
@@ -76,27 +74,27 @@ func copyFile(t *testing.T, src, dest string) {
 	assert.NoError(t, err)
 }
 
+func execIn(t *testing.T, dir string, cmd ...string) {
+	t.Helper()
+	c := exec.CommandContext(t.Context(), cmd[0], cmd[1:]...)
+	b := &strings.Builder{}
+	c.Stdout = b
+	c.Stderr = b
+	c.Dir = dir
+	err := c.Run()
+	assert.NoError(t, err, b.String())
+}
+
 func createGoMod(t *testing.T, gitRoot, dir string) {
 	t.Helper()
-	w, err := os.Create(filepath.Join(dir, "go.mod"))
-	assert.NoError(t, err)
-	defer w.Close()
-	_, err = fmt.Fprintf(w, `module test
-
-replace github.com/alecthomas/zero => %s
-`, gitRoot)
-	assert.NoError(t, err)
+	execIn(t, dir, "go", "mod", "init", "test")
+	execIn(t, dir, "go", "work", "init", dir, gitRoot)
 	goModTidy(t, dir)
 }
 
 func goModTidy(t *testing.T, dir string) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "go", "mod", "tidy")
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err := cmd.Run()
-	assert.NoError(t, err)
+	execIn(t, dir, "go", "mod", "tidy")
 }
 
 func TestMultiProvider(t *testing.T) {
@@ -146,10 +144,7 @@ func TestMultiProvider(t *testing.T) {
 	goModTidy(t, dir)
 
 	// Test that the generated code compiles and runs
-	cmd := exec.CommandContext(t.Context(), "go", "run", ".", "--help")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err = cmd.Run()
+	execIn(t, dir, "go", "run", ".", "--help")
 	assert.NoError(t, err, "Generated code should compile and run:\n%s", generatedCode)
 }
 
@@ -334,7 +329,10 @@ func main() {}
 	assert.NoError(t, err)
 
 	// Verify generic provider was detected
-	assert.Equal(t, 1, len(graph.GenericProviders), "Should have exactly one generic provider")
+	assert.Equal(t, []string{
+		"github.com/alecthomas/zero/providers/pubsub.Topic",
+		"test.Topic",
+	}, stableKeys(graph.GenericProviders), "Should have exactly one generic provider")
 	topicProviders := graph.GenericProviders["test.Topic"]
 	assert.Equal(t, 1, len(topicProviders), "Should have one Topic generic provider")
 	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
@@ -551,4 +549,8 @@ func main() {}
 	cmd.Stderr = os.Stderr
 	err = cmd.Run()
 	assert.NoError(t, err, "Generated code should compile")
+}
+
+func stableKeys[V any](m map[string]V) []string {
+	return slices.Sorted(maps.Keys(m))
 }

@@ -9,6 +9,7 @@ require (
 	github.com/alecthomas/kong v1.12.1
 	github.com/alecthomas/kong-toml v0.4.0
 	github.com/alecthomas/zero v0.0.0-00010101000000-000000000000
+	golang.org/x/sync v0.16.0
 )
 
 require (
@@ -35,7 +36,6 @@ require (
 	go.jetify.com/typeid/v2 v2.0.0-alpha.3 // indirect
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
-	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	modernc.org/libc v1.66.3 // indirect

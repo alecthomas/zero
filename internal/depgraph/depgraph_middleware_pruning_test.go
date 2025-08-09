@@ -17,6 +17,11 @@ import (
 
 type Service struct{}
 
+//zero:provider
+func NewService() *Service {
+	return &Service{}
+}
+
 // Global middleware - no labels, should always be kept
 //zero:middleware
 func GlobalMiddleware() func(http.Handler) http.Handler {
@@ -102,6 +107,11 @@ import (
 
 type Service struct{}
 
+//zero:provider
+func NewService() *Service {
+	return &Service{}
+}
+
 // Middleware with multiple labels - should be kept if ANY label matches
 //zero:middleware cache timeout
 func CacheMiddleware() func(http.Handler) http.Handler {
@@ -145,9 +155,13 @@ import (
 	"net/http"
 )
 
+//zero:provider
+func ProvideString() string {
+	return "test"
+}
+
 //zero:middleware test
 func TestMiddleware() func(http.Handler) http.Handler {
-t.Parallel()
 	return func(next http.Handler) http.Handler {
 		return next
 	}
@@ -177,6 +191,11 @@ import (
 )
 
 type Service struct{}
+
+//zero:provider
+func NewService() *Service {
+	return &Service{}
+}
 
 // Middleware with empty label (should be treated as global)
 //zero:middleware
@@ -235,6 +254,11 @@ import (
 )
 
 type Service struct{}
+
+//zero:provider
+func NewService() *Service {
+	return &Service{}
+}
 
 // Middleware that should match label name regardless of value
 //zero:middleware cache

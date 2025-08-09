@@ -2,6 +2,7 @@ package depgraph
 
 import (
 	"go/types"
+	"slices"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
@@ -28,7 +29,7 @@ func Auth(authenticated string, dal *DAL) func(http.Handler) http.Handler {
 }
 `
 
-	graph := analyseTestCode(t, testCode, []string{"string"})
+	graph := analyseTestCode(t, testCode, nil)
 
 	// Should have 1 middleware
 	assert.Equal(t, 1, len(graph.Middleware))
@@ -70,7 +71,7 @@ func ComplexAuth(role string, level int, authenticated string, dal *DAL, logger 
 }
 `
 
-	graph := analyseTestCode(t, testCode, []string{"string"})
+	graph := analyseTestCode(t, testCode, nil)
 
 	// Should have 1 middleware
 	assert.Equal(t, 1, len(graph.Middleware))
@@ -91,13 +92,7 @@ func ComplexAuth(role string, level int, authenticated string, dal *DAL, logger 
 
 	expectedTypes := []string{"*test.DAL", "*test.Logger", "*test.Cache"}
 	for _, expected := range expectedTypes {
-		found := false
-		for _, actual := range requiredTypes {
-			if actual == expected {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(requiredTypes, expected)
 		assert.True(t, found, "Expected to find required type %s", expected)
 	}
 

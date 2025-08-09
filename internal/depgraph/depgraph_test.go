@@ -3,14 +3,22 @@ package depgraph
 import (
 	"context"
 	"go/types"
+	"maps"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/alecthomas/zero/internal/directiveparser"
 )
+
+func stableKeys[V any](m map[string]V) []string {
+	return slices.Sorted(maps.Keys(m))
+}
 
 func TestAnalyseSimpleProvider(t *testing.T) {
 	t.Parallel()
@@ -25,7 +33,7 @@ func NewDB() *sql.DB {
 }
 `
 	graph := analyseTestCode(t, testCode, []string{"*database/sql.DB"})
-	assert.Equal(t, 1, len(graph.Providers))
+	assert.Equal(t, []string{"*database/sql.DB"}, stableKeys(graph.Providers))
 	assert.Equal(t, 0, len(graph.Missing))
 
 	dbProvider, ok := graph.Providers["*database/sql.DB"]
@@ -419,6 +427,11 @@ type UpdateUserRequest struct {
 
 type UserService struct{}
 
+//zero:provider
+func NewUserService() *UserService {
+	return &UserService{}
+}
+
 //zero:api GET /users
 func (s *UserService) GetUsers(ctx context.Context) ([]string, error) {
 	return []string{}, nil
@@ -454,7 +467,7 @@ func (s *UserService) InternalHelper() string {
 	return "helper"
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService", "*test.PostService"})
+	graph := analyseTestCode(t, testCode, []string{"*test.UserService"})
 	assert.Equal(t, 6, len(graph.APIs))
 
 	// Check specific API endpoints
@@ -537,6 +550,11 @@ import "net/http"
 
 type UserService struct{}
 
+//zero:provider
+func NewUserService() *UserService {
+	return &UserService{}
+}
+
 //zero:api OPTIONS /health
 func (s *UserService) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
@@ -561,6 +579,11 @@ package main
 
 type Service struct{}
 
+//zero:provider
+func NewService() *Service {
+	return &Service{}
+}
+
 func RegularFunction() string {
 	return ""
 }
@@ -570,7 +593,7 @@ func (s *Service) APIMethod() string {
 	return ""
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService"})
+	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
 	assert.Equal(t, 1, len(graph.APIs))
 
 	api := graph.APIs[0]
@@ -599,6 +622,11 @@ type CreateUserRequest struct {
 type UserService struct{}
 
 //zero:provider
+func NewUserService() *UserService {
+	return &UserService{}
+}
+
+//zero:provider
 func CreateDB() *sql.DB {
 	return nil
 }
@@ -614,7 +642,18 @@ func (s *UserService) CreateUser(req CreateUserRequest) string {
 }
 `
 	graph := analyseTestCode(t, testCode, []string{"*database/sql.DB", "*test.UserService"})
-	assert.Equal(t, 1, len(graph.Providers))
+
+	// Check that we have the expected providers (user-defined + Zero infrastructure for APIs)
+	expectedProviders := []string{
+		"*database/sql.DB",
+		"*log/slog.Logger",
+		"*net/http.ServeMux",
+		"*net/http.Server",
+		"*test.UserService",
+		"github.com/alecthomas/zero.ErrorEncoder",
+		"github.com/alecthomas/zero.ResponseEncoder",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 	assert.Equal(t, 2, len(graph.APIs))
 
 	// Check provider
@@ -689,8 +728,14 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*s
 	return &req.Name, nil
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService", "*test.PostService"})
-	assert.Equal(t, 0, len(graph.Providers))
+	graph := analyseTestCode(t, testCode, []string{})
+	assert.Equal(t, []string{
+		"*log/slog.Logger",
+		"*net/http.ServeMux",
+		"*net/http.Server",
+		"github.com/alecthomas/zero.ErrorEncoder",
+		"github.com/alecthomas/zero.ResponseEncoder",
+	}, stableKeys(graph.Providers))
 	assert.Equal(t, 2, len(graph.APIs))
 	assert.Equal(t, 2, len(graph.Missing))
 
@@ -731,8 +776,16 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*s
 	return &req.Name, nil
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService", "*test.PostService"})
-	assert.Equal(t, 1, len(graph.Providers))
+	graph := analyseTestCode(t, testCode, []string{"*test.UserService"})
+	expectedProviders := []string{
+		"*log/slog.Logger",
+		"*net/http.ServeMux",
+		"*net/http.Server",
+		"*test.UserService",
+		"github.com/alecthomas/zero.ErrorEncoder",
+		"github.com/alecthomas/zero.ResponseEncoder",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 	assert.Equal(t, 2, len(graph.APIs))
 	assert.Equal(t, 0, len(graph.Missing))
 
@@ -758,9 +811,22 @@ func (s *UserService) GetUsers(ctx context.Context) ([]string, error) {
 	return []string{}, nil
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService"})
-	assert.Equal(t, 0, len(graph.Providers))
-	assert.Equal(t, 1, len(graph.Configs))
+	graph := analyseTestCode(t, testCode, []string{"test.UserService"})
+
+	expectedProviders := []string{
+		"*log/slog.Logger",
+		"*net/http.ServeMux",
+		"*net/http.Server",
+		"github.com/alecthomas/zero.ErrorEncoder",
+		"github.com/alecthomas/zero.ResponseEncoder",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
+	expectedConfigs := []string{
+		"github.com/alecthomas/zero/providers/http.Config",
+		"github.com/alecthomas/zero/providers/logging.Config",
+		"test.UserService",
+	}
+	assert.Equal(t, expectedConfigs, stableKeys(graph.Configs))
 	assert.Equal(t, 1, len(graph.APIs))
 	assert.Equal(t, 0, len(graph.Missing))
 
@@ -778,6 +844,11 @@ import "context"
 
 type APIService struct{}
 
+//zero:provider
+func NewAPIService() *APIService {
+	return &APIService{}
+}
+
 //zero:api GET api.example.com/users
 func (s *APIService) GetUsers(ctx context.Context) ([]string, error) {
 	return []string{}, nil
@@ -788,7 +859,7 @@ func (s *APIService) GetUser(ctx context.Context, id int) (*string, error) {
 	return nil, nil
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService", "*test.PostService"})
+	graph := analyseTestCode(t, testCode, []string{"*test.APIService"})
 	assert.Equal(t, 2, len(graph.APIs))
 
 	// Check GET api.example.com/users
@@ -830,7 +901,7 @@ func (s *UserService) DeleteUser(ctx context.Context, id int) error {
 	return nil
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService", "*test.PostService", "*test.ProductService"})
+	graph := analyseTestCode(t, testCode, []string{})
 	assert.Equal(t, 3, len(graph.APIs))
 	assert.Equal(t, 3, len(graph.Missing))
 
@@ -856,6 +927,11 @@ import (
 
 type APIService struct{}
 
+//zero:provider
+func NewAPIService() *APIService {
+	return &APIService{}
+}
+
 //zero:api GET api.example.com/users
 func (s *APIService) GetUsers(ctx context.Context) ([]string, error) {
 	return []string{}, nil
@@ -867,7 +943,7 @@ func (s *APIService) GetUser(ctx context.Context, id int) (*string, error) {
 }
 
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService", "*test.PostService"})
+	graph := analyseTestCode(t, testCode, []string{"*test.APIService"})
 	assert.Equal(t, 2, len(graph.APIs))
 
 	// Check GET api.example.com/users
@@ -907,6 +983,11 @@ import (
 
 type FileService struct{}
 
+//zero:provider
+func NewFileService() *FileService {
+	return &FileService{}
+}
+
 //zero:api GET /files/{path...}
 func (s *FileService) ServeFile(ctx context.Context, path string) ([]byte, error) {
 	return []byte{}, nil
@@ -922,7 +1003,7 @@ func (s *FileService) DeleteStatic(ctx context.Context, path string) error {
 	return nil
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService", "*test.PostService", "*test.ProductService"})
+	graph := analyseTestCode(t, testCode, []string{"*test.FileService"})
 	assert.Equal(t, 3, len(graph.APIs))
 
 	// Check catch-all wildcard
@@ -972,6 +1053,11 @@ import (
 
 type Service struct{}
 
+//zero:provider
+func NewService() *Service {
+	return &Service{}
+}
+
 //zero:api /health
 func (s *Service) Health(ctx context.Context) error {
 	return nil
@@ -982,7 +1068,7 @@ func (s *Service) Status(ctx context.Context) error {
 	return nil
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService", "*test.PostService"})
+	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
 	assert.Equal(t, 2, len(graph.APIs))
 
 	// Check no method specified
@@ -1085,6 +1171,11 @@ type CreateCommentRequest struct {
 
 type APIService struct{}
 
+//zero:provider
+func NewAPIService() *APIService {
+	return &APIService{}
+}
+
 //zero:api GET /
 func (s *APIService) Root(ctx context.Context) error {
 	return nil
@@ -1100,7 +1191,7 @@ func (s *APIService) AdminAction(ctx context.Context, path string) error {
 	return nil
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.UserService", "*test.PostService", "*test.ProductService"})
+	graph := analyseTestCode(t, testCode, []string{"*test.APIService"})
 	assert.Equal(t, 3, len(graph.APIs))
 
 	// Check root endpoint
@@ -1181,6 +1272,11 @@ type CreateUserRequest struct {
 
 type UserService struct{}
 
+//zero:provider
+func NewUserService() *UserService {
+	return &UserService{}
+}
+
 // Valid: standard HTTP types
 //zero:api GET /health
 func (s *UserService) HealthCheck(w http.ResponseWriter, r *http.Request, ctx context.Context, body io.Reader) {
@@ -1216,7 +1312,7 @@ func (s *UserService) UpdateUser(ctx context.Context, id int, req *CreateUserReq
 }
 `
 
-	graph, err := analyseCodeString(t.Context(), testCode, []string{"*test.UserService", "*test.PostService", "*test.ProductService", "*test.FileService", "*test.NotificationService", "*test.CommentService"})
+	graph, err := analyseCodeString(t.Context(), testCode, []string{"*test.UserService"})
 	assert.NoError(t, err)
 	assert.Equal(t, 6, len(graph.APIs))
 }
@@ -1656,6 +1752,11 @@ type CreateUserRequest struct {
 
 type UserService struct{}
 
+//zero:provider
+func NewUserService() *UserService {
+	return &UserService{}
+}
+
 // Valid: standard HTTP types and string/int mapped to wildcards
 //zero:api GET /users/{id}
 func (s *UserService) GetUser(ctx context.Context, id string, w http.ResponseWriter) error {
@@ -1669,7 +1770,7 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) err
 }
 `
 
-	graph, err := analyseCodeString(t.Context(), testCode, []string{"*test.UserService", "*test.PostService"})
+	graph, err := analyseCodeString(t.Context(), testCode, []string{"*test.UserService"})
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(graph.APIs))
 }
@@ -1695,6 +1796,11 @@ var _ encoding.TextUnmarshaler = (*UserID)(nil)
 
 type UserService struct{}
 
+//zero:provider
+func NewUserService() *UserService {
+	return &UserService{}
+}
+
 // Valid: TextUnmarshaler with matching wildcard
 //zero:api GET /users/{userID}/posts/{postID}
 func (s *UserService) GetUserPost(ctx context.Context, userID UserID, postID string) error {
@@ -1715,6 +1821,10 @@ func (s *UserService) GetUserPost(ctx context.Context, userID UserID, postID str
 }
 
 func analyseCodeString(ctx context.Context, code string, roots []string) (*Graph, error) {
+	zeroSource, err := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel").CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
 	tmpDir, err := os.MkdirTemp("", "depgraph_test")
 	if err != nil {
 		return nil, err
@@ -1731,13 +1841,95 @@ go 1.21
 		return nil, err
 	}
 
+	cmd := exec.CommandContext(ctx, "go", "work", "init", ".", strings.TrimSpace(string(zeroSource)))
+	cmd.Dir = tmpDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		return nil, err
+	}
+
 	mainFile := filepath.Join(tmpDir, "main.go")
 	err = os.WriteFile(mainFile, []byte(code), 0600) //nolint
 	if err != nil {
 		return nil, err
 	}
 
-	return Analyse(ctx, tmpDir, WithRoots(roots...))
+	cmd = exec.CommandContext(ctx, "go", "mod", "tidy")
+	cmd.Dir = tmpDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	graph, err := Analyse(ctx, tmpDir, WithRoots(roots...))
+	if err != nil {
+		return nil, err
+	}
+	return graph, nil
+}
+
+func analyseCodeStringWithProviders(ctx context.Context, code string, roots []string, pick []string) (*Graph, error) {
+	zeroSource, err := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel").CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+	tmpDir, err := os.MkdirTemp("", "depgraph_test")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create go.mod file
+	goMod := `module test
+go 1.21
+`
+	goModFile := filepath.Join(tmpDir, "go.mod")
+	err = os.WriteFile(goModFile, []byte(goMod), 0600)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.CommandContext(ctx, "go", "work", "init", ".", strings.TrimSpace(string(zeroSource)))
+	cmd.Dir = tmpDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	mainFile := filepath.Join(tmpDir, "main.go")
+	err = os.WriteFile(mainFile, []byte(code), 0600) //nolint
+	if err != nil {
+		return nil, err
+	}
+
+	cmd = exec.CommandContext(ctx, "go", "mod", "tidy")
+	cmd.Dir = tmpDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	var options []Option
+	if len(roots) > 0 {
+		options = append(options, WithRoots(roots...))
+	}
+	if len(pick) > 0 {
+		options = append(options, WithProviders(pick...))
+	}
+
+	graph, err := Analyse(ctx, tmpDir, options...)
+	if err != nil {
+		return nil, err
+	}
+	return graph, nil
 }
 
 // findAPI finds an API in the slice by method, host, and path.
@@ -1946,14 +2138,31 @@ func (s *ServiceB) PostOther(ctx context.Context, w http.ResponseWriter, r *http
 	// Test with both API receiver types as explicit roots
 	graph, err := analyseCodeString(t.Context(), code, []string{"*test.ServiceA", "*test.ServiceB"})
 	assert.NoError(t, err)
-	assert.Equal(t, 2, len(graph.Providers))
+	expectedProviders := []string{
+		"*log/slog.Logger",
+		"*net/http.ServeMux",
+		"*net/http.Server",
+		"*test.ServiceA",
+		"*test.ServiceB",
+		"github.com/alecthomas/zero.ErrorEncoder",
+		"github.com/alecthomas/zero.ResponseEncoder",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 	assert.Equal(t, 2, len(graph.APIs))
 
 	// Test with only one API receiver type as root
 	graph, err = analyseCodeString(t.Context(), code, []string{"*test.ServiceA"})
 	assert.NoError(t, err)
-	assert.Equal(t, 1, len(graph.Providers)) // Only ServiceA provider should be kept
-	assert.Equal(t, 2, len(graph.APIs))      // APIs are not pruned based on receivers
+	expectedProvidersOne := []string{
+		"*log/slog.Logger",
+		"*net/http.ServeMux",
+		"*net/http.Server",
+		"*test.ServiceA",
+		"github.com/alecthomas/zero.ErrorEncoder",
+		"github.com/alecthomas/zero.ResponseEncoder",
+	}
+	assert.Equal(t, expectedProvidersOne, stableKeys(graph.Providers)) // Only ServiceA provider should be kept
+	assert.Equal(t, 2, len(graph.APIs))                                // APIs are not pruned based on receivers
 }
 
 func TestAnalyseWithNilRoots(t *testing.T) {
@@ -2056,7 +2265,16 @@ func (s *ServiceB) PostOther(ctx context.Context, w http.ResponseWriter, r *http
 
 	// Only providers for API receivers should be kept (ServiceA and ServiceB)
 	// ServiceC should be pruned since it's not an API receiver
-	assert.Equal(t, 2, len(graph.Providers))
+	expectedProviders := []string{
+		"*log/slog.Logger",
+		"*net/http.ServeMux",
+		"*net/http.Server",
+		"*test.ServiceA",
+		"*test.ServiceB",
+		"github.com/alecthomas/zero.ErrorEncoder",
+		"github.com/alecthomas/zero.ResponseEncoder",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 
 	// Verify API receiver providers are present
 	_, hasServiceA := graph.Providers["*test.ServiceA"]
@@ -2502,6 +2720,11 @@ import (
 
 type CronService struct{}
 
+//zero:provider
+func NewCronService() *CronService {
+	return &CronService{}
+}
+
 //zero:cron 1h
 func (s *CronService) HourlyTask(ctx context.Context) error {
 	return nil
@@ -2517,7 +2740,8 @@ func (s *CronService) DailyTask(ctx context.Context) error {
 	return nil
 }
 `
-	graph := analyseTestCode(t, testCode, nil)
+	graph, err := analyseCodeStringWithProviders(t.Context(), testCode, nil, []string{"github.com/alecthomas/zero/providers/leases.NewMemoryLeaser"})
+	assert.NoError(t, err)
 	assert.Equal(t, 3, len(graph.CronJobs))
 
 	// Check first cron job
@@ -2662,7 +2886,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 )
 
 type Service struct{}
@@ -2682,9 +2905,20 @@ func (s *Service) HourlyCleanup(ctx context.Context) error {
 	return nil
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+	graph, err := analyseCodeStringWithProviders(t.Context(), testCode, []string{"*test.Service"}, []string{"github.com/alecthomas/zero/providers/leases.NewMemoryLeaser"})
+	assert.NoError(t, err)
 
-	assert.Equal(t, 1, len(graph.Providers))
+	expectedProviders := []string{
+		"*github.com/alecthomas/zero/providers/cron.Scheduler",
+		"*log/slog.Logger",
+		"*net/http.ServeMux",
+		"*net/http.Server",
+		"*test.Service",
+		"github.com/alecthomas/zero.ErrorEncoder",
+		"github.com/alecthomas/zero.ResponseEncoder",
+		"github.com/alecthomas/zero/providers/leases.Leaser",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 	assert.Equal(t, 1, len(graph.APIs))
 	assert.Equal(t, 1, len(graph.CronJobs))
 
@@ -2746,8 +2980,17 @@ func NewService(topic Topic[User]) *Service {
 	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
 
 	// Should have NewService provider and resolved generic NewTopic provider
-	assert.Equal(t, 2, len(graph.Providers)) // Service + resolved Topic[User]
-	assert.Equal(t, 1, len(graph.GenericProviders))
+	expectedProviders := []string{
+		"*test.Service",
+		"test.Topic[test.User]",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
+
+	expectedGenericProviders := []string{
+		"github.com/alecthomas/zero/providers/pubsub.Topic",
+		"test.Topic",
+	}
+	assert.Equal(t, expectedGenericProviders, stableKeys(graph.GenericProviders))
 
 	// Check that NewService is provided
 	serviceProvider := graph.Providers["*test.Service"]
@@ -2837,8 +3080,19 @@ func NewServiceC(topic Topic[InvalidType]) *ServiceC {
 	graph := analyseTestCode(t, testCode, []string{"*test.ServiceA", "*test.ServiceB", "*test.ServiceC"})
 
 	// Should have regular providers (ServiceA, ServiceB, ServiceC) + resolved providers (Topic[User], Topic[Order])
-	assert.Equal(t, 5, len(graph.Providers)) // 3 original + 2 resolved (Topic[InvalidType] cannot be resolved due to constraint violation)
-	assert.Equal(t, 1, len(graph.GenericProviders))
+	expectedProviders := []string{
+		"*test.ServiceA",
+		"*test.ServiceB",
+		"*test.ServiceC",
+		"test.Topic[test.Order]",
+		"test.Topic[test.User]",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
+	expectedGenericProviders := []string{
+		"github.com/alecthomas/zero/providers/pubsub.Topic",
+		"test.Topic",
+	}
+	assert.Equal(t, expectedGenericProviders, stableKeys(graph.GenericProviders))
 
 	// Check that NewTopic is a generic provider
 	topicProviders := graph.GenericProviders["test.Topic"]
@@ -2906,13 +3160,22 @@ func NewService(topic Topic[User]) *Service {
 	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
 
 	// Should have the concrete service provider and resolved generic provider
-	assert.Equal(t, 2, len(graph.Providers)) // Service + resolved Topic[User]
+	expectedProviders := []string{
+		"*test.Service",
+		"test.Topic[test.User]",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
+	expectedGenericProviders := []string{
+		"github.com/alecthomas/zero/providers/pubsub.Topic",
+		"test.Topic",
+	}
+	assert.Equal(t, expectedGenericProviders, stableKeys(graph.GenericProviders))
 	serviceProvider := graph.Providers["*test.Service"]
 	assert.NotZero(t, serviceProvider)
 	assert.Equal(t, "NewService", serviceProvider.Function.Name())
 
-	// Should have the generic topic provider
-	assert.Equal(t, 1, len(graph.GenericProviders))
+	// Should have the generic topic provider (plus Zero's built-in pubsub provider)
+	assert.Equal(t, 2, len(graph.GenericProviders))
 	topicProviders := graph.GenericProviders["test.Topic"]
 	assert.Equal(t, 1, len(topicProviders))
 	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
@@ -3014,7 +3277,7 @@ type Product struct {
 }
 `
 
-	graph := analyseTestCode(t, testCode, []string{"test.Config[T]", "test.Service[T]"})
+	graph := analyseTestCode(t, testCode, []string{"test.Config[T]", "*test.Service[T]"})
 
 	// Check that Config is a generic config
 	configProviders := graph.GenericConfigs["test.Config"]
@@ -3049,7 +3312,7 @@ type User struct {
 }
 `
 
-	graph := analyseTestCode(t, testCode, []string{"test.Config[T]", "test.Service[T]"})
+	graph := analyseTestCode(t, testCode, []string{"test.Config[T]", "*test.Service[T]"})
 
 	depGraph := graph.Graph()
 

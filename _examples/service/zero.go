@@ -3,7 +3,6 @@ package main
 
 import (
   "database/sql"
-  "log/slog"
   "context"
   "fmt"
   "github.com/alecthomas/zero"
@@ -17,6 +16,7 @@ import (
   imp9b258f273adc01df "github.com/alecthomas/zero/providers/leases"
   imp9c34c006eb3c10fa "github.com/alecthomas/zero"
   impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
+  "log/slog"
   "net/http"
   "reflect"
   "time"
@@ -51,10 +51,12 @@ func RegisterHandlers(ctx context.Context, injector *Injector) error {
 	if err != nil {
 		return err
 	}
+	_ = mux
 	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
 	if err != nil {
 		return err
 	}
+	_ = logger
 	encodeError, err := ZeroConstructSingletons[zero.ErrorEncoder](ctx, injector)
 	if err != nil {
 		return err
@@ -263,15 +265,19 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[imp3773070ca4e7a2b8.Config](ctx, injector)
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[*http.ServeMux](ctx, injector)
+		p2, err := ZeroConstructSingletons[imp3773070ca4e7a2b8.Config](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		o := imp3773070ca4e7a2b8.DefaultServer(p0, p1, p2)
+		p3, err := ZeroConstructSingletons[*http.ServeMux](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		o := imp3773070ca4e7a2b8.DefaultServer(p0, p1, p2, p3)
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp9c34c006eb3c10fa.ErrorEncoder)(nil)).Elem():
