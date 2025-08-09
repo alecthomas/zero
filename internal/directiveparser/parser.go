@@ -15,7 +15,7 @@ import (
 var (
 	annotationParser = participle.MustBuild[annotation](
 		participle.Lexer(patternLexer),
-		participle.Union[Directive](&DirectiveAPI{}, &DirectiveProvider{}, &DirectiveConfig{}, &DirectiveMiddleware{}, &DirectiveCron{}),
+		participle.Union[Directive](&DirectiveAPI{}, &DirectiveProvider{}, &DirectiveConfig{}, &DirectiveMiddleware{}, &DirectiveCron{}, &DirectiveSubscribe{}),
 		participle.Union[Segment](WildcardSegment{}, LiteralSegment{}, TrailingSegment{}),
 		participle.Elide("Whitespace"),
 		participle.CaseInsensitive("Method"),
@@ -122,6 +122,14 @@ func (d *DirectiveCron) Validate() error {
 	_, err := d.Duration()
 	return err
 }
+
+type DirectiveSubscribe struct {
+	Subscribe bool `parser:"'subscribe'"`
+}
+
+func (d *DirectiveSubscribe) directive()      {}
+func (d *DirectiveSubscribe) String() string  { return "zero:subscribe" }
+func (d *DirectiveSubscribe) Validate() error { return nil }
 
 // DirectiveAPI represents a //zero:api directive
 type DirectiveAPI struct {

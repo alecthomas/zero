@@ -260,6 +260,11 @@ func TestParse(t *testing.T) {
 				Labels: []string{"auth", "cors"},
 			},
 		},
+		{
+			name:    "Subscribe",
+			pattern: "zero:subscribe",
+			want:    &DirectiveSubscribe{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -307,6 +312,10 @@ func TestPatternString(t *testing.T) {
 		{
 			name:    "TrailingSegment",
 			pattern: "zero:api /users/{id}/",
+		},
+		{
+			name:    "Subscribe",
+			pattern: "zero:subscribe",
 		},
 	}
 
