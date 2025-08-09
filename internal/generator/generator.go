@@ -43,8 +43,9 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 		pw.L("//go:build %s", strings.Join(opts.tags, " "))
 		pw.L("")
 	}
+
 	w.Import("context")
-	w.L("// Config contains combined Kong configuration for all types in [Construct].")
+	w.L("// Config contains combined Kong configuration for all types constructable by the [Injector].")
 	w.L("type ZeroConfig struct {")
 	w.In(func(w *codewriter.Writer) {
 		for key, config := range stableMapIter(graph.Configs) {
@@ -60,23 +61,203 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 	})
 	w.L("}")
 	w.L("")
+
+	w.L("// Injector contains the constructed dependency graph.")
+	w.L("type Injector struct {")
+	w.In(func(w *codewriter.Writer) {
+		w.L("config     ZeroConfig")
+		w.L("singletons map[reflect.Type]any")
+	})
+	w.L("}")
+
+	w.L("")
+	w.L("// NewInjector creates a new Injector with the given context and configuration.")
+	w.L("func NewInjector(ctx context.Context, config ZeroConfig) *Injector {")
+	w.In(func(w *codewriter.Writer) {
+		w.L("return &Injector{config: config, singletons: map[reflect.Type]any{}}")
+	})
+	w.L("}")
+	w.L("")
+
+	w.L("// RegisterHandlers registers all Zero handlers with the injector's [http.ServeMux].")
+	w.L("func RegisterHandlers(ctx context.Context, injector *Injector) error {")
+	w.In(func(w *codewriter.Writer) {
+		// First, collect the receiver types so we can construct them.
+		type Receiver struct {
+			Imp string
+			Typ string
+		}
+		receivers := map[Receiver]int{}
+		receiverIndex := 0
+		for _, api := range graph.APIs {
+			receiver := api.Function.Signature().Recv().Type()
+			ref := graph.TypeRef(receiver)
+			w.Import(ref.Import)
+			key := Receiver{ref.Import, ref.Ref}
+			if _, ok := receivers[key]; !ok {
+				receivers[key] = receiverIndex
+				receiverIndex++
+			}
+		}
+		for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b Receiver) int {
+			return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
+		}) {
+			index := receivers[receiver]
+			writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, receiver.Typ)
+		}
+
+		// Register the handlers across receiver types.
+		writeZeroConstructSingletonByName(w, "mux", "*http.ServeMux", "")
+		w.L("_ = mux")
+		writeZeroConstructSingletonByName(w, "logger", "*slog.Logger", "")
+		w.L("_ = logger")
+		w.Import("github.com/alecthomas/zero")
+		writeZeroConstructSingletonByName(w, "encodeError", "zero.ErrorEncoder", "")
+		writeZeroConstructSingletonByName(w, "encodeResponse", "zero.ResponseEncoder", "")
+		w.L("_ = encodeError")
+		w.L("_ = encodeResponse")
+		for _, api := range graph.APIs {
+			handler := "http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {"
+			closing := ""
+			for mi, middleware := range graph.Middleware {
+				if !middleware.Match(api) {
+					continue
+				}
+				ref := graph.FunctionRef(middleware.Function)
+				w.Import(ref.Import)
+				if middleware.Factory {
+					args := []string{}
+					params := middleware.Function.Signature().Params()
+					w.L("// Parameters for the %s middleware", ref.Ref)
+					for i := range params.Len() {
+						args = append(args, fmt.Sprintf("m%dp%d", mi, i))
+						paramType := params.At(i).Type()
+						paramName := params.At(i).Name()
+						writeParameterConstruction(w, graph, paramType, api.Label(paramName), fmt.Sprintf("m%dp", mi), i, true, "")
+					}
+					handler = fmt.Sprintf("%s(%s)(%s", ref.Ref, strings.Join(args, ", "), handler)
+				} else {
+					handler = fmt.Sprintf("%s(%s", ref.Ref, handler)
+				}
+				closing += ")"
+			}
+			w.L("mux.Handle(%q, %s", api.Pattern.Pattern(), handler)
+			w.In(func(w *codewriter.Writer) {
+				signature := api.Function.Signature()
+
+				ref := graph.TypeRef(signature.Recv().Type())
+				receiverIndex := receivers[Receiver{ref.Import, ref.Ref}]
+				params := signature.Params()
+
+				// First pass, decode any parameters from the Request
+				for i := range params.Len() {
+					paramType := params.At(i).Type()
+					paramName := params.At(i).Name()
+					typeName := types.TypeString(paramType, nil)
+					// Skip builtin types that are handled in the call site
+					if typeName != "*net/http.Request" && typeName != "net/http.ResponseWriter" && typeName != "context.Context" {
+						writeParameterConstruction(w, graph, paramType, paramName, "p", i, false, api.Pattern.Method)
+					}
+				}
+
+				// Second pass, construct the request.
+				w.Indent()
+				results := signature.Results()
+				var responseType types.Type
+				hasError := true
+				switch results.Len() {
+				case 0:
+					hasError = false
+				case 1: // Either (error) or response body (T)
+					if results.At(0).Type().String() == "error" {
+						w.W("herr := ")
+					} else {
+						hasError = false
+						w.W("out := ")
+						responseType = results.At(0).Type()
+					}
+				case 2: // Always (T, error)
+					w.W("out, herr := ")
+					responseType = results.At(0).Type()
+				}
+				w.W("r%d.%s(", receiverIndex, api.Function.Name())
+				for i := range params.Len() {
+					if i > 0 {
+						w.W(", ")
+					}
+					paramType := params.At(i).Type()
+					writeParameterCall(w, paramType, "p", i)
+				}
+				w.W(")\n")
+				errorValue := "nil"
+				if hasError {
+					errorValue = "herr"
+				}
+				w.Import("github.com/alecthomas/zero")
+				if responseType != nil {
+					ref := graph.TypeRef(responseType)
+					w.Import(ref.Import)
+					w.L(`encodeResponse(logger, r, w, encodeError, out, %s)`, errorValue)
+				} else if hasError {
+					w.L(`encodeResponse(logger, r, w, encodeError, nil, %s)`, errorValue)
+				}
+			})
+			w.L("}))%s", closing)
+		}
+		w.L("return nil")
+	})
+	w.L("}")
+
+	w.Import("net/http")
+	w.L("// Run the Zero server container.")
+	w.L("//")
+	w.L("// This registers all request handlers, cron jobs, PubSub subscribers, etc.")
+	w.L("func Run(ctx context.Context, config ZeroConfig) error {")
+	w.In(func(w *codewriter.Writer) {
+		w.L("injector := NewInjector(ctx, config)")
+		w.Import("net/http")
+		w.L("if err := RegisterHandlers(ctx, injector); err != nil {")
+		w.In(func(w *codewriter.Writer) {
+			w.L(`return fmt.Errorf("failed to register handlers: %%w", err)`)
+		})
+		w.L("}")
+		writeZeroConstructSingletonByName(w, "server", "*http.Server", "")
+
+		if len(graph.CronJobs) > 0 {
+			w.Import("github.com/alecthomas/zero/providers/cron")
+			writeZeroConstructSingletonByName(w, "cron", "*cron.Scheduler", "")
+			writeCronJobRegistration(w, graph)
+		}
+
+		w.Import("golang.org/x/sync/errgroup")
+		w.L("wg, ctx := errgroup.WithContext(ctx)")
+		w.Import("log/slog")
+		writeZeroConstructSingletonByName(w, "logger", "*slog.Logger", "")
+		w.L(`logger.Info("Server starting", "bind", server.Addr)`)
+		w.L("wg.Go(func() error { return server.ListenAndServe() })")
+		w.L("return wg.Wait()")
+	})
+	w.L("}")
+	w.L("")
+
 	w.L("// Construct an instance of T.")
 	w.L("func ZeroConstruct[T any](ctx context.Context, config ZeroConfig) (out T, err error) {")
 	w.In(func(w *codewriter.Writer) {
 		w.Import("reflect")
-		w.L("return ZeroConstructSingletons[T](ctx, config, map[reflect.Type]any{})")
+		w.L("injector := NewInjector(ctx, config)")
+		w.L("return ZeroConstructSingletons[T](ctx, injector)")
 	})
 	w.L("}")
 	w.L("")
-	w.L("// ZeroConstructSingletons constructs a new instance of T, or returns an instance of T from \"singletons\" if already constructed.")
-	w.L("func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, singletons map[reflect.Type]any) (out T, err error) {")
+	w.L("// ZeroConstructSingletons constructs a new instance of T, or returns an instance of T from the injector if already constructed.")
+	w.L("func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (out T, err error) {")
 	w.In(func(w *codewriter.Writer) {
-		w.L("if singleton, ok := singletons[reflect.TypeFor[T]()]; ok {")
+		w.L("if singleton, ok := injector.singletons[reflect.TypeFor[T]()]; ok {")
 		w.In(func(w *codewriter.Writer) {
 			w.L("return singleton.(T), nil")
 		})
 		w.L("}")
-		w.L("defer func() { singletons[reflect.TypeFor[T]()] = out }()")
+		w.L("defer func() { injector.singletons[reflect.TypeFor[T]()] = out }()")
 		w.Import("reflect")
 		w.L("switch reflect.TypeOf((*T)(nil)).Elem() {")
 		w.L("case reflect.TypeOf((*context.Context)(nil)).Elem():")
@@ -91,12 +272,12 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.Import(ref.Import)
 			w.L("case reflect.TypeOf((**%s)(nil)).Elem(): // Handle pointer to config.", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
-				w.L("return any(&config.%s).(T), nil", alias)
+				w.L("return any(&injector.config.%s).(T), nil", alias)
 			})
 			w.W("\n")
 			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
-				w.L("return any(config.%s).(T), nil", alias)
+				w.L("return any(injector.config.%s).(T), nil", alias)
 			})
 			w.W("\n")
 		}
@@ -107,12 +288,6 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
 				writeProviderCall(w, graph, provider, "p", "o")
-
-				// If this is a scheduler provider with NewScheduler function, register cron jobs
-				if strings.Contains(ref.Ref, "Scheduler") && strings.Contains(provider.Function.FullName(), "NewScheduler") && len(graph.CronJobs) > 0 {
-					writeCronJobRegistration(w, graph)
-				}
-
 				w.L("return any(o).(T), nil")
 			})
 			w.W("\n")
@@ -135,14 +310,11 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 				providedType := providers[0].Provides.Underlying()
 				switch t := providedType.(type) {
 				case *types.Map:
+					w.Import("maps")
 					// Map merging
 					w.L("result := make(%s)", ref.Ref)
 					for pi := range providers {
-						w.L("for k, v := range r%d {", pi)
-						w.In(func(w *codewriter.Writer) {
-							w.L("result[k] = v")
-						})
-						w.L("}")
+						w.L("maps.Copy(result, r%d)", pi)
 					}
 				case *types.Slice:
 					// Slice appending
@@ -159,139 +331,6 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.W("\n")
 		}
 
-		// We always provide http.ServeMux
-		w.Import("net/http")
-		w.L("case reflect.TypeOf((**http.ServeMux)(nil)).Elem():")
-		if len(graph.APIs) > 0 {
-			w.In(func(w *codewriter.Writer) {
-				// Create the ServeMux
-				w.L("mux := http.NewServeMux()")
-
-				// First, collect the receiver types so we can construct them.
-				type Receiver struct {
-					Imp string
-					Typ string
-				}
-				receivers := map[Receiver]int{}
-				receiverIndex := 0
-				for _, api := range graph.APIs {
-					receiver := api.Function.Signature().Recv().Type()
-					ref := graph.TypeRef(receiver)
-					w.Import(ref.Import)
-					key := Receiver{ref.Import, ref.Ref}
-					if _, ok := receivers[key]; !ok {
-						receivers[key] = receiverIndex
-						receiverIndex++
-					}
-				}
-				for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b Receiver) int {
-					return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
-				}) {
-					index := receivers[receiver]
-					writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, "*http.ServeMux")
-				}
-
-				// Register the handlers across receiver types.
-				writeZeroConstructSingletonByName(w, "logger", "*slog.Logger", "")
-				writeZeroConstructSingletonByName(w, "encodeError", "zero.ErrorEncoder", "")
-				writeZeroConstructSingletonByName(w, "encodeResponse", "zero.ResponseEncoder", "")
-				w.L("_ = encodeError")
-				w.L("_ = encodeResponse")
-				for _, api := range graph.APIs {
-					handler := "http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {"
-					closing := ""
-					for mi, middleware := range graph.Middleware {
-						if !middleware.Match(api) {
-							continue
-						}
-						ref := graph.FunctionRef(middleware.Function)
-						w.Import(ref.Import)
-						if middleware.Factory {
-							args := []string{}
-							params := middleware.Function.Signature().Params()
-							w.L("// Parameters for the %s middleware", ref.Ref)
-							for i := range params.Len() {
-								args = append(args, fmt.Sprintf("m%dp%d", mi, i))
-								paramType := params.At(i).Type()
-								paramName := params.At(i).Name()
-								writeParameterConstruction(w, graph, paramType, api.Label(paramName), fmt.Sprintf("m%dp", mi), i, true, "")
-							}
-							handler = fmt.Sprintf("%s(%s)(%s", ref.Ref, strings.Join(args, ", "), handler)
-						} else {
-							handler = fmt.Sprintf("%s(%s", ref.Ref, handler)
-						}
-						closing += ")"
-					}
-					w.L("mux.Handle(%q, %s", api.Pattern.Pattern(), handler)
-					w.In(func(w *codewriter.Writer) {
-						signature := api.Function.Signature()
-
-						ref := graph.TypeRef(signature.Recv().Type())
-						receiverIndex := receivers[Receiver{ref.Import, ref.Ref}]
-						params := signature.Params()
-
-						// First pass, decode any parameters from the Request
-						for i := range params.Len() {
-							paramType := params.At(i).Type()
-							paramName := params.At(i).Name()
-							typeName := types.TypeString(paramType, nil)
-							// Skip builtin types that are handled in the call site
-							if typeName != "*net/http.Request" && typeName != "net/http.ResponseWriter" && typeName != "context.Context" {
-								writeParameterConstruction(w, graph, paramType, paramName, "p", i, false, api.Pattern.Method)
-							}
-						}
-
-						// Second pass, construct the request.
-						w.Indent()
-						results := signature.Results()
-						var responseType types.Type
-						hasError := true
-						switch results.Len() {
-						case 0:
-							hasError = false
-						case 1: // Either (error) or response body (T)
-							if results.At(0).Type().String() == "error" {
-								w.W("herr := ")
-							} else {
-								hasError = false
-								w.W("out := ")
-								responseType = results.At(0).Type()
-							}
-						case 2: // Always (T, error)
-							w.W("out, herr := ")
-							responseType = results.At(0).Type()
-						}
-						w.W("r%d.%s(", receiverIndex, api.Function.Name())
-						for i := range params.Len() {
-							if i > 0 {
-								w.W(", ")
-							}
-							paramType := params.At(i).Type()
-							writeParameterCall(w, paramType, "p", i)
-						}
-						w.W(")\n")
-						errorValue := "nil"
-						if hasError {
-							errorValue = "herr"
-						}
-						w.Import("github.com/alecthomas/zero")
-						if responseType != nil {
-							ref := graph.TypeRef(responseType)
-							w.Import(ref.Import)
-							w.L(`encodeResponse(logger, r, w, encodeError, out, %s)`, errorValue)
-						} else if hasError {
-							w.L(`encodeResponse(logger, r, w, encodeError, nil, %s)`, errorValue)
-						}
-					})
-					w.L("}))%s", closing)
-				}
-				w.L("return any(mux).(T), nil")
-			})
-		} else {
-			w.In(func(w *codewriter.Writer) {
-				w.L("return any(http.NewServeMux()).(T), nil")
-			})
-		}
 		w.W("\n")
 
 		w.L("}")
@@ -342,7 +381,7 @@ func writeParameterConstruction(w *codewriter.Writer, graph *depgraph.Graph, par
 		// These are handled specially in the call site, no construction needed
 	default:
 		if isMiddleware {
-			w.L("%s, err := ZeroConstructSingletons[%s](ctx, config, singletons)", varName, ref.Ref)
+			w.L("%s, err := ZeroConstructSingletons[%s](ctx, injector)", varName, ref.Ref)
 			w.L("if err != nil {")
 			w.In(func(w *codewriter.Writer) {
 				w.Import("fmt")
@@ -383,7 +422,7 @@ func writeZeroConstructSingleton(w *codewriter.Writer, graph *depgraph.Graph, va
 	if ref.Import != "" {
 		w.Import(ref.Import)
 	}
-	w.L("%s, err := ZeroConstructSingletons[%s](ctx, config, singletons)", varName, ref.Ref)
+	w.L("%s, err := ZeroConstructSingletons[%s](ctx, injector)", varName, ref.Ref)
 	w.L("if err != nil {")
 	w.In(func(w *codewriter.Writer) {
 		if errorWrapper != "" {
@@ -398,14 +437,14 @@ func writeZeroConstructSingleton(w *codewriter.Writer, graph *depgraph.Graph, va
 
 // writeZeroConstructSingletonByName writes code to construct a dependency using ZeroConstructSingletons by type name.
 func writeZeroConstructSingletonByName(w *codewriter.Writer, varName string, typeName string, errorWrapper string) {
-	w.L("%s, err := ZeroConstructSingletons[%s](ctx, config, singletons)", varName, typeName)
+	w.L("%s, err := ZeroConstructSingletons[%s](ctx, injector)", varName, typeName)
 	w.L("if err != nil {")
 	w.In(func(w *codewriter.Writer) {
 		if errorWrapper != "" {
 			w.Import("fmt")
-			w.L(`return out, fmt.Errorf("%s: %%w", err)`, errorWrapper)
+			w.L(`return fmt.Errorf("%s: %%w", err)`, errorWrapper)
 		} else {
-			w.L(`return out, err`)
+			w.L(`return err`)
 		}
 	})
 	w.L("}")
@@ -532,11 +571,11 @@ func writeCronJobRegistration(w *codewriter.Writer, graph *depgraph.Graph) {
 
 		// Register the job
 		w.Import("time")
-		w.L("err = o.Register(%q, time.Duration(%d), r%d.%s)", jobName, schedule.Nanoseconds(), receiverIndex, cronJob.Function.Name())
+		w.L("err = cron.Register(%q, time.Duration(%d), r%d.%s)", jobName, schedule.Nanoseconds(), receiverIndex, cronJob.Function.Name())
 		w.L("if err != nil {")
 		w.In(func(w *codewriter.Writer) {
 			w.Import("fmt")
-			w.L(`return out, fmt.Errorf("failed to register cron job %s: %%w", err)`, jobName)
+			w.L(`return fmt.Errorf("failed to register cron job %s: %%w", err)`, jobName)
 		})
 		w.L("}")
 	}

@@ -570,11 +570,10 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 			}
 		}
 	}
-	// Always include the Zero container, as this ensures that API endpoints and cron jobs are always included.
-	opts.roots = append(opts.roots, "*github.com/alecthomas/zero.Container")
-
-	// Automatically require the appropriate scheduler provider based on cron jobs
-	requireAppropriateScheduler(graph, opts)
+	opts.roots = append(opts.roots, "*net/http.Server")
+	if len(graph.CronJobs) > 0 {
+		opts.roots = append(opts.roots, "*github.com/alecthomas/zero/providers/cron.Scheduler")
+	}
 
 	if err := pruneUnreferencedTypes(graph, opts.roots, providers, opts.pick); err != nil {
 		return nil, errors.WithStack(err)
@@ -1419,8 +1418,7 @@ func isContextType(t types.Type) bool {
 func findMissingDependencies(graph *Graph) {
 	provided := map[string]bool{
 		// Builtin types
-		"context.Context":    true,
-		"*net/http.ServeMux": true,
+		"context.Context": true,
 	}
 	for key := range graph.Providers {
 		provided[key] = true
@@ -1616,6 +1614,7 @@ func importPathForDir(dir string) (string, error) {
 
 // Types used internally by Zero's generated code.
 var internalTypes = []string{
+	"net/http.Server",
 	"github.com/alecthomas/zero.ErrorEncoder",
 	"github.com/alecthomas/zero.ResponseEncoder",
 }
@@ -2233,28 +2232,6 @@ func satisfiesConstraints(typeArgs *types.TypeList, typeParams *types.TypeParamL
 	}
 
 	return true
-}
-
-func requireAppropriateScheduler(graph *Graph, opts *graphOptions) {
-	// Check if any scheduler is already explicitly picked
-	hasScheduler := false
-	for _, pick := range opts.pick {
-		if strings.Contains(pick, "NewScheduler") || strings.Contains(pick, "NewNullScheduler") {
-			hasScheduler = true
-			break
-		}
-	}
-
-	// If no scheduler is explicitly picked, auto-select based on cron jobs
-	if !hasScheduler {
-		var schedulerToRequire string
-		if len(graph.CronJobs) > 0 {
-			schedulerToRequire = "github.com/alecthomas/zero/providers/cron.NewScheduler"
-		} else {
-			schedulerToRequire = "github.com/alecthomas/zero/providers/cron.NewNullScheduler"
-		}
-		opts.pick = append(opts.pick, schedulerToRequire)
-	}
 }
 
 // resolveGenericConfigWithType finds a suitable generic config for a concrete type

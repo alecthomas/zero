@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"maps"
 	"net/http"
-	"reflect"
 	"slices"
 
 	"github.com/alecthomas/kong"
@@ -60,11 +58,6 @@ func Authenticate(role string) func(next http.Handler) http.Handler {
 	}
 }
 
-//zero:config prefix="server-"
-type ServiceConfig struct {
-	Bind string `help:"The address to bind the service to"`
-}
-
 type Service struct {
 	dal    *DAL
 	config map[string]int
@@ -72,7 +65,7 @@ type Service struct {
 }
 
 //zero:provider
-func NewService(dal *DAL, cronService CronService, config ServiceConfig, configMap map[string]int, tags []string) (*Service, error) {
+func NewService(dal *DAL, configMap map[string]int, tags []string) (*Service, error) {
 	// Other initialisation
 	return &Service{dal: dal, config: configMap, tags: tags}, nil
 }
@@ -159,11 +152,6 @@ var cli struct {
 func main() {
 	kctx := kong.Parse(&cli, kong.Vars{"sqldsn": "sqlite://:memory:"})
 	ctx := context.Background()
-	singletons := map[reflect.Type]any{}
-	_, err := ZeroConstructSingletons[*Service](ctx, cli.ZeroConfig, singletons)
+	err := Run(ctx, cli.ZeroConfig)
 	kctx.FatalIfErrorf(err)
-	mux, err := ZeroConstructSingletons[*http.ServeMux](ctx, cli.ZeroConfig, singletons)
-	kctx.FatalIfErrorf(err)
-	fmt.Println("Listening on http://127.0.0.1:8080")
-	http.ListenAndServe("127.0.0.1:8080", mux)
 }

@@ -8,13 +8,11 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
-	"reflect"
 	"slices"
 	"time"
 
 	"github.com/alecthomas/kong"
 	kongtoml "github.com/alecthomas/kong-toml"
-	"github.com/alecthomas/zero"
 	"github.com/alecthomas/zero/providers/pubsub"
 	zerosql "github.com/alecthomas/zero/providers/sql"
 )
@@ -64,18 +62,13 @@ func Authenticate(role string) func(next http.Handler) http.Handler {
 	}
 }
 
-//zero:config prefix="server-"
-type ServiceConfig struct {
-	Bind string `help:"The address to bind the server to."`
-}
-
 type Service struct {
 	dal    *DAL
 	logger *slog.Logger
 }
 
 //zero:provider
-func NewService(dal *DAL, logger *slog.Logger, topic pubsub.Topic[User], config ServiceConfig) (*Service, error) {
+func NewService(dal *DAL, logger *slog.Logger, topic pubsub.Topic[User]) (*Service, error) {
 	// Other initialisation
 	return &Service{dal: dal, logger: logger}, nil
 }
@@ -130,20 +123,15 @@ func main() {
 		},
 	)
 	ctx := context.Background()
-	singletons := map[reflect.Type]any{}
 
 	if cli.SQLDumpMigrations != "" {
-		migrations, err := ZeroConstructSingletons[zerosql.Migrations](ctx, cli.ZeroConfig, singletons)
+		migrations, err := ZeroConstruct[zerosql.Migrations](ctx, cli.ZeroConfig)
 		kctx.FatalIfErrorf(err)
 		err = zerosql.DumpMigrations(migrations, cli.SQLDumpMigrations)
 		kctx.FatalIfErrorf(err)
 		kctx.Exit(0)
 	}
 
-	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, cli.ZeroConfig, singletons)
+	err := Run(ctx, cli.ZeroConfig)
 	kctx.FatalIfErrorf(err)
-	container, err := ZeroConstructSingletons[*zero.Container](ctx, cli.ZeroConfig, singletons)
-	kctx.FatalIfErrorf(err)
-	logger.Info("Listening on http://127.0.0.1:8080")
-	http.ListenAndServe("127.0.0.1:8080", container)
 }

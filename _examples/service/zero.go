@@ -4,83 +4,177 @@ package main
 import (
   "database/sql"
   "log/slog"
-  "net/http"
   "context"
   "fmt"
   "github.com/alecthomas/zero"
+  "github.com/alecthomas/zero/providers/cron"
+  "golang.org/x/sync/errgroup"
   imp31feb4b39618eab1 "github.com/alecthomas/zero/providers/logging"
+  imp3773070ca4e7a2b8 "github.com/alecthomas/zero/providers/http"
   imp57144815321973d3 "github.com/alecthomas/zero/providers/pubsub"
   imp71bef56b62085424 "github.com/alecthomas/zero/providers/cron"
   imp897f1a742b20547b "github.com/alecthomas/zero/providers/pubsub/postgres"
   imp9b258f273adc01df "github.com/alecthomas/zero/providers/leases"
   imp9c34c006eb3c10fa "github.com/alecthomas/zero"
   impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
-  impef7a81aa222750b7 "github.com/alecthomas/zero/providers"
+  "net/http"
   "reflect"
   "time"
 )
 
-// Config contains combined Kong configuration for all types in [Construct].
+// Config contains combined Kong configuration for all types constructable by the [Injector].
 type ZeroConfig struct {
-	Config9c6b7595816de4c ServiceConfig `embed:"" prefix:"server-"`
+	Configcb396d0960e493ec imp3773070ca4e7a2b8.Config `embed:"" prefix:"server-"`
 	Configef92e6d1a86c2c7f imp31feb4b39618eab1.Config `embed:"" prefix:"log-"`
 	Config8762d3d40c807570 imp897f1a742b20547b.Config[User] `embed:"" prefix:"topic-user-"`
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:"" prefix:"sql-"`
 }
 
-// Construct an instance of T.
-func ZeroConstruct[T any](ctx context.Context, config ZeroConfig) (out T, err error) {
-	return ZeroConstructSingletons[T](ctx, config, map[reflect.Type]any{})
+// Injector contains the constructed dependency graph.
+type Injector struct {
+	config     ZeroConfig
+	singletons map[reflect.Type]any
 }
 
-// ZeroConstructSingletons constructs a new instance of T, or returns an instance of T from "singletons" if already constructed.
-func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, singletons map[reflect.Type]any) (out T, err error) {
-	if singleton, ok := singletons[reflect.TypeFor[T]()]; ok {
+// NewInjector creates a new Injector with the given context and configuration.
+func NewInjector(ctx context.Context, config ZeroConfig) *Injector {
+	return &Injector{config: config, singletons: map[reflect.Type]any{}}
+}
+
+// RegisterHandlers registers all Zero handlers with the injector's [http.ServeMux].
+func RegisterHandlers(ctx context.Context, injector *Injector) error {
+	r0, err := ZeroConstructSingletons[*Service](ctx, injector)
+	if err != nil {
+		return fmt.Errorf("*Service: %w", err)
+	}
+	mux, err := ZeroConstructSingletons[*http.ServeMux](ctx, injector)
+	if err != nil {
+		return err
+	}
+	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
+	if err != nil {
+		return err
+	}
+	encodeError, err := ZeroConstructSingletons[zero.ErrorEncoder](ctx, injector)
+	if err != nil {
+		return err
+	}
+	encodeResponse, err := ZeroConstructSingletons[zero.ResponseEncoder](ctx, injector)
+	if err != nil {
+		return err
+	}
+	_ = encodeError
+	_ = encodeResponse
+	mux.Handle("GET /users", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		out, herr := r0.ListUsers()
+		encodeResponse(logger, r, w, encodeError, out, herr)
+	}))
+	// Parameters for the Authenticate middleware
+	m0p0 := "admin"
+	mux.Handle("POST /users", Authenticate(m0p0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p0, err := zero.DecodeRequest[User]("POST", r)
+		if err != nil {
+			encodeError(logger, w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+			return
+		}
+		herr := r0.CreateUser(p0)
+		encodeResponse(logger, r, w, encodeError, nil, herr)
+	})))
+	mux.Handle("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p0 := r.PathValue("id")
+		out, herr := r0.GetUser(p0)
+		encodeResponse(logger, r, w, encodeError, out, herr)
+	}))
+	return nil
+}
+// Run the Zero server container.
+//
+// This registers all request handlers, cron jobs, PubSub subscribers, etc.
+func Run(ctx context.Context, config ZeroConfig) error {
+	injector := NewInjector(ctx, config)
+	if err := RegisterHandlers(ctx, injector); err != nil {
+		return fmt.Errorf("failed to register handlers: %w", err)
+	}
+	server, err := ZeroConstructSingletons[*http.Server](ctx, injector)
+	if err != nil {
+		return err
+	}
+	cron, err := ZeroConstructSingletons[*cron.Scheduler](ctx, injector)
+	if err != nil {
+		return err
+	}
+	r0, err := ZeroConstructSingletons[*Service](ctx, injector)
+	if err != nil {
+		return err
+	}
+	err = cron.Register("github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron", time.Duration(5000000000), r0.CheckUsersCron)
+	if err != nil {
+		return fmt.Errorf("failed to register cron job github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron: %w", err)
+	}
+	wg, ctx := errgroup.WithContext(ctx)
+	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
+	if err != nil {
+		return err
+	}
+	logger.Info("Server starting", "bind", server.Addr)
+	wg.Go(func() error { return server.ListenAndServe() })
+	return wg.Wait()
+}
+
+// Construct an instance of T.
+func ZeroConstruct[T any](ctx context.Context, config ZeroConfig) (out T, err error) {
+	injector := NewInjector(ctx, config)
+	return ZeroConstructSingletons[T](ctx, injector)
+}
+
+// ZeroConstructSingletons constructs a new instance of T, or returns an instance of T from the injector if already constructed.
+func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (out T, err error) {
+	if singleton, ok := injector.singletons[reflect.TypeFor[T]()]; ok {
 		return singleton.(T), nil
 	}
-	defer func() { singletons[reflect.TypeFor[T]()] = out }()
+	defer func() { injector.singletons[reflect.TypeFor[T]()] = out }()
 	switch reflect.TypeOf((*T)(nil)).Elem() {
 	case reflect.TypeOf((*context.Context)(nil)).Elem():
 		return any(ctx).(T), nil
 
-	case reflect.TypeOf((**ServiceConfig)(nil)).Elem(): // Handle pointer to config.
-		return any(&config.Config9c6b7595816de4c).(T), nil
+	case reflect.TypeOf((**imp3773070ca4e7a2b8.Config)(nil)).Elem(): // Handle pointer to config.
+		return any(&injector.config.Configcb396d0960e493ec).(T), nil
 
-	case reflect.TypeOf((*ServiceConfig)(nil)).Elem():
-		return any(config.Config9c6b7595816de4c).(T), nil
+	case reflect.TypeOf((*imp3773070ca4e7a2b8.Config)(nil)).Elem():
+		return any(injector.config.Configcb396d0960e493ec).(T), nil
 
 	case reflect.TypeOf((**imp31feb4b39618eab1.Config)(nil)).Elem(): // Handle pointer to config.
-		return any(&config.Configef92e6d1a86c2c7f).(T), nil
+		return any(&injector.config.Configef92e6d1a86c2c7f).(T), nil
 
 	case reflect.TypeOf((*imp31feb4b39618eab1.Config)(nil)).Elem():
-		return any(config.Configef92e6d1a86c2c7f).(T), nil
+		return any(injector.config.Configef92e6d1a86c2c7f).(T), nil
 
 	case reflect.TypeOf((**imp897f1a742b20547b.Config[User])(nil)).Elem(): // Handle pointer to config.
-		return any(&config.Config8762d3d40c807570).(T), nil
+		return any(&injector.config.Config8762d3d40c807570).(T), nil
 
 	case reflect.TypeOf((*imp897f1a742b20547b.Config[User])(nil)).Elem():
-		return any(config.Config8762d3d40c807570).(T), nil
+		return any(injector.config.Config8762d3d40c807570).(T), nil
 
 	case reflect.TypeOf((**impc24ab568b6f3f934.Config)(nil)).Elem(): // Handle pointer to config.
-		return any(&config.Config6fab5aa5f9534d38).(T), nil
+		return any(&injector.config.Config6fab5aa5f9534d38).(T), nil
 
 	case reflect.TypeOf((*impc24ab568b6f3f934.Config)(nil)).Elem():
-		return any(config.Config6fab5aa5f9534d38).(T), nil
+		return any(injector.config.Config6fab5aa5f9534d38).(T), nil
 
 	case reflect.TypeOf((**sql.DB)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[context.Context](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons)
+		p1, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		p2, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p3, err := ZeroConstructSingletons[impc24ab568b6f3f934.Migrations](ctx, config, singletons)
+		p3, err := ZeroConstructSingletons[impc24ab568b6f3f934.Migrations](ctx, injector)
 		if err != nil {
 			return out, err
 		}
@@ -90,20 +184,8 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		}
 		return any(o).(T), nil
 
-	case reflect.TypeOf((**imp9c34c006eb3c10fa.Container)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[*http.ServeMux](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		p1, err := ZeroConstructSingletons[*imp71bef56b62085424.Scheduler](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		o := impef7a81aa222750b7.NewContainer(p0, p1)
-		return any(o).(T), nil
-
 	case reflect.TypeOf((**DAL)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[*sql.DB](ctx, injector)
 		if err != nil {
 			return out, err
 		}
@@ -111,62 +193,50 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		return any(o).(T), nil
 
 	case reflect.TypeOf((**Service)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[*DAL](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[*DAL](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[imp57144815321973d3.Topic[User]](ctx, config, singletons)
+		p2, err := ZeroConstructSingletons[imp57144815321973d3.Topic[User]](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p3, err := ZeroConstructSingletons[ServiceConfig](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		o, err := NewService(p0, p1, p2, p3)
+		o, err := NewService(p0, p1, p2)
 		if err != nil {
 			return out, fmt.Errorf("*Service: %w", err)
 		}
 		return any(o).(T), nil
 
 	case reflect.TypeOf((**imp71bef56b62085424.Scheduler)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[context.Context](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[imp9b258f273adc01df.Leaser](ctx, config, singletons)
+		p2, err := ZeroConstructSingletons[imp9b258f273adc01df.Leaser](ctx, injector)
 		if err != nil {
 			return out, err
 		}
 		o := imp71bef56b62085424.NewScheduler(p0, p1, p2)
-		r0, err := ZeroConstructSingletons[*Service](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		err = o.Register("github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron", time.Duration(5000000000), r0.CheckUsersCron)
-		if err != nil {
-			return out, fmt.Errorf("failed to register cron job github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron: %w", err)
-		}
 		return any(o).(T), nil
 
 	case reflect.TypeOf((**imp897f1a742b20547b.Listener)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[context.Context](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
+		p2, err := ZeroConstructSingletons[*sql.DB](ctx, injector)
 		if err != nil {
 			return out, err
 		}
@@ -177,35 +247,55 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		return any(o).(T), nil
 
 	case reflect.TypeOf((**slog.Logger)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[imp31feb4b39618eab1.Config](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[imp31feb4b39618eab1.Config](ctx, injector)
 		if err != nil {
 			return out, err
 		}
 		o := imp31feb4b39618eab1.ProvideLogger(p0)
 		return any(o).(T), nil
 
+	case reflect.TypeOf((**http.ServeMux)(nil)).Elem():
+		o := imp3773070ca4e7a2b8.DefaultServeMux()
+		return any(o).(T), nil
+
+	case reflect.TypeOf((**http.Server)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		p1, err := ZeroConstructSingletons[imp3773070ca4e7a2b8.Config](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		p2, err := ZeroConstructSingletons[*http.ServeMux](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		o := imp3773070ca4e7a2b8.DefaultServer(p0, p1, p2)
+		return any(o).(T), nil
+
 	case reflect.TypeOf((*imp9c34c006eb3c10fa.ErrorEncoder)(nil)).Elem():
-		o := impef7a81aa222750b7.DefaultErrorEncoder()
+		o := imp3773070ca4e7a2b8.DefaultErrorEncoder()
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp9c34c006eb3c10fa.ResponseEncoder)(nil)).Elem():
-		o := impef7a81aa222750b7.DefaultResponseEncoder()
+		o := imp3773070ca4e7a2b8.DefaultResponseEncoder()
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp9b258f273adc01df.Leaser)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[context.Context](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[impc24ab568b6f3f934.Driver](ctx, config, singletons)
+		p2, err := ZeroConstructSingletons[impc24ab568b6f3f934.Driver](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p3, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
+		p3, err := ZeroConstructSingletons[*sql.DB](ctx, injector)
 		if err != nil {
 			return out, err
 		}
@@ -216,23 +306,23 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp57144815321973d3.Topic[User])(nil)).Elem():
-		p0, err := ZeroConstructSingletons[context.Context](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[*imp897f1a742b20547b.Listener](ctx, config, singletons)
+		p2, err := ZeroConstructSingletons[*imp897f1a742b20547b.Listener](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p3, err := ZeroConstructSingletons[*sql.DB](ctx, config, singletons)
+		p3, err := ZeroConstructSingletons[*sql.DB](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p4, err := ZeroConstructSingletons[imp897f1a742b20547b.Config[User]](ctx, config, singletons)
+		p4, err := ZeroConstructSingletons[imp897f1a742b20547b.Config[User]](ctx, injector)
 		if err != nil {
 			return out, err
 		}
@@ -243,7 +333,7 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*impc24ab568b6f3f934.Driver)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, config, singletons)
+		p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, injector)
 		if err != nil {
 			return out, err
 		}
@@ -263,47 +353,6 @@ func ZeroConstructSingletons[T any](ctx context.Context, config ZeroConfig, sing
 		result = append(result, r2...)
 		return any(result).(T), nil
 
-	case reflect.TypeOf((**http.ServeMux)(nil)).Elem():
-		mux := http.NewServeMux()
-		r0, err := ZeroConstructSingletons[*Service](ctx, config, singletons)
-		if err != nil {
-			return out, fmt.Errorf("*http.ServeMux: %w", err)
-		}
-		logger, err := ZeroConstructSingletons[*slog.Logger](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		encodeError, err := ZeroConstructSingletons[zero.ErrorEncoder](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		encodeResponse, err := ZeroConstructSingletons[zero.ResponseEncoder](ctx, config, singletons)
-		if err != nil {
-			return out, err
-		}
-		_ = encodeError
-		_ = encodeResponse
-		mux.Handle("GET /users", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			out, herr := r0.ListUsers()
-			encodeResponse(logger, r, w, encodeError, out, herr)
-		}))
-		// Parameters for the Authenticate middleware
-		m0p0 := "admin"
-		mux.Handle("POST /users", Authenticate(m0p0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p0, err := zero.DecodeRequest[User]("POST", r)
-			if err != nil {
-				encodeError(logger, w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
-				return
-			}
-			herr := r0.CreateUser(p0)
-			encodeResponse(logger, r, w, encodeError, nil, herr)
-		})))
-		mux.Handle("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p0 := r.PathValue("id")
-			out, herr := r0.GetUser(p0)
-			encodeResponse(logger, r, w, encodeError, out, herr)
-		}))
-		return any(mux).(T), nil
 
 	}
 	return out, fmt.Errorf("don't know how to construct %s", reflect.TypeFor[T]())
