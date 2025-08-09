@@ -10,7 +10,7 @@ import (
 
 // Legacy creates a [log.Logger] that logs to the given [log/slog.Logger].
 func Legacy(logger *slog.Logger, level slog.Level) *log.Logger {
-	return log.New(&slogWriter{logger: logger}, "", 0)
+	return log.New(&slogWriter{logger: logger, level: level}, "", 0)
 }
 
 type slogWriter struct {

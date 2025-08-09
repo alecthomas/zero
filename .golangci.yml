@@ -95,7 +95,7 @@ linters:
         text: error returned from external package is unwrapped
       - linters: [staticcheck]
         text: QF1008
-      - text: "Error return value of `w.Write` is not checked"
+      - text: "Error return value of `.*.Write` is not checked"
         linters: [errcheck]
         path: (.+)_test\.go$
     paths:
