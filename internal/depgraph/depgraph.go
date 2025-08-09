@@ -9,6 +9,7 @@ import (
 	"go/types"
 	"hash/fnv"
 	"log"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -540,6 +541,14 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 
 	providers := map[string][]*Provider{}
 	for _, pkg := range pkgs {
+		if opts.debug {
+			for _, err := range pkg.Errors {
+				log.Println(err)
+			}
+			for _, err := range pkg.TypeErrors {
+				log.Println(err)
+			}
+		}
 		if pkg.PkgPath == destImport {
 			graph.Dest = pkg.Types
 		}
@@ -570,7 +579,9 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 			}
 		}
 	}
-	opts.roots = append(opts.roots, "*net/http.Server")
+	if len(graph.APIs) > 0 {
+		opts.roots = append(opts.roots, "*net/http.Server")
+	}
 	if len(graph.CronJobs) > 0 {
 		opts.roots = append(opts.roots, "*github.com/alecthomas/zero/providers/cron.Scheduler")
 	}
@@ -582,8 +593,12 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 	findMissingDependencies(graph)
 
 	// Prune unreferenced providers and configs based on roots
-	if len(opts.roots) == 0 {
-		return nil, errors.Errorf("no root types provided and no API endpoints or cron jobs found")
+	// if len(opts.roots) == 0 && len(graph.APIs) == 0 && len(graph.CronJobs) == 0 {
+	// 	return nil, errors.Errorf("no root types provided and no API endpoints or cron jobs found")
+	// }
+
+	if err := checkForMissingRoots(graph, opts.roots); err != nil {
+		return nil, errors.WithStack(err)
 	}
 
 	return graph, nil
@@ -1612,9 +1627,8 @@ func importPathForDir(dir string) (string, error) {
 	return path.Join(mod.Module.Mod.Path, dir), nil
 }
 
-// Types used internally by Zero's generated code.
-var internalTypes = []string{
-	"net/http.Server",
+// Types used internally by Zero's generated API handling code.
+var internalAPITypes = []string{
 	"github.com/alecthomas/zero.ErrorEncoder",
 	"github.com/alecthomas/zero.ResponseEncoder",
 }
@@ -1622,7 +1636,10 @@ var internalTypes = []string{
 // pruneUnreferencedTypes removes providers and configs that are not transitively referenced from the given roots
 func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][]*Provider, pick []string) error {
 	referenced := map[string]bool{}
-	toProcess := append(slices.Clone(roots), internalTypes...)
+	toProcess := slices.Clone(roots)
+	if len(graph.APIs) > 0 {
+		toProcess = append(toProcess, internalAPITypes...)
+	}
 	ambiguousProviders := map[string][]*Provider{}
 
 	// Build function name to provider mapping for directive requirements
@@ -2402,5 +2419,68 @@ func substituteTypeParams(t types.Type, typeParams *types.TypeParamList, typeArg
 	default:
 		// For other types (basic types, interfaces, etc.), no substitution needed
 		return typ
+	}
+}
+
+func checkForMissingRoots(graph *Graph, roots []string) error {
+	collected := map[string]bool{}
+	for key := range graph.Configs {
+		collected[key] = true
+	}
+	for _, configs := range graph.GenericConfigs {
+		// TODO: add materialised types?
+		config := configs[0]
+		collected[normaliseType(config.Type)] = true
+	}
+	for key := range graph.Providers {
+		collected[key] = true
+	}
+	for key := range graph.MultiProviders {
+		collected[key] = true
+	}
+	for _, providers := range graph.GenericProviders {
+		// TODO: add materialised types?
+		provider := providers[0]
+		collected[normaliseType(provider.Provides)] = true
+	}
+	for _, root := range roots {
+		if !collected[root] {
+			return fmt.Errorf("requested root %q not found in discovered provided types: %s", root, strings.Join(slices.Collect(maps.Keys(collected)), ", "))
+		}
+	}
+	return nil
+}
+
+// For some reason, generic return types don't include constraints, but type definitions do, so we normalise the string
+// representation to exclude them always.
+func normaliseType(t types.Type) string {
+	switch t := t.(type) {
+	case *types.Pointer:
+		return "*" + normaliseType(t.Elem())
+
+	case *types.Basic:
+		return t.String()
+
+	case *types.Named:
+		tp := ""
+		if t.TypeParams() != nil {
+			tp += "["
+			i := 0
+			for param := range t.TypeParams().TypeParams() {
+				if i > 0 {
+					tp += ", "
+				}
+				tp += param.Obj().Name()
+				i++
+			}
+			tp += "]"
+		}
+		if t.Obj().Pkg() != nil {
+			return t.Obj().Pkg().Path() + "." + t.Obj().Name() + tp
+		}
+		return t.Obj().Name() + tp
+
+	default:
+		panic(fmt.Sprintf("unknown type %T", t))
 	}
 }

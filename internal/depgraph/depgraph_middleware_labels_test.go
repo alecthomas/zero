@@ -16,6 +16,11 @@ import (
 	"net/http"
 )
 
+//zero:provider
+func ProvideDAL() *DAL {
+	return &DAL{}
+}
+
 type DAL struct{}
 
 //zero:middleware authenticated
@@ -39,7 +44,7 @@ func AuthWithRole(admin string, moderator int, dal *DAL) func(http.Handler) http
 
 `
 
-	graph := analyseTestCode(t, testCode, []string{"string"})
+	graph := analyseTestCode(t, testCode, nil)
 
 	// Should have 2 middlewares
 	assert.Equal(t, 2, len(graph.Middleware))
@@ -98,7 +103,7 @@ func Auth(wrongName string, dal *DAL) func(http.Handler) http.Handler {
 
 `
 
-	_, err := analyseTestCodeWithError(t, testCode, []string{"string"})
+	_, err := analyseTestCodeWithError(t, testCode, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parameter wrongName of type string in middleware Auth must match a label name")
 }
@@ -111,6 +116,21 @@ package main
 import (
 	"net/http"
 )
+
+//zero:provider
+func ProvideString() string {
+	return "test"
+}
+
+//zero:provider
+func ProvideDAL() *DAL {
+	return &DAL{}
+}
+
+//zero:provider
+func ProvideLogger() *Logger {
+	return &Logger{}
+}
 
 type DAL struct{}
 type Logger struct{}
@@ -168,6 +188,11 @@ import (
 	"net/http"
 )
 
+//zero:provider
+func ProvideString() string {
+	return "test"
+}
+
 //zero:middleware cors
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -179,6 +204,7 @@ func CORS(next http.Handler) http.Handler {
 
 	graph := analyseTestCode(t, testCode, []string{"string"})
 
+	assert.Equal(t, []string{"string"}, stableKeys(graph.Providers))
 	// Should have 1 middleware
 	assert.Equal(t, 1, len(graph.Middleware))
 
@@ -199,6 +225,16 @@ package main
 import (
 	"net/http"
 )
+
+//zero:provider
+func ProvideString() string {
+	return "test"
+}
+
+//zero:provider
+func ProvideCache() *Cache {
+	return &Cache{}
+}
 
 type Cache struct{}
 
