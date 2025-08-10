@@ -68,7 +68,7 @@ type Service struct {
 }
 
 //zero:provider
-func NewService(dal *DAL, logger *slog.Logger, topic pubsub.Topic[User]) (*Service, error) {
+func NewService(dal *DAL, logger *slog.Logger) (*Service, error) {
 	// Other initialisation
 	return &Service{dal: dal, logger: logger}, nil
 }

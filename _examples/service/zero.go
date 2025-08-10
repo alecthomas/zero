@@ -11,7 +11,6 @@ import (
   "golang.org/x/sync/errgroup"
   imp31feb4b39618eab1 "github.com/alecthomas/zero/providers/logging"
   imp3773070ca4e7a2b8 "github.com/alecthomas/zero/providers/http"
-  imp57144815321973d3 "github.com/alecthomas/zero/providers/pubsub"
   imp71bef56b62085424 "github.com/alecthomas/zero/providers/cron"
   imp897f1a742b20547b "github.com/alecthomas/zero/providers/pubsub/postgres"
   imp9b258f273adc01df "github.com/alecthomas/zero/providers/leases"
@@ -27,7 +26,6 @@ import (
 type ZeroConfig struct {
 	Configcb396d0960e493ec imp3773070ca4e7a2b8.Config `embed:"" prefix:"server-"`
 	Configef92e6d1a86c2c7f imp31feb4b39618eab1.Config `embed:"" prefix:"log-"`
-	Config8762d3d40c807570 imp897f1a742b20547b.Config[User] `embed:"" prefix:"topic-user-"`
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:"" prefix:"sql-"`
 }
 
@@ -133,10 +131,6 @@ func Run(ctx context.Context, config ZeroConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to register cron job github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron: %w", err)
 	}
-	pubsub, err := ZeroConstructSingletons[pubsub.PubSub](ctx, injector)
-	if err != nil {
-		return err
-	}
 	wg, ctx := errgroup.WithContext(ctx)
 	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
 	if err != nil {
@@ -174,12 +168,6 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 
 	case reflect.TypeOf((*imp31feb4b39618eab1.Config)(nil)).Elem():
 		return any(injector.config.Configef92e6d1a86c2c7f).(T), nil
-
-	case reflect.TypeOf((**imp897f1a742b20547b.Config[User])(nil)).Elem(): // Handle pointer to config.
-		return any(&injector.config.Config8762d3d40c807570).(T), nil
-
-	case reflect.TypeOf((*imp897f1a742b20547b.Config[User])(nil)).Elem():
-		return any(injector.config.Config8762d3d40c807570).(T), nil
 
 	case reflect.TypeOf((**impc24ab568b6f3f934.Config)(nil)).Elem(): // Handle pointer to config.
 		return any(&injector.config.Config6fab5aa5f9534d38).(T), nil
@@ -227,11 +215,7 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[imp57144815321973d3.Topic[User]](ctx, injector)
-		if err != nil {
-			return out, err
-		}
-		o, err := NewService(p0, p1, p2)
+		o, err := NewService(p0, p1)
 		if err != nil {
 			return out, fmt.Errorf("*Service: %w", err)
 		}
@@ -251,25 +235,6 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 			return out, err
 		}
 		o := imp71bef56b62085424.NewScheduler(p0, p1, p2)
-		return any(o).(T), nil
-
-	case reflect.TypeOf((**imp897f1a742b20547b.Listener)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
-		if err != nil {
-			return out, err
-		}
-		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
-		if err != nil {
-			return out, err
-		}
-		p2, err := ZeroConstructSingletons[*sql.DB](ctx, injector)
-		if err != nil {
-			return out, err
-		}
-		o, err := imp897f1a742b20547b.NewListener(p0, p1, p2)
-		if err != nil {
-			return out, fmt.Errorf("*imp897f1a742b20547b.Listener: %w", err)
-		}
 		return any(o).(T), nil
 
 	case reflect.TypeOf((**slog.Logger)(nil)).Elem():
@@ -332,33 +297,6 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 		o, err := imp9b258f273adc01df.NewSQLLeaser(p0, p1, p2, p3)
 		if err != nil {
 			return out, fmt.Errorf("imp9b258f273adc01df.Leaser: %w", err)
-		}
-		return any(o).(T), nil
-
-	case reflect.TypeOf((*imp57144815321973d3.Topic[User])(nil)).Elem():
-		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
-		if err != nil {
-			return out, err
-		}
-		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
-		if err != nil {
-			return out, err
-		}
-		p2, err := ZeroConstructSingletons[*imp897f1a742b20547b.Listener](ctx, injector)
-		if err != nil {
-			return out, err
-		}
-		p3, err := ZeroConstructSingletons[*sql.DB](ctx, injector)
-		if err != nil {
-			return out, err
-		}
-		p4, err := ZeroConstructSingletons[imp897f1a742b20547b.Config[User]](ctx, injector)
-		if err != nil {
-			return out, err
-		}
-		o, err := imp897f1a742b20547b.New[User](p0, p1, p2, p3, p4)
-		if err != nil {
-			return out, fmt.Errorf("imp57144815321973d3.Topic[User]: %w", err)
 		}
 		return any(o).(T), nil
 

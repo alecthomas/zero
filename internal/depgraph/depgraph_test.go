@@ -225,6 +225,48 @@ func NewB(a *A) *B {
 	assert.Equal(t, 0, len(graph.Missing))
 }
 
+func TestAnalyseInvalidProviderReference(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import "database/sql"
+
+//zero:provider
+func NewDB() *sql.DB {
+	return nil
+}
+`
+	// Test that specifying a non-existent provider reference returns an error
+	_, err := analyseCodeStringWithProviders(t.Context(), testCode, []string{"*database/sql.DB"}, []string{"test.NonExistentProvider"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "requested provider \"test.NonExistentProvider\" not found in discovered provider functions")
+}
+
+func TestAnalyseValidProviderReference(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import "database/sql"
+
+//zero:provider
+func NewDB() *sql.DB {
+	return nil
+}
+
+//zero:provider weak
+func NewWeakDB() *sql.DB {
+	return nil
+}
+`
+	// Test that specifying a valid provider reference works correctly
+	graph, err := analyseCodeStringWithProviders(t.Context(), testCode, []string{"*database/sql.DB"}, []string{"test.NewDB"})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(graph.Providers))
+	assert.Equal(t, "NewDB", graph.Providers["*database/sql.DB"].Function.Name())
+}
+
 func TestAnalyseConfigStruct(t *testing.T) {
 	t.Parallel()
 	testCode := `

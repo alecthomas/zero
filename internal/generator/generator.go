@@ -290,11 +290,6 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			writeCronJobRegistration(w, graph)
 		}
 
-		if len(graph.Subscriptions) > 0 {
-			w.Import("github.com/alecthomas/zero/providers/pubsub")
-			writeZeroConstructSingletonByName(w, "pubsub", "pubsub.PubSub", "")
-		}
-
 		w.Import("golang.org/x/sync/errgroup")
 		w.L("wg, ctx := errgroup.WithContext(ctx)")
 		w.Import("log/slog")

@@ -623,6 +623,10 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		return nil, errors.WithStack(err)
 	}
 
+	if err := checkForMissingProviders(graph, opts.pick); err != nil {
+		return nil, errors.WithStack(err)
+	}
+
 	return graph, nil
 }
 
@@ -2659,6 +2663,35 @@ func checkForMissingRoots(graph *Graph, roots []string) error {
 	for _, root := range roots {
 		if !collected[root] {
 			return fmt.Errorf("requested root %q not found in discovered provided types: %s", root, strings.Join(slices.Collect(maps.Keys(collected)), ", "))
+		}
+	}
+	return nil
+}
+
+func checkForMissingProviders(graph *Graph, pick []string) error {
+	if len(pick) == 0 {
+		return nil
+	}
+
+	collected := map[string]bool{}
+	// Collect all provider function names
+	for _, provider := range graph.Providers {
+		collected[provider.Function.FullName()] = true
+	}
+	for _, providers := range graph.MultiProviders {
+		for _, provider := range providers {
+			collected[provider.Function.FullName()] = true
+		}
+	}
+	for _, providers := range graph.GenericProviders {
+		for _, provider := range providers {
+			collected[provider.Function.FullName()] = true
+		}
+	}
+
+	for _, providerRef := range pick {
+		if !collected[providerRef] {
+			return fmt.Errorf("requested provider %q not found in discovered provider functions: %s", providerRef, strings.Join(slices.Collect(maps.Keys(collected)), ", "))
 		}
 	}
 	return nil
