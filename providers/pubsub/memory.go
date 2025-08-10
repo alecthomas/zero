@@ -9,7 +9,7 @@ import (
 
 type InMemoryTopic[T any] struct {
 	logger   *slog.Logger
-	messages chan T
+	messages chan Event[T]
 }
 
 // NewMemoryTopic creates a new in-memory [Topic].
@@ -18,13 +18,13 @@ type InMemoryTopic[T any] struct {
 func NewMemoryTopic[T any](logger *slog.Logger) Topic[T] {
 	return &InMemoryTopic[T]{
 		logger:   logger,
-		messages: make(chan T, 128),
+		messages: make(chan Event[T], 128),
 	}
 }
 
 var _ Topic[string] = (*InMemoryTopic[string])(nil)
 
-func (i *InMemoryTopic[T]) Publish(ctx context.Context, msg T) error {
+func (i *InMemoryTopic[T]) Publish(ctx context.Context, msg Event[T]) error {
 	select {
 	case i.messages <- msg:
 		return nil
@@ -33,7 +33,7 @@ func (i *InMemoryTopic[T]) Publish(ctx context.Context, msg T) error {
 	}
 }
 
-func (i *InMemoryTopic[T]) Subscribe(ctx context.Context, handler func(context.Context, T) error) error {
+func (i *InMemoryTopic[T]) Subscribe(ctx context.Context, handler func(context.Context, Event[T]) error) error {
 	go func() {
 		for {
 			select {

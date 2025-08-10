@@ -44,9 +44,9 @@ type EventPayload interface {
 // Topic represents a PubSub topic.
 type Topic[T any] interface {
 	// Publish publishes a message to the topic.
-	Publish(ctx context.Context, msg T) error
+	Publish(ctx context.Context, msg Event[T]) error
 	// Subscribe subscribes to a topic.
-	Subscribe(ctx context.Context, handler func(ctx context.Context, event T) error) error
+	Subscribe(ctx context.Context, handler func(ctx context.Context, event Event[T]) error) error
 	// Close the topic.
 	Close() error
 }

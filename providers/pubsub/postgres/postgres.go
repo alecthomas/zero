@@ -191,7 +191,7 @@ type Topic[T any] struct {
 	listener    *Listener
 	queries     *internal.Queries
 	lock        sync.RWMutex
-	subscribers []func(context.Context, T) error
+	subscribers []func(context.Context, pubsub.Event[T]) error
 }
 
 var _ pubsub.Topic[string] = (*Topic[string])(nil)
@@ -287,7 +287,7 @@ func (t *Topic[T]) processOneBacklogEvent(ctx context.Context) (processed bool, 
 	if err := json.Unmarshal(eventRow.Message, &event); err != nil {
 		return false, errors.Errorf("failed to unmarshal event %d on topic %s: %w", eventRow.ID, t.topic, err)
 	}
-	if err := t.processEvent(ctx, eventRow.ID, event.Payload()); err != nil {
+	if err := t.processEvent(ctx, eventRow.ID, event); err != nil {
 		return false, errors.Errorf("failed to process event %d on topic %s: %w", eventRow.ID, t.topic, err)
 	}
 	return true, nil
@@ -316,10 +316,10 @@ func (t *Topic[T]) notified(ctx context.Context, notification Notification) erro
 	if err != nil {
 		return errors.Errorf("failed to unmarshal event %d from topic %q: %w", eventRow.ID, t.topic, err)
 	}
-	return errors.WithStack(t.processEvent(ctx, eventRow.ID, event.Payload()))
+	return errors.WithStack(t.processEvent(ctx, eventRow.ID, event))
 }
 
-func (t *Topic[T]) processEvent(ctx context.Context, eventID int64, event T) error {
+func (t *Topic[T]) processEvent(ctx context.Context, eventID int64, event pubsub.Event[T]) error {
 	t.lock.RLock()
 	if len(t.subscribers) == 0 {
 		t.lock.RUnlock()
@@ -345,8 +345,7 @@ func (t *Topic[T]) Close() error {
 	return errors.WithStack(t.listener.Unlisten(context.Background(), t.topicID))
 }
 
-func (t *Topic[T]) Publish(ctx context.Context, msg T) error {
-	event := pubsub.NewEvent(msg)
+func (t *Topic[T]) Publish(ctx context.Context, event pubsub.Event[T]) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return errors.Wrapf(err, "failed to marshal event %s", event.ID())
@@ -355,7 +354,7 @@ func (t *Topic[T]) Publish(ctx context.Context, msg T) error {
 	return errors.Wrapf(err, "failed to publish event %s to topic %s", event.ID(), t.topic)
 }
 
-func (t *Topic[T]) Subscribe(ctx context.Context, handler func(context.Context, T) error) error {
+func (t *Topic[T]) Subscribe(ctx context.Context, handler func(context.Context, pubsub.Event[T]) error) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	t.subscribers = append(t.subscribers, handler)
