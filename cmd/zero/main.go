@@ -117,7 +117,7 @@ func ensureGoModuleVersion(kctx *kong.Context, version string) error {
 		return nil
 	}
 	kctx.Printf("updating to github.com/alecthomas/zero@%s", version)
-	cmd := exec.Command("go", "get", "github.com/alecthomas/zero@"+version) //nolint
+	cmd := exec.Command("go", "get", "github.com/alecthomas/zero/...@"+version) //nolint
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
