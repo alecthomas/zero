@@ -7,6 +7,7 @@ import (
   "fmt"
   "github.com/alecthomas/zero"
   "github.com/alecthomas/zero/providers/cron"
+  "github.com/alecthomas/zero/providers/pubsub"
   "golang.org/x/sync/errgroup"
   imp31feb4b39618eab1 "github.com/alecthomas/zero/providers/logging"
   imp3773070ca4e7a2b8 "github.com/alecthomas/zero/providers/http"
@@ -89,6 +90,22 @@ func RegisterHandlers(ctx context.Context, injector *Injector) error {
 	}))
 	return nil
 }
+
+// RegisterSubscribers registers all Zero PubSub subscribers with their topics.
+func RegisterSubscribers(ctx context.Context, injector *Injector) error {
+	r0, err := ZeroConstructSingletons[*Service](ctx, injector)
+	if err != nil {
+		return fmt.Errorf("*Service: %w", err)
+	}
+	topic82018cb5695fd1d2, err := ZeroConstructSingletons[pubsub.Topic[UserCreatedEvent]](ctx, injector)
+	if err != nil {
+		return err
+	}
+	if err := topic82018cb5695fd1d2.Subscribe(ctx, r0.OnUserCreated); err != nil {
+		return fmt.Errorf("failed to subscribe to topic for OnUserCreated: %w", err)
+	}
+	return nil
+}
 // Run the Zero server container.
 //
 // This registers all request handlers, cron jobs, PubSub subscribers, etc.
@@ -96,6 +113,9 @@ func Run(ctx context.Context, config ZeroConfig) error {
 	injector := NewInjector(ctx, config)
 	if err := RegisterHandlers(ctx, injector); err != nil {
 		return fmt.Errorf("failed to register handlers: %w", err)
+	}
+	if err := RegisterSubscribers(ctx, injector); err != nil {
+		return fmt.Errorf("failed to register subscribers: %w", err)
 	}
 	server, err := ZeroConstructSingletons[*http.Server](ctx, injector)
 	if err != nil {
@@ -112,6 +132,10 @@ func Run(ctx context.Context, config ZeroConfig) error {
 	err = cron.Register("github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron", time.Duration(5000000000), r0.CheckUsersCron)
 	if err != nil {
 		return fmt.Errorf("failed to register cron job github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron: %w", err)
+	}
+	pubsub, err := ZeroConstructSingletons[pubsub.PubSub](ctx, injector)
+	if err != nil {
+		return err
 	}
 	wg, ctx := errgroup.WithContext(ctx)
 	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)

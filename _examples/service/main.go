@@ -97,9 +97,10 @@ func (s *Service) GetUser(id string) (User, error) {
 	panic("not implemented")
 }
 
-// zero:subscribe
-func (s *Service) OnUserCreated(user pubsub.Event[UserCreatedEvent]) error {
-	panic("not implemented")
+//zero:subscribe
+func (s *Service) OnUserCreated(ctx context.Context, user pubsub.Event[UserCreatedEvent]) error {
+	s.logger.Info("OnUserCreated received event", "user", user.Payload().Name)
+	return nil
 }
 
 //zero:cron 5s

@@ -604,6 +604,9 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 	if len(graph.CronJobs) > 0 {
 		opts.roots = append(opts.roots, "*github.com/alecthomas/zero/providers/cron.Scheduler")
 	}
+	if len(graph.Subscriptions) > 0 {
+		opts.roots = append(opts.roots, "github.com/alecthomas/zero/providers/pubsub.Topic[T]")
+	}
 
 	if err := pruneUnreferencedTypes(graph, opts.roots, providers, opts.pick); err != nil {
 		return nil, errors.WithStack(err)

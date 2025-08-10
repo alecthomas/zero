@@ -208,6 +208,62 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 	})
 	w.L("}")
 
+	w.L("")
+	w.L("// RegisterSubscribers registers all Zero PubSub subscribers with their topics.")
+	w.L("func RegisterSubscribers(ctx context.Context, injector *Injector) error {")
+	w.In(func(w *codewriter.Writer) {
+		if len(graph.Subscriptions) == 0 {
+			w.L("return nil")
+		} else {
+			// First, collect the receiver types so we can construct them.
+			type Receiver struct {
+				Imp string
+				Typ string
+			}
+			receivers := map[Receiver]int{}
+			receiverIndex := 0
+			for _, subscription := range graph.Subscriptions {
+				receiver := subscription.Function.Signature().Recv().Type()
+				ref := graph.TypeRef(receiver)
+				w.Import(ref.Import)
+				key := Receiver{ref.Import, ref.Ref}
+				if _, ok := receivers[key]; !ok {
+					receivers[key] = receiverIndex
+					receiverIndex++
+				}
+			}
+			for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b Receiver) int {
+				return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
+			}) {
+				index := receivers[receiver]
+				writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, receiver.Typ)
+			}
+
+			// Register the subscribers with their topics
+			for _, subscription := range graph.Subscriptions {
+				ref := graph.TypeRef(subscription.Function.Signature().Recv().Type())
+				receiverIndex := receivers[Receiver{ref.Import, ref.Ref}]
+
+				// Get the topic type for this subscription
+				topicRef := graph.TypeRef(subscription.TopicType)
+				w.Import(topicRef.Import)
+
+				// Construct the topic
+				w.Import("github.com/alecthomas/zero/providers/pubsub")
+				writeZeroConstructSingletonByName(w, fmt.Sprintf("topic%s", hash(topicRef.Ref)), fmt.Sprintf("pubsub.Topic[%s]", topicRef.Ref), "")
+
+				// Subscribe to the topic
+				w.L("if err := topic%s.Subscribe(ctx, r%d.%s); err != nil {", hash(topicRef.Ref), receiverIndex, subscription.Function.Name())
+				w.In(func(w *codewriter.Writer) {
+					w.L(`return fmt.Errorf("failed to subscribe to topic for %s: %%w", err)`, subscription.Function.Name())
+				})
+				w.L("}")
+			}
+			w.L("return nil")
+		}
+	})
+	w.L("}")
+
 	w.Import("net/http")
 	w.L("// Run the Zero server container.")
 	w.L("//")
@@ -221,12 +277,22 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.L(`return fmt.Errorf("failed to register handlers: %%w", err)`)
 		})
 		w.L("}")
+		w.L("if err := RegisterSubscribers(ctx, injector); err != nil {")
+		w.In(func(w *codewriter.Writer) {
+			w.L(`return fmt.Errorf("failed to register subscribers: %%w", err)`)
+		})
+		w.L("}")
 		writeZeroConstructSingletonByName(w, "server", "*http.Server", "")
 
 		if len(graph.CronJobs) > 0 {
 			w.Import("github.com/alecthomas/zero/providers/cron")
 			writeZeroConstructSingletonByName(w, "cron", "*cron.Scheduler", "")
 			writeCronJobRegistration(w, graph)
+		}
+
+		if len(graph.Subscriptions) > 0 {
+			w.Import("github.com/alecthomas/zero/providers/pubsub")
+			writeZeroConstructSingletonByName(w, "pubsub", "pubsub.PubSub", "")
 		}
 
 		w.Import("golang.org/x/sync/errgroup")
