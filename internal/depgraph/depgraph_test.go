@@ -4,9 +4,7 @@ import (
 	"go/types"
 	"maps"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -1843,25 +1841,7 @@ func analyseTestCodeWithError(t *testing.T, code string, options ...Option) (*Gr
 
 func analyseCodeString(t *testing.T, code string, options ...Option) (*Graph, error) {
 	t.Helper()
-	zeroSource, err := exec.CommandContext(t.Context(), "git", "rev-parse", "--show-toplevel").CombinedOutput()
-	if err != nil {
-		return nil, err
-	}
-	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
-
-	// Create go.mod file
-	execIn(t, tmpDir, "go", "mod", "init", "test")
-	execIn(t, tmpDir, "go", "work", "init", tmpDir, strings.TrimSpace(string(zeroSource)))
-
-	mainFile := filepath.Join(tmpDir, "main.go")
-	err = os.WriteFile(mainFile, []byte(code), 0600) //nolint
-	if err != nil {
-		return nil, err
-	}
-
-	execIn(t, tmpDir, "go", "mod", "tidy")
-
+	tmpDir := pool.Prepare(t, code)
 	graph, err := Analyse(t.Context(), tmpDir, options...)
 	if err != nil {
 		return nil, err
