@@ -71,7 +71,7 @@ func (s *Service) CreateUser() {}
 func (s *Service) DeleteUser() {}
 `
 
-	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
 
 	// Should have 3 APIs
 	assert.Equal(t, 3, len(graph.APIs))
@@ -133,7 +133,7 @@ func SpecialMiddleware() func(http.Handler) http.Handler {
 func (s *Service) GetData() {}
 `
 
-	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
 
 	// Should have 1 API
 	assert.Equal(t, 1, len(graph.APIs))
@@ -176,7 +176,7 @@ func UnusedMiddleware() func(http.Handler) http.Handler {
 }
 `
 
-	graph := analyseTestCode(t, testCode, []string{"string"})
+	graph := analyseTestCode(t, testCode, WithRoots("string"))
 
 	// When there are no APIs, all middleware should be kept
 	assert.Equal(t, 2, len(graph.Middleware))
@@ -227,7 +227,7 @@ func PartialMatchMiddleware() func(http.Handler) http.Handler {
 func (s *Service) TestEndpoint() {}
 `
 
-	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
 
 	// Should have 1 API
 	assert.Equal(t, 1, len(graph.APIs))
@@ -282,7 +282,7 @@ func TimeoutMiddleware() func(http.Handler) http.Handler {
 func (s *Service) GetData() {}
 `
 
-	graph := analyseTestCode(t, testCode, []string{"*test.Service"})
+	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
 
 	// Should have 1 API
 	assert.Equal(t, 1, len(graph.APIs))

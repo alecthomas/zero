@@ -44,7 +44,7 @@ func AuthWithRole(admin string, moderator int, dal *DAL) func(http.Handler) http
 
 `
 
-	graph := analyseTestCode(t, testCode, nil)
+	graph := analyseTestCode(t, testCode)
 
 	// Should have 2 middlewares
 	assert.Equal(t, 2, len(graph.Middleware))
@@ -103,7 +103,7 @@ func Auth(wrongName string, dal *DAL) func(http.Handler) http.Handler {
 
 `
 
-	_, err := analyseTestCodeWithError(t, testCode, nil)
+	_, err := analyseTestCodeWithError(t, testCode)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parameter wrongName of type string in middleware Auth must match a label name")
 }
@@ -147,7 +147,7 @@ func ComplexAuth(authenticated string, level int, dal *DAL, logger *Logger) func
 
 `
 
-	graph := analyseTestCode(t, testCode, []string{"string"})
+	graph := analyseTestCode(t, testCode, WithRoots("string"))
 
 	// Should have 1 middleware
 	assert.Equal(t, 1, len(graph.Middleware))
@@ -202,7 +202,7 @@ func CORS(next http.Handler) http.Handler {
 }
 `
 
-	graph := analyseTestCode(t, testCode, []string{"string"})
+	graph := analyseTestCode(t, testCode, WithRoots("string"))
 
 	assert.Equal(t, []string{"string"}, stableKeys(graph.Providers))
 	// Should have 1 middleware
@@ -250,7 +250,7 @@ func CacheMiddleware(maxAge int, timeout int, cache *Cache) func(http.Handler) h
 
 `
 
-	graph := analyseTestCode(t, testCode, []string{"string"})
+	graph := analyseTestCode(t, testCode, WithRoots("string"))
 
 	// Should have 1 middleware
 	assert.Equal(t, 1, len(graph.Middleware))
@@ -284,7 +284,7 @@ func CacheMiddleware(wrongName int) func(http.Handler) http.Handler {
 }
 `
 
-	_, err := analyseTestCodeWithError(t, testCode, []string{"string"})
+	_, err := analyseTestCodeWithError(t, testCode, WithRoots("string"))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parameter wrongName of type int in middleware CacheMiddleware must match a label name")
 }
