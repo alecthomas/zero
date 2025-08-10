@@ -3248,6 +3248,46 @@ func (s *Service) HandleEvent(ctx context.Context, event pubsub.Event[Event]) er
 	assert.Equal(t, "test.Event", types.TypeString(subscription.TopicType, nil))
 }
 
+func TestAnalyseSubscriptionSyntheticTopicDependency(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import (
+	"context"
+	"github.com/alecthomas/zero/providers/pubsub"
+)
+
+type SubscriptionService struct{}
+type Event struct{}
+
+//zero:provider
+func NewSubscriptionService() *SubscriptionService {
+	return &SubscriptionService{}
+}
+
+//zero:subscribe
+func (s *SubscriptionService) HandleEvent(ctx context.Context, event pubsub.Event[Event]) error {
+	return nil
+}
+`
+	// First, check that subscription is detected
+	graph := analyseTestCode(t, testCode, []string{})
+	assert.Equal(t, 1, len(graph.Subscriptions))
+
+	// Since there are ambiguous providers (both NewMemoryTopic and postgres.New are weak),
+	// we need to provide an explicit pick to resolve the concrete topic provider
+	graph2, err := analyseCodeStringWithProviders(t.Context(), testCode, []string{}, []string{"github.com/alecthomas/zero/providers/pubsub.NewMemoryTopic"})
+	assert.NoError(t, err)
+
+	// The concrete topic type should now be resolved from the generic provider
+	topicTypeString := "github.com/alecthomas/zero/providers/pubsub.Topic[test.Event]"
+	provider, found := graph2.Providers[topicTypeString]
+	assert.True(t, found, "Should have concrete pubsub.Topic[Event] provider resolved from generic provider")
+	assert.True(t, provider != nil, "Provider should not be nil")
+	assert.Equal(t, "NewMemoryTopic", provider.Function.Name(), "Should use the explicitly picked provider")
+}
+
 func TestAnalyseAPIAnnotationOnConfigType(t *testing.T) {
 	t.Parallel()
 	testCode := `

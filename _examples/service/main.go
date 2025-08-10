@@ -133,6 +133,9 @@ func main() {
 		kctx.Exit(0)
 	}
 
-	err := Run(ctx, cli.ZeroConfig)
+	injector := NewInjector(ctx, cli.ZeroConfig)
+	_, err := ZeroConstructSingletons[pubsub.Topic[UserCreatedEvent]](ctx, injector)
+
+	// err := Run(ctx, cli.ZeroConfig)
 	kctx.FatalIfErrorf(err)
 }

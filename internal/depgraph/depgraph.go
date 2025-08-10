@@ -1857,6 +1857,60 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 			toProcess = append(toProcess, eventTypeStr)
 		}
 	}
+
+	// Create concrete topic providers for subscriptions
+	for _, subscription := range graph.Subscriptions {
+		if subscription.TopicType != nil {
+			baseType := "github.com/alecthomas/zero/providers/pubsub.Topic"
+			if genericProviders, exists := graph.GenericProviders[baseType]; exists && len(genericProviders) > 0 {
+				// Find the pubsub.Topic generic type
+				var pubsubTopicType *types.Named
+				for _, provider := range genericProviders {
+					for _, imp := range provider.Package.Imports {
+						if imp.PkgPath == "github.com/alecthomas/zero/providers/pubsub" {
+							if obj := imp.Types.Scope().Lookup("Topic"); obj != nil {
+								if typeName, ok := obj.(*types.TypeName); ok {
+									if named, ok := typeName.Type().(*types.Named); ok {
+										pubsubTopicType = named
+										break
+									}
+								}
+							}
+						}
+					}
+					if pubsubTopicType != nil {
+						break
+					}
+				}
+
+				if pubsubTopicType != nil {
+					// Create the instantiated type pubsub.Topic[TopicType]
+					topicType, err := types.Instantiate(nil, pubsubTopicType, []types.Type{subscription.TopicType}, false)
+					if err == nil {
+						topicTypeStr := types.TypeString(topicType, nil)
+						// Check if this topic type already exists
+						if _, exists := graph.Providers[topicTypeStr]; !exists {
+							// Resolve the generic provider with the concrete topic type
+							resolvedProvider := resolveGenericProviderWithType(graph, topicType, pick)
+							if resolvedProvider != nil {
+								// Add the concrete provider to the graph
+								graph.Providers[topicTypeStr] = resolvedProvider
+								referenced[topicTypeStr] = true
+
+								// Add its requirements to be processed
+								for _, required := range resolvedProvider.Requires {
+									requiredKey := types.TypeString(required, nil)
+									if !referenced[requiredKey] {
+										toProcess = append(toProcess, requiredKey)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	ambiguousProviders := map[string][]*Provider{}
 
 	// Build function name to provider mapping for directive requirements
@@ -2660,6 +2714,7 @@ func checkForMissingRoots(graph *Graph, roots []string) error {
 		provider := providers[0]
 		collected[normaliseType(provider.Provides)] = true
 	}
+
 	for _, root := range roots {
 		if !collected[root] {
 			return fmt.Errorf("requested root %q not found in discovered provided types: %s", root, strings.Join(slices.Collect(maps.Keys(collected)), ", "))
