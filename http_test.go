@@ -46,6 +46,7 @@ func (m mockNamedReadCloser) Close() error {
 }
 
 func TestEncodeResponse(t *testing.T) {
+	t.Parallel()
 	logger := slog.Default()
 	errorEncoder := zero.EncodeError
 
@@ -122,6 +123,7 @@ func TestEncodeResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
@@ -138,6 +140,7 @@ func TestEncodeResponse(t *testing.T) {
 }
 
 func TestEncodeResponseHTTPResponse(t *testing.T) {
+	t.Parallel()
 	logger := slog.Default()
 	errorEncoder := zero.EncodeError
 
@@ -163,6 +166,7 @@ func TestEncodeResponseHTTPResponse(t *testing.T) {
 }
 
 func TestEncodeResponseHTTPHandler(t *testing.T) {
+	t.Parallel()
 	logger := slog.Default()
 	errorEncoder := zero.EncodeError
 
@@ -184,10 +188,12 @@ func TestEncodeResponseHTTPHandler(t *testing.T) {
 }
 
 func TestEncodeResponseWithError(t *testing.T) {
+	t.Parallel()
 	logger := slog.Default()
 	errorEncoder := zero.EncodeError
 
 	t.Run("RegularError", func(t *testing.T) {
+		t.Parallel()
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
 
@@ -205,6 +211,7 @@ func TestEncodeResponseWithError(t *testing.T) {
 	})
 
 	t.Run("HTTPHandlerError", func(t *testing.T) {
+		t.Parallel()
 		// Create an error that implements http.Handler
 		handlerError := zero.APIErrorf(http.StatusBadRequest, "bad request error")
 
@@ -225,6 +232,7 @@ func TestEncodeResponseWithError(t *testing.T) {
 }
 
 func TestEncodeResponseNamedWithSpecialCharacters(t *testing.T) {
+	t.Parallel()
 	logger := slog.Default()
 	errorEncoder := zero.EncodeError
 

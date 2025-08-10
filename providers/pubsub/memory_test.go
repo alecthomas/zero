@@ -10,6 +10,7 @@ import (
 )
 
 func TestMemoryPubSub(t *testing.T) {
+	t.Parallel()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	topic := pubsub.NewMemoryTopic[pubsubtest.User](logger)
 	pubsubtest.RunPubSubTest(t, topic)

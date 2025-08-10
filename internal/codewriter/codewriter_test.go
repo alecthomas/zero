@@ -8,6 +8,7 @@ import (
 )
 
 func TestCodeWriter(t *testing.T) {
+	t.Parallel()
 	w := codewriter.New("pkg")
 	w.L("func hello() {")
 	w.In(func(w *codewriter.Writer) {

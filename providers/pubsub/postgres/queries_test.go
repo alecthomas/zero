@@ -14,7 +14,9 @@ import (
 	"github.com/alecthomas/zero/providers/sql/sqltest"
 )
 
+//nolint:tparallel // Subtests share database state and cannot run in parallel
 func TestCreateTopic(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -67,6 +69,7 @@ func TestCreateTopic(t *testing.T) {
 }
 
 func TestCreateTopicUpsert(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -106,6 +109,7 @@ func TestCreateTopicUpsert(t *testing.T) {
 }
 
 func TestGetTopicByName(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -135,6 +139,7 @@ func TestGetTopicByName(t *testing.T) {
 }
 
 func TestPublishEvent(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -164,6 +169,7 @@ func TestPublishEvent(t *testing.T) {
 }
 
 func TestClaimNextEvent(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -210,6 +216,7 @@ func TestClaimNextEvent(t *testing.T) {
 }
 
 func TestCompleteEvent(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -245,7 +252,9 @@ func TestCompleteEvent(t *testing.T) {
 	assert.False(t, success)
 }
 
+//nolint:tparallel // Subtests share database state and cannot run in parallel
 func TestFailEvent(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -306,6 +315,7 @@ func TestFailEvent(t *testing.T) {
 }
 
 func TestFailEventRetryExhaustion(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -354,6 +364,7 @@ func TestFailEventRetryExhaustion(t *testing.T) {
 }
 
 func TestGetPendingEventCount(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -397,6 +408,7 @@ func TestGetPendingEventCount(t *testing.T) {
 }
 
 func TestGetEventStats(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -461,6 +473,7 @@ func TestGetEventStats(t *testing.T) {
 }
 
 func TestCleanupOldDeadLetters(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -502,6 +515,7 @@ func TestCleanupOldDeadLetters(t *testing.T) {
 }
 
 func TestClearStuckEvents(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -583,6 +597,7 @@ func TestClearStuckEvents(t *testing.T) {
 }
 
 func TestClearStuckEventsWithLimits(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()
@@ -641,6 +656,7 @@ func TestClearStuckEventsWithLimits(t *testing.T) {
 }
 
 func TestClearStuckEventsNoMatches(t *testing.T) {
+	t.Parallel()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	queries := internal.New(db)
 	ctx := context.Background()

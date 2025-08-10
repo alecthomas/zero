@@ -13,6 +13,7 @@ import (
 )
 
 func TestPostgresPubSubBaseline(t *testing.T) {
+	t.Parallel()
 	logger := loggingtest.NewForTesting()
 	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
 	listener, err := NewListener(t.Context(), logger, db)

@@ -10,6 +10,7 @@ import (
 )
 
 func TestEventSerialisation(t *testing.T) {
+	t.Parallel()
 	synctest.Run(func() {
 		e := pubsub.NewEvent(pubsubtest.User{Name: "Bob", Age: 30})
 		data, err := e.MarshalJSON()

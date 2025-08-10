@@ -8,6 +8,7 @@ import (
 )
 
 func TestFlock(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	dir := t.TempDir()
 	lockfile := filepath.Join(dir, "lock")

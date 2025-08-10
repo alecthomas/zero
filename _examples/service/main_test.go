@@ -9,6 +9,7 @@ import (
 )
 
 func TestMux(t *testing.T) {
+	t.Parallel()
 	config := ZeroConfig{
 		Config6fab5aa5f9534d38: sql.Config{
 			DSN:     "postgres://postgres:secret@localhost/zero-exemplar?sslmode=disable",

@@ -162,6 +162,7 @@ func ProvideString() string {
 
 //zero:middleware test
 func TestMiddleware() func(http.Handler) http.Handler {
+t.Parallel()
 	return func(next http.Handler) http.Handler {
 		return next
 	}

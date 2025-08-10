@@ -69,6 +69,7 @@ func TestLegacy(t *testing.T) {
 }
 
 func TestLegacyMultipleWrites(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -89,6 +90,7 @@ func TestLegacyMultipleWrites(t *testing.T) {
 }
 
 func TestLegacyPrintMethods(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -110,6 +112,7 @@ func TestLegacyPrintMethods(t *testing.T) {
 }
 
 func TestLegacyLogLevels(t *testing.T) {
+	t.Parallel()
 	levels := []slog.Level{
 		slog.LevelDebug,
 		slog.LevelInfo,
@@ -119,6 +122,7 @@ func TestLegacyLogLevels(t *testing.T) {
 
 	for _, level := range levels {
 		t.Run(level.String(), func(t *testing.T) {
+			t.Parallel()
 			var buf bytes.Buffer
 			handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
 				Level: slog.LevelDebug,
@@ -136,6 +140,7 @@ func TestLegacyLogLevels(t *testing.T) {
 }
 
 func TestLegacyEmptyInput(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -152,6 +157,7 @@ func TestLegacyEmptyInput(t *testing.T) {
 }
 
 func TestLegacyWriterBuffering(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -189,6 +195,7 @@ func TestLegacyWriterBuffering(t *testing.T) {
 }
 
 func TestLegacyConcurrentWrites(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
 		Level: slog.LevelDebug,

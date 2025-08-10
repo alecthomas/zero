@@ -13,6 +13,7 @@ import (
 )
 
 func TestNextRun(t *testing.T) {
+	t.Parallel()
 	previous := time.Date(2023, 1, 1, 0, 0, 2, 0, time.UTC)
 	next := nextRun(time.Second*5, previous)
 	assert.Equal(t, time.Date(2023, 1, 1, 0, 0, 5, 0, time.UTC), next)
