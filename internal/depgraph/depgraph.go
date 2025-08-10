@@ -341,6 +341,17 @@ type CronJob struct {
 	Package *packages.Package
 }
 
+type Subscription struct {
+	// Position is the position of the function declaration.
+	Position token.Position
+	// Function is the function that handles the subscription
+	Function *types.Func
+	// Package is the package that contains the function
+	Package *packages.Package
+	// TopicType is the event type extracted from pubsub.Event[T]
+	TopicType types.Type
+}
+
 // Config represents command-line/file configuration. Config structs are annotated like so:
 //
 //	//zero:config [prefix="<prefix>"]
@@ -461,6 +472,7 @@ type Graph struct {
 	GenericConfigs   map[string][]*Config // Generic configs by base type name
 	APIs             []*API
 	CronJobs         []*CronJob
+	Subscriptions    []*Subscription
 	Middleware       []*Middleware
 	Missing          map[*types.Func][]types.Type
 }
@@ -561,9 +573,9 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		return nil, errors.Errorf("destination package %q not found", destImport)
 	}
 
-	// If no roots provided, use API and Cron receivers as roots
+	// If no roots provided, use API, Cron, and Subscription receivers as roots
 	if opts.roots == nil {
-		opts.roots = make([]string, 0, len(graph.APIs)+len(graph.CronJobs))
+		opts.roots = make([]string, 0, len(graph.APIs)+len(graph.CronJobs)+len(graph.Subscriptions))
 		for _, api := range graph.APIs {
 			if recv := api.Function.Signature().Recv(); recv != nil {
 				receiverType := recv.Type()
@@ -573,6 +585,13 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		}
 		for _, cron := range graph.CronJobs {
 			if recv := cron.Function.Signature().Recv(); recv != nil {
+				receiverType := recv.Type()
+				receiverTypeStr := types.TypeString(receiverType, nil)
+				opts.roots = append(opts.roots, receiverTypeStr)
+			}
+		}
+		for _, subscription := range graph.Subscriptions {
+			if recv := subscription.Function.Signature().Recv(); recv != nil {
 				receiverType := recv.Type()
 				receiverTypeStr := types.TypeString(receiverType, nil)
 				opts.roots = append(opts.roots, receiverTypeStr)
@@ -932,6 +951,15 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 					if middleware != nil {
 						graph.Middleware = append(graph.Middleware, middleware)
 					}
+
+				case *directiveparser.DirectiveSubscribe:
+					subscription, err := createSubscription(decl, pkg, fset)
+					if err != nil {
+						return err
+					}
+					if subscription != nil {
+						graph.Subscriptions = append(graph.Subscriptions, subscription)
+					}
 				}
 
 			case *ast.GenDecl:
@@ -1054,6 +1082,15 @@ func createAPI(fn *ast.FuncDecl, pkg *packages.Package, directive *directivepars
 	}
 
 	signature := funcObj.Signature()
+
+	// Check if receiver is a config type - configs cannot have API methods
+	if sig := signature; sig.Recv() != nil {
+		receiverType := sig.Recv().Type()
+		if isConfigType(receiverType, pkg) {
+			return nil, errors.Errorf("//zero:api annotation cannot be used on config types: %s", fn.Name.Name)
+		}
+	}
+
 	results := signature.Results()
 	switch results.Len() {
 	case 0, 1:
@@ -1122,6 +1159,14 @@ func createCron(fn *ast.FuncDecl, pkg *packages.Package, directive *directivepar
 
 	signature := funcObj.Signature()
 
+	// Check if receiver is a config type - configs cannot have cron methods
+	if sig := signature; sig.Recv() != nil {
+		receiverType := sig.Recv().Type()
+		if isConfigType(receiverType, pkg) {
+			return nil, errors.Errorf("//zero:cron annotation cannot be used on config types: %s", fn.Name.Name)
+		}
+	}
+
 	// Validate exact signature: Cron(context.Context) error
 	params := signature.Params()
 	if params.Len() != 1 {
@@ -1152,6 +1197,128 @@ func createCron(fn *ast.FuncDecl, pkg *packages.Package, directive *directivepar
 		Package:  pkg,
 		Position: fset.Position(fn.Pos()),
 	}, nil
+}
+
+func createSubscription(fn *ast.FuncDecl, pkg *packages.Package, fset *token.FileSet) (*Subscription, error) {
+	// Subscription annotations are only valid on methods (functions with receivers)
+	if fn.Recv == nil {
+		return nil, errors.Errorf("//zero:subscribe annotation is only valid on methods, not functions: %s", fn.Name.Name)
+	}
+
+	obj := pkg.TypesInfo.ObjectOf(fn.Name)
+	if obj == nil {
+		return nil, errors.Errorf("failed to retrieve object for function %s", fn.Name.Name)
+	}
+
+	funcObj, ok := obj.(*types.Func)
+	if !ok {
+		return nil, nil
+	}
+
+	signature := funcObj.Signature()
+
+	// Check if receiver is a config type - configs cannot have subscription methods
+	if sig := signature; sig.Recv() != nil {
+		receiverType := sig.Recv().Type()
+		if isConfigType(receiverType, pkg) {
+			return nil, errors.Errorf("//zero:subscribe annotation cannot be used on config types: %s", fn.Name.Name)
+		}
+	}
+
+	// Validate exact signature: Method(context.Context, pubsub.Event[T]) error
+	params := signature.Params()
+	if params.Len() != 2 {
+		return nil, errors.Errorf("subscription method %s must have exactly two parameters: context.Context and pubsub.Event[T]", fn.Name.Name)
+	}
+
+	// Check first parameter is context.Context
+	param := params.At(0)
+	paramType := param.Type()
+	if !isContextType(paramType) {
+		return nil, errors.Errorf("subscription method %s first parameter must be context.Context, got %s", fn.Name.Name, types.TypeString(paramType, nil))
+	}
+
+	// Check second parameter is pubsub.Event[T]
+	eventParam := params.At(1)
+	eventType := eventParam.Type()
+
+	// Extract the event type from pubsub.Event[T]
+	payloadType, err := extractEventPayloadType(eventType)
+	if err != nil {
+		return nil, errors.Errorf("subscription method %s second parameter must be pubsub.Event[T], got %s: %v", fn.Name.Name, types.TypeString(eventType, nil), err)
+	}
+
+	// Validate return type is error
+	results := signature.Results()
+	if results.Len() != 1 {
+		return nil, errors.Errorf("subscription method %s must return exactly one value of type error", fn.Name.Name)
+	}
+
+	returnType := results.At(0).Type()
+	if !isErrorType(returnType) {
+		return nil, errors.Errorf("subscription method %s must return error, got %s", fn.Name.Name, types.TypeString(returnType, nil))
+	}
+
+	return &Subscription{
+		Function:  funcObj,
+		Package:   pkg,
+		Position:  fset.Position(fn.Pos()),
+		TopicType: payloadType,
+	}, nil
+}
+
+// checkReceiverDependency checks if a function's receiver type is provided and adds it to missing if not
+func checkReceiverDependency(fn *types.Func, provided map[string]bool, graph *Graph) {
+	sig := fn.Type().(*types.Signature)
+	if sig.Recv() != nil {
+		receiverType := sig.Recv().Type()
+		key := types.TypeString(receiverType, nil)
+		if !provided[key] && !isProvidedByConfig(receiverType, graph) && !canBeProvidedByGeneric(receiverType, graph) {
+			// Check for duplicates before adding
+			existing := graph.Missing[fn]
+			isDuplicate := false
+			for _, existingType := range existing {
+				if types.Identical(existingType, receiverType) {
+					isDuplicate = true
+					break
+				}
+			}
+			if !isDuplicate {
+				graph.Missing[fn] = append(graph.Missing[fn], receiverType)
+			}
+		}
+	}
+}
+
+func extractEventPayloadType(eventType types.Type) (types.Type, error) {
+	// Remove pointer if present
+	if ptr, ok := eventType.(*types.Pointer); ok {
+		eventType = ptr.Elem()
+	}
+
+	// Check if it's a named type
+	named, ok := eventType.(*types.Named)
+	if !ok {
+		return nil, errors.Errorf("expected named type, got %T", eventType)
+	}
+
+	// Check if the type is from the pubsub package and named "Event"
+	obj := named.Obj()
+	if obj == nil || obj.Pkg() == nil {
+		return nil, errors.Errorf("type has no package information")
+	}
+
+	if obj.Pkg().Path() != "github.com/alecthomas/zero/providers/pubsub" || obj.Name() != "Event" {
+		return nil, errors.Errorf("expected pubsub.Event, got %s.%s", obj.Pkg().Path(), obj.Name())
+	}
+
+	// Check if it has type arguments (is generic instantiation)
+	typeArgs := named.TypeArgs()
+	if typeArgs == nil || typeArgs.Len() != 1 {
+		return nil, errors.Errorf("pubsub.Event must have exactly one type argument")
+	}
+
+	return typeArgs.At(0), nil
 }
 
 func createMiddleware(fn *ast.FuncDecl, pkg *packages.Package, directive *directiveparser.DirectiveMiddleware, fset *token.FileSet) (*Middleware, error) {
@@ -1488,27 +1655,19 @@ func findMissingDependencies(graph *Graph) {
 		}
 	}
 
-	// Check API receiver types
+	// Check receiver types for APIs
 	for _, api := range graph.APIs {
-		sig := api.Function.Type().(*types.Signature)
-		if sig.Recv() != nil {
-			receiverType := sig.Recv().Type()
-			key := types.TypeString(receiverType, nil)
-			if !provided[key] && !isProvidedByConfig(receiverType, graph) && !canBeProvidedByGeneric(receiverType, graph) {
-				// Check for duplicates before adding
-				existing := graph.Missing[api.Function]
-				isDuplicate := false
-				for _, existingType := range existing {
-					if types.Identical(existingType, receiverType) {
-						isDuplicate = true
-						break
-					}
-				}
-				if !isDuplicate {
-					graph.Missing[api.Function] = append(graph.Missing[api.Function], receiverType)
-				}
-			}
-		}
+		checkReceiverDependency(api.Function, provided, graph)
+	}
+
+	// Check receiver types for CronJobs
+	for _, cron := range graph.CronJobs {
+		checkReceiverDependency(cron.Function, provided, graph)
+	}
+
+	// Check receiver types for Subscriptions
+	for _, subscription := range graph.Subscriptions {
+		checkReceiverDependency(subscription.Function, provided, graph)
 	}
 
 	// Check middleware dependencies
@@ -1551,6 +1710,49 @@ func isProvidedByConfig(requiredType types.Type, graph *Graph) bool {
 	// Check if the required type can be provided by a generic config
 	if canBeProvidedByGenericConfig(requiredType, graph) {
 		return true
+	}
+
+	return false
+}
+
+// isConfigType checks if a receiver type is a config type by looking for the //zero:config directive
+func isConfigType(receiverType types.Type, pkg *packages.Package) bool {
+	// Remove pointer indirection
+	for {
+		if ptr, ok := receiverType.(*types.Pointer); ok {
+			receiverType = ptr.Elem()
+		} else {
+			break
+		}
+	}
+
+	// Check if it's a named type
+	named, ok := receiverType.(*types.Named)
+	if !ok {
+		return false
+	}
+
+	// Get the type name
+	typeName := named.Obj().Name()
+
+	// Look through the package's AST to find type declarations with //zero:config
+	for _, file := range pkg.Syntax {
+		for _, decl := range file.Decls {
+			if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
+				for _, spec := range genDecl.Specs {
+					if typeSpec, ok := spec.(*ast.TypeSpec); ok && typeSpec.Name.Name == typeName {
+						// Check if this type has a //zero:config directive
+						if genDecl.Doc != nil {
+							for _, comment := range genDecl.Doc.List {
+								if strings.HasPrefix(comment.Text, "//zero:config") {
+									return true
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	return false
@@ -1639,6 +1841,14 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 	toProcess := slices.Clone(roots)
 	if len(graph.APIs) > 0 {
 		toProcess = append(toProcess, internalAPITypes...)
+	}
+
+	// Add subscription event types to ensure they are preserved
+	for _, subscription := range graph.Subscriptions {
+		if subscription.TopicType != nil {
+			eventTypeStr := types.TypeString(subscription.TopicType, nil)
+			toProcess = append(toProcess, eventTypeStr)
+		}
 	}
 	ambiguousProviders := map[string][]*Provider{}
 

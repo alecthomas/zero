@@ -811,28 +811,8 @@ func (s *UserService) GetUsers(ctx context.Context) ([]string, error) {
 	return []string{}, nil
 }
 `
-	graph := analyseTestCode(t, testCode, []string{"test.UserService"})
-
-	expectedProviders := []string{
-		"*log/slog.Logger",
-		"*net/http.ServeMux",
-		"*net/http.Server",
-		"github.com/alecthomas/zero.ErrorEncoder",
-		"github.com/alecthomas/zero.ResponseEncoder",
-	}
-	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
-	expectedConfigs := []string{
-		"github.com/alecthomas/zero/providers/http.Config",
-		"github.com/alecthomas/zero/providers/logging.Config",
-		"test.UserService",
-	}
-	assert.Equal(t, expectedConfigs, stableKeys(graph.Configs))
-	assert.Equal(t, 1, len(graph.APIs))
-	assert.Equal(t, 0, len(graph.Missing))
-
-	// Check that config exists for UserService
-	_, ok := graph.Configs["test.UserService"]
-	assert.True(t, ok)
+	_, err := analyseTestCodeWithError(t, testCode, []string{})
+	assert.EqualError(t, err, "//zero:api annotation cannot be used on config types: GetUsers")
 }
 
 func TestAnalyseMixedAPIReceiversSomeWithProviders(t *testing.T) {
@@ -2935,6 +2915,366 @@ func (s *Service) HourlyCleanup(ctx context.Context) error {
 	cron := graph.CronJobs[0]
 	assert.Equal(t, "HourlyCleanup", cron.Function.Name())
 	assert.Equal(t, "1h", cron.Schedule.Schedule)
+}
+
+func TestAnalyseSubscriptionFunctions(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import (
+	"context"
+	"github.com/alecthomas/zero/providers/pubsub"
+)
+
+type SubscriptionService struct{}
+
+type UserCreatedEvent struct {
+	UserID string
+	Email  string
+}
+
+//zero:subscribe
+func (s *SubscriptionService) HandleUserCreated(ctx context.Context, event pubsub.Event[UserCreatedEvent]) error {
+	return nil
+}
+
+//zero:subscribe
+func (s *SubscriptionService) HandleUserUpdated(ctx context.Context, event pubsub.Event[UserCreatedEvent]) error {
+	return nil
+}
+`
+	graph := analyseTestCode(t, testCode, []string{})
+	assert.Equal(t, 2, len(graph.Subscriptions))
+
+	// Check first subscription
+	subscription1 := graph.Subscriptions[0]
+	assert.Equal(t, "HandleUserCreated", subscription1.Function.Name())
+	assert.Equal(t, "test.UserCreatedEvent", types.TypeString(subscription1.TopicType, nil))
+
+	// Check second subscription
+	subscription2 := graph.Subscriptions[1]
+	assert.Equal(t, "HandleUserUpdated", subscription2.Function.Name())
+	assert.Equal(t, "test.UserCreatedEvent", types.TypeString(subscription2.TopicType, nil))
+}
+
+func TestAnalyseSubscriptionAnnotationOnFunction(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import (
+	"context"
+	"github.com/alecthomas/zero/providers/pubsub"
+)
+
+type Event struct{}
+
+//zero:subscribe
+func StandaloneSubscriptionFunction(ctx context.Context, event pubsub.Event[Event]) error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "//zero:subscribe annotation is only valid on methods, not functions: StandaloneSubscriptionFunction")
+}
+
+func TestAnalyseSubscriptionInvalidSignatureNoParameters(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+type SubscriptionService struct{}
+
+//zero:subscribe
+func (s *SubscriptionService) InvalidSubscription() error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "subscription method InvalidSubscription must have exactly two parameters: context.Context and pubsub.Event[T]")
+}
+
+func TestAnalyseSubscriptionInvalidSignatureTooManyParameters(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import (
+	"context"
+	"github.com/alecthomas/zero/providers/pubsub"
+)
+
+type SubscriptionService struct{}
+type Event struct{}
+
+//zero:subscribe
+func (s *SubscriptionService) InvalidSubscription(ctx context.Context, event pubsub.Event[Event], extra string) error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "subscription method InvalidSubscription must have exactly two parameters: context.Context and pubsub.Event[T]")
+}
+
+func TestAnalyseSubscriptionInvalidSignatureWrongFirstParameterType(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import "github.com/alecthomas/zero/providers/pubsub"
+
+type SubscriptionService struct{}
+type Event struct{}
+
+//zero:subscribe
+func (s *SubscriptionService) InvalidSubscription(notContext string, event pubsub.Event[Event]) error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "subscription method InvalidSubscription first parameter must be context.Context, got string")
+}
+
+func TestAnalyseSubscriptionInvalidSignatureWrongSecondParameterType(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import "context"
+
+type SubscriptionService struct{}
+
+//zero:subscribe
+func (s *SubscriptionService) InvalidSubscription(ctx context.Context, notTopic string) error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.Contains(t, err.Error(), "subscription method InvalidSubscription second parameter must be pubsub.Event[T], got string:")
+}
+
+func TestAnalyseSubscriptionInvalidSignatureNoReturnValue(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import (
+	"context"
+	"github.com/alecthomas/zero/providers/pubsub"
+)
+
+type SubscriptionService struct{}
+type Event struct{}
+
+//zero:subscribe
+func (s *SubscriptionService) InvalidSubscription(ctx context.Context, event pubsub.Event[Event]) {
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "subscription method InvalidSubscription must return exactly one value of type error")
+}
+
+func TestAnalyseSubscriptionInvalidSignatureTooManyReturnValues(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import (
+	"context"
+	"github.com/alecthomas/zero/providers/pubsub"
+)
+
+type SubscriptionService struct{}
+type Event struct{}
+
+//zero:subscribe
+func (s *SubscriptionService) InvalidSubscription(ctx context.Context, event pubsub.Event[Event]) (string, error) {
+	return "", nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "subscription method InvalidSubscription must return exactly one value of type error")
+}
+
+func TestAnalyseSubscriptionInvalidSignatureWrongReturnType(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import (
+	"context"
+	"github.com/alecthomas/zero/providers/pubsub"
+)
+
+type SubscriptionService struct{}
+type Event struct{}
+
+//zero:subscribe
+func (s *SubscriptionService) InvalidSubscription(ctx context.Context, event pubsub.Event[Event]) string {
+	return ""
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, nil)
+	assert.EqualError(t, err, "subscription method InvalidSubscription must return error, got string")
+}
+
+func TestAnalyseSubscriptionReceiverWithoutProvider(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import (
+	"context"
+	"github.com/alecthomas/zero/providers/pubsub"
+)
+
+type SubscriptionService struct{}
+type Event struct{}
+
+//zero:subscribe
+func (s *SubscriptionService) HandleEvent(ctx context.Context, event pubsub.Event[Event]) error {
+	return nil
+}
+`
+	graph := analyseTestCode(t, testCode, []string{})
+	assert.Equal(t, 1, len(graph.Subscriptions))
+	assert.Equal(t, 1, len(graph.Missing))
+
+	// The receiver should be marked as missing
+	subscription := graph.Subscriptions[0]
+	missing := graph.Missing[subscription.Function]
+	assert.Equal(t, 1, len(missing))
+	assert.Equal(t, "*test.SubscriptionService", types.TypeString(missing[0], nil))
+}
+
+func TestAnalyseMixedProvidersAPIsSubscriptions(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import (
+	"context"
+	"github.com/alecthomas/zero/providers/pubsub"
+)
+
+type Service struct{}
+type Event struct{}
+
+//zero:provider
+func CreateService() *Service {
+	return &Service{}
+}
+
+//zero:api GET /users
+func (s *Service) GetUsers(ctx context.Context) ([]string, error) {
+	return []string{}, nil
+}
+
+//zero:subscribe
+func (s *Service) HandleEvent(ctx context.Context, event pubsub.Event[Event]) error {
+	return nil
+}
+`
+	graph, err := analyseCodeString(t.Context(), testCode, []string{"*test.Service"})
+	assert.NoError(t, err)
+
+	expectedProviders := []string{
+		"*log/slog.Logger",
+		"*net/http.ServeMux",
+		"*net/http.Server",
+		"*test.Service",
+		"github.com/alecthomas/zero.ErrorEncoder",
+		"github.com/alecthomas/zero.ResponseEncoder",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
+	assert.Equal(t, 1, len(graph.APIs))
+	assert.Equal(t, 1, len(graph.Subscriptions))
+
+	// Check provider
+	provider, ok := graph.Providers["*test.Service"]
+	assert.True(t, ok)
+	assert.Equal(t, "CreateService", provider.Function.Name())
+
+	// Check API
+	api := graph.APIs[0]
+	assert.Equal(t, "GetUsers", api.Function.Name())
+
+	// Check subscription
+	subscription := graph.Subscriptions[0]
+	assert.Equal(t, "HandleEvent", subscription.Function.Name())
+	assert.Equal(t, "test.Event", types.TypeString(subscription.TopicType, nil))
+}
+
+func TestAnalyseAPIAnnotationOnConfigType(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import "context"
+
+//zero:config
+type DatabaseConfig struct {
+	Host string
+	Port int
+}
+
+//zero:api GET /health
+func (c *DatabaseConfig) HealthCheck(ctx context.Context) (string, error) {
+	return "OK", nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, []string{})
+	assert.EqualError(t, err, "//zero:api annotation cannot be used on config types: HealthCheck")
+}
+
+func TestAnalyseCronAnnotationOnConfigType(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import "context"
+
+//zero:config
+type DatabaseConfig struct {
+	Host string
+	Port int
+}
+
+//zero:cron 1h
+func (c *DatabaseConfig) Cleanup(ctx context.Context) error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, []string{})
+	assert.EqualError(t, err, "//zero:cron annotation cannot be used on config types: Cleanup")
+}
+
+func TestAnalyseSubscriptionAnnotationOnConfigType(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package main
+
+import (
+	"context"
+	"github.com/alecthomas/zero/providers/pubsub"
+)
+
+//zero:config
+type DatabaseConfig struct {
+	Host string
+	Port int
+}
+
+type Event struct{}
+
+//zero:subscribe
+func (c *DatabaseConfig) HandleEvent(ctx context.Context, event pubsub.Event[Event]) error {
+	return nil
+}
+`
+	_, err := analyseTestCodeWithError(t, testCode, []string{})
+	assert.EqualError(t, err, "//zero:subscribe annotation cannot be used on config types: HandleEvent")
 }
 
 func TestAnalyseGenericProviders(t *testing.T) {
