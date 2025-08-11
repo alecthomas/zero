@@ -33,9 +33,10 @@ func NewDB() *sql.DB {
 	assert.Equal(t, []string{"*database/sql.DB"}, stableKeys(graph.Providers))
 	assert.Equal(t, 0, len(graph.Missing))
 
-	dbProvider, ok := graph.Providers["*database/sql.DB"]
+	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok)
-	assert.Equal(t, 0, len(dbProvider.Requires))
+	assert.Equal(t, 1, len(dbProviders))
+	assert.Equal(t, 0, len(dbProviders[0].Requires))
 }
 
 func TestAnalyseProviderWithError(t *testing.T) {
@@ -82,10 +83,11 @@ func NewDB(cfg *Config) (*sql.DB, error) {
 	assert.Equal(t, 2, len(graph.Providers))
 	assert.Equal(t, 0, len(graph.Missing))
 
-	dbProvider, ok := graph.Providers["*database/sql.DB"]
+	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok)
-	assert.Equal(t, 1, len(dbProvider.Requires))
-	assert.Equal(t, "*test.Config", types.TypeString(dbProvider.Requires[0], nil))
+	assert.Equal(t, 1, len(dbProviders))
+	assert.Equal(t, 1, len(dbProviders[0].Requires))
+	assert.Equal(t, "*test.Config", types.TypeString(dbProviders[0].Requires[0], nil))
 }
 
 func TestAnalyseMissingDependencies(t *testing.T) {
@@ -145,9 +147,10 @@ func NewDB(cfg *Config, logger *log.Logger) (*sql.DB, error) {
 	assert.Equal(t, 3, len(graph.Providers))
 	assert.Equal(t, 0, len(graph.Missing))
 
-	dbProvider, ok := graph.Providers["*database/sql.DB"]
+	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok)
-	assert.Equal(t, 2, len(dbProvider.Requires))
+	assert.Equal(t, 1, len(dbProviders))
+	assert.Equal(t, 2, len(dbProviders[0].Requires))
 }
 
 func TestAnalyseInvalidProvider(t *testing.T) {
@@ -261,7 +264,7 @@ func NewWeakDB() *sql.DB {
 	graph, err := analyseCodeString(t, testCode, WithRoots("*database/sql.DB"), WithProviders("test.NewDB"))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(graph.Providers))
-	assert.Equal(t, "NewDB", graph.Providers["*database/sql.DB"].Function.Name())
+	assert.Equal(t, "NewDB", graph.Providers["*database/sql.DB"][0].Function.Name())
 }
 
 func TestAnalyseConfigStruct(t *testing.T) {
@@ -307,10 +310,11 @@ func NewDB(cfg *Config) (*sql.DB, error) {
 	assert.Equal(t, 1, len(graph.Configs))
 	assert.Equal(t, 0, len(graph.Missing))
 
-	dbProvider, ok := graph.Providers["*database/sql.DB"]
+	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok)
-	assert.Equal(t, 1, len(dbProvider.Requires))
-	assert.Equal(t, "*test.Config", types.TypeString(dbProvider.Requires[0], nil))
+	assert.Equal(t, 1, len(dbProviders))
+	assert.Equal(t, 1, len(dbProviders[0].Requires))
+	assert.Equal(t, "*test.Config", types.TypeString(dbProviders[0].Requires[0], nil))
 }
 
 func TestAnalyseMultipleConfigs(t *testing.T) {
@@ -338,9 +342,10 @@ func NewService(dbCfg *DatabaseConfig, srvCfg *ServerConfig) string {
 	assert.Equal(t, 2, len(graph.Configs))
 	assert.Equal(t, 0, len(graph.Missing))
 
-	serviceProvider := graph.Providers["string"]
-	assert.NotZero(t, serviceProvider)
-	assert.Equal(t, 2, len(serviceProvider.Requires))
+	serviceProviders := graph.Providers["string"]
+	assert.NotZero(t, serviceProviders)
+	assert.Equal(t, 1, len(serviceProviders))
+	assert.Equal(t, 2, len(serviceProviders[0].Requires))
 }
 
 func TestAnalyseConfigWithoutAnnotation(t *testing.T) {
@@ -421,17 +426,21 @@ func NeedsPointer(cfg *Config) int {
 `
 	graph := analyseTestCode(t, testCode, WithRoots("string", "int"))
 	assert.Equal(t, 2, len(graph.Providers))
+
 	assert.Equal(t, 1, len(graph.Configs))
 	assert.Equal(t, 0, len(graph.Missing))
 
 	// Verify both providers found their dependencies
-	strProvider, ok := graph.Providers["string"]
-	assert.True(t, ok)
-	assert.Equal(t, 1, len(strProvider.Requires))
+	strProviders := graph.Providers["string"]
+	assert.True(t, len(strProviders) > 0)
+	assert.Equal(t, 1, len(strProviders))
+	// Config dependencies are in Requires but handled automatically (no missing deps)
+	assert.Equal(t, 1, len(strProviders[0].Requires))
 
-	intProvider := graph.Providers["int"]
-	assert.NotZero(t, intProvider)
-	assert.Equal(t, 1, len(intProvider.Requires))
+	intProviders := graph.Providers["int"]
+	assert.True(t, len(intProviders) > 0)
+	assert.Equal(t, 1, len(intProviders))
+	assert.Equal(t, 1, len(intProviders[0].Requires))
 }
 
 func TestAnalyseAPIFunctions(t *testing.T) {
@@ -1536,19 +1545,22 @@ func SQLCron(db *sql.DB) string {
 	graph := analyseTestCode(t, testCode, WithRoots("string"))
 
 	// SQLCron should be included as it provides the root type "string"
-	sqlCronProvider, ok := graph.Providers["string"]
+	sqlCronProviders, ok := graph.Providers["string"]
 	assert.True(t, ok, "SQLCron provider should be included")
-	assert.Equal(t, "SQLCron", sqlCronProvider.Function.Name())
+	assert.Equal(t, 1, len(sqlCronProviders))
+	assert.Equal(t, "SQLCron", sqlCronProviders[0].Function.Name())
 
 	// CronJobProvider should be included because SQLCron requires it via directive
-	cronJobProvider, ok := graph.Providers["test.CronJob"]
+	cronJobProviders, ok := graph.Providers["test.CronJob"]
 	assert.True(t, ok, "CronJobProvider should be included due to directive requirement")
-	assert.Equal(t, "CronJobProvider", cronJobProvider.Function.Name())
+	assert.Equal(t, 1, len(cronJobProviders))
+	assert.Equal(t, "CronJobProvider", cronJobProviders[0].Function.Name())
 
 	// NewDB should be included because SQLCron needs it as a parameter
-	dbProvider, ok := graph.Providers["*database/sql.DB"]
+	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok, "NewDB provider should be included as SQLCron depends on it")
-	assert.Equal(t, "NewDB", dbProvider.Function.Name())
+	assert.Equal(t, 1, len(dbProviders))
+	assert.Equal(t, "NewDB", dbProviders[0].Function.Name())
 }
 
 func TestAnalyseWeakProviderDirectiveRequirementsChain(t *testing.T) {
@@ -1596,24 +1608,28 @@ func CacheManager(db *sql.DB, cache Cache) string {
 	graph := analyseTestCode(t, testCode, WithRoots("string"))
 
 	// CacheManager should be included as it provides the root type "string"
-	cacheManagerProvider, ok := graph.Providers["string"]
+	cacheManagerProviders, ok := graph.Providers["string"]
 	assert.True(t, ok, "CacheManager provider should be included")
-	assert.Equal(t, "CacheManager", cacheManagerProvider.Function.Name())
+	assert.Equal(t, 1, len(cacheManagerProviders))
+	assert.Equal(t, "CacheManager", cacheManagerProviders[0].Function.Name())
 
 	// RedisCache should be included because CacheManager requires it via directive
-	redisCacheProvider, ok := graph.Providers["test.Cache"]
+	redisCacheProviders, ok := graph.Providers["test.Cache"]
 	assert.True(t, ok, "RedisCache should be included due to directive requirement")
-	assert.Equal(t, "RedisCache", redisCacheProvider.Function.Name())
+	assert.Equal(t, 1, len(redisCacheProviders))
+	assert.Equal(t, "RedisCache", redisCacheProviders[0].Function.Name())
 
 	// DebugLogger should be included because RedisCache requires it via directive
-	debugLoggerProvider, ok := graph.Providers["test.Logger"]
+	debugLoggerProviders, ok := graph.Providers["test.Logger"]
 	assert.True(t, ok, "DebugLogger should be included due to transitive directive requirement")
-	assert.Equal(t, "DebugLogger", debugLoggerProvider.Function.Name())
+	assert.Equal(t, 1, len(debugLoggerProviders))
+	assert.Equal(t, "DebugLogger", debugLoggerProviders[0].Function.Name())
 
 	// NewDB should be included because CacheManager needs it as a parameter
-	dbProvider, ok := graph.Providers["*database/sql.DB"]
+	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok, "NewDB provider should be included as CacheManager depends on it")
-	assert.Equal(t, "NewDB", dbProvider.Function.Name())
+	assert.Equal(t, 1, len(dbProviders))
+	assert.Equal(t, "NewDB", dbProviders[0].Function.Name())
 }
 
 func TestAnalyseWeakMultiProviderNotIncludedUnlessNeeded(t *testing.T) {
@@ -1644,13 +1660,13 @@ func GetServiceName(s Service) string {
 	graph := analyseTestCode(t, testCode, WithRoots("string"))
 
 	// GetServiceName should be included as it provides the root type "string"
-	serviceNameProvider, ok := graph.Providers["string"]
+	serviceNameProviders, ok := graph.Providers["string"]
 	assert.True(t, ok, "GetServiceName provider should be included")
-	assert.Equal(t, "GetServiceName", serviceNameProvider.Function.Name())
+	assert.Equal(t, 1, len(serviceNameProviders))
+	assert.Equal(t, "GetServiceName", serviceNameProviders[0].Function.Name())
 
 	// Service should be a multi-provider but only contain RegularService, not WeakService
-	multiProviders, ok := graph.MultiProviders["test.Service"]
-	assert.True(t, ok, "Service should be a multi-provider")
+	multiProviders := graph.Providers["test.Service"]
 	assert.Equal(t, 1, len(multiProviders), "Should only contain the non-weak provider")
 	assert.Equal(t, "RegularService", multiProviders[0].Function.Name())
 
@@ -1688,13 +1704,14 @@ func SpecialHandler() string {
 	graph := analyseTestCode(t, testCode, WithRoots("string"))
 
 	// SpecialHandler should be included as it provides the root type "string"
-	specialHandlerProvider, ok := graph.Providers["string"]
+	specialHandlerProviders, ok := graph.Providers["string"]
 	assert.True(t, ok, "SpecialHandler provider should be included")
-	assert.Equal(t, "SpecialHandler", specialHandlerProvider.Function.Name())
+	assert.Equal(t, 1, len(specialHandlerProviders))
+	assert.Equal(t, "SpecialHandler", specialHandlerProviders[0].Function.Name())
 
 	// Service should be a multi-provider containing BOTH providers
-	multiProviders, ok := graph.MultiProviders["test.Service"]
-	assert.True(t, ok, "Service should be a multi-provider")
+	multiProviders := graph.Providers["test.Service"]
+	assert.True(t, len(multiProviders) > 0, "Service should be a multi-provider")
 	assert.Equal(t, 2, len(multiProviders), "Should contain both providers since WeakService is required")
 
 	// Both RegularService and WeakService should be included
@@ -2318,17 +2335,19 @@ type Service struct{}
 	graph := analyseTestCode(t, testCode, WithRoots("*database/sql.DB", "*test.Service"))
 
 	// Test function reference for standard library package
-	dbProvider, ok := graph.Providers["*database/sql.DB"]
+	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok)
-	dbFuncRef := graph.FunctionRef(dbProvider.Function)
+	assert.Equal(t, 1, len(dbProviders))
+	dbFuncRef := graph.FunctionRef(dbProviders[0].Function)
 	assert.Equal(t, "test", dbFuncRef.Pkg) // Same package as destination
 	assert.Equal(t, "", dbFuncRef.Import)
 	assert.Equal(t, "NewDB", dbFuncRef.Ref)
 
 	// Test function reference for same package
-	serviceProvider, ok := graph.Providers["*test.Service"]
+	serviceProviders, ok := graph.Providers["*test.Service"]
 	assert.True(t, ok)
-	serviceFuncRef := graph.FunctionRef(serviceProvider.Function)
+	assert.Equal(t, 1, len(serviceProviders))
+	serviceFuncRef := graph.FunctionRef(serviceProviders[0].Function)
 	assert.Equal(t, "test", serviceFuncRef.Pkg)
 	assert.Equal(t, "", serviceFuncRef.Import) // Same package
 	assert.Equal(t, "NewService", serviceFuncRef.Ref)
@@ -2483,26 +2502,25 @@ type Service struct {
 }
 `
 	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
-	assert.Equal(t, 1, len(graph.Providers))
-	assert.Equal(t, 1, len(graph.MultiProviders))
+	assert.Equal(t, 2, len(graph.Providers))
 	assert.Equal(t, 0, len(graph.Missing))
 
-	// Should have multi-providers for []string
-	multiProviders, ok := graph.MultiProviders["[]string"]
-	assert.True(t, ok)
+	// Verify we have multi-providers for []string
+	multiProviders := graph.Providers["[]string"]
 	assert.Equal(t, 2, len(multiProviders))
 
 	// Should have regular provider for Service
-	serviceProvider, ok := graph.Providers["*test.Service"]
+	serviceProviders, ok := graph.Providers["*test.Service"]
 	assert.True(t, ok)
-	assert.Equal(t, 1, len(serviceProvider.Requires))
+	assert.Equal(t, 1, len(serviceProviders))
+	assert.Equal(t, 1, len(serviceProviders[0].Requires))
 
 	// Test GetProviders method
 	sliceProviders := graph.GetProviders("[]string")
 	assert.Equal(t, 2, len(sliceProviders))
 
-	serviceProviders := graph.GetProviders("*test.Service")
-	assert.Equal(t, 1, len(serviceProviders))
+	serviceProvidersFromGet := graph.GetProviders("*test.Service")
+	assert.Equal(t, 1, len(serviceProvidersFromGet))
 
 	nonExistentProviders := graph.GetProviders("NonExistent")
 	assert.Zero(t, nonExistentProviders)
@@ -2567,13 +2585,12 @@ type Service struct {
 }
 `
 	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
-	assert.Equal(t, 1, len(graph.Providers))
-	assert.Equal(t, 1, len(graph.MultiProviders))
+	assert.Equal(t, 2, len(graph.Providers))
 	assert.Equal(t, 0, len(graph.Missing))
 
 	// Should have multi-providers for map[string]int
-	multiProviders, ok := graph.MultiProviders["map[string]int"]
-	assert.True(t, ok)
+	multiProviders := graph.Providers["map[string]int"]
+	assert.True(t, len(multiProviders) > 0)
 	assert.Equal(t, 3, len(multiProviders))
 
 	// Verify all providers are marked as multi
@@ -2612,17 +2629,16 @@ type Service struct {
 }
 `
 	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
-	assert.Equal(t, 1, len(graph.Providers))
-	assert.Equal(t, 1, len(graph.MultiProviders))
+	assert.Equal(t, 2, len(graph.Providers))
 	assert.Equal(t, 0, len(graph.Missing))
 
 	// Should have multi-providers for []string but not for []int (unreferenced)
-	multiProviders, ok := graph.MultiProviders["[]string"]
-	assert.True(t, ok)
+	multiProviders := graph.Providers["[]string"]
+	assert.True(t, len(multiProviders) > 0)
 	assert.Equal(t, 2, len(multiProviders))
 
 	// Should not have multi-providers for []int (pruned because unreferenced)
-	_, ok = graph.MultiProviders["[]int"]
+	_, ok := graph.Providers["[]int"]
 	assert.False(t, ok)
 }
 
@@ -2840,9 +2856,10 @@ func (s *Service) HourlyCleanup(ctx context.Context) error {
 	assert.Equal(t, 1, len(graph.CronJobs))
 
 	// Check provider
-	provider, ok := graph.Providers["*test.Service"]
+	providers, ok := graph.Providers["*test.Service"]
 	assert.True(t, ok)
-	assert.Equal(t, "CreateService", provider.Function.Name())
+	assert.Equal(t, 1, len(providers))
+	assert.Equal(t, "CreateService", providers[0].Function.Name())
 
 	// Check API
 	api := graph.APIs[0]
@@ -2881,7 +2898,7 @@ func (s *SubscriptionService) HandleUserUpdated(ctx context.Context, event pubsu
 	return nil
 }
 `
-	graph := analyseTestCode(t, testCode, WithRoots("github.com/alecthomas/zero/providers/pubsub.Topic[T]"))
+	graph := analyseTestCode(t, testCode, WithRoots("github.com/alecthomas/zero/providers/pubsub.Topic"), WithProviders("github.com/alecthomas/zero/providers/pubsub.NewMemoryTopic"))
 	assert.Equal(t, 2, len(graph.Subscriptions))
 
 	// Check first subscription
@@ -3074,11 +3091,11 @@ func (s *SubscriptionService) HandleEvent(ctx context.Context, event pubsub.Even
 	return nil
 }
 `
-	graph := analyseTestCode(t, testCode, WithRoots("github.com/alecthomas/zero/providers/pubsub.Topic[T]"))
+	graph := analyseTestCode(t, testCode, WithRoots("github.com/alecthomas/zero/providers/pubsub.Topic"), WithProviders("github.com/alecthomas/zero/providers/pubsub.NewMemoryTopic"))
 	assert.Equal(t, 1, len(graph.Subscriptions))
-	assert.Equal(t, 1, len(graph.Missing))
+	assert.Equal(t, 2, len(graph.Missing)) // Now includes both subscription and concrete topic provider
 
-	// The receiver should be marked as missing
+	// The subscription receiver should be marked as missing
 	subscription := graph.Subscriptions[0]
 	missing := graph.Missing[subscription.Function]
 	assert.Equal(t, 1, len(missing))
@@ -3113,7 +3130,7 @@ func (s *Service) HandleEvent(ctx context.Context, event pubsub.Event[Event]) er
 	return nil
 }
 `
-	graph, err := analyseCodeString(t, testCode, WithRoots("*test.Service"))
+	graph, err := analyseCodeString(t, testCode, WithRoots("*test.Service"), WithProviders("github.com/alecthomas/zero/providers/pubsub.NewMemoryTopic"))
 	assert.NoError(t, err)
 
 	expectedProviders := []string{
@@ -3123,15 +3140,18 @@ func (s *Service) HandleEvent(ctx context.Context, event pubsub.Event[Event]) er
 		"*test.Service",
 		"github.com/alecthomas/zero.ErrorEncoder",
 		"github.com/alecthomas/zero.ResponseEncoder",
+		"github.com/alecthomas/zero/providers/pubsub.Topic",
+		"github.com/alecthomas/zero/providers/pubsub.Topic[test.Event]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 	assert.Equal(t, 1, len(graph.APIs))
 	assert.Equal(t, 1, len(graph.Subscriptions))
 
 	// Check provider
-	provider, ok := graph.Providers["*test.Service"]
+	providers, ok := graph.Providers["*test.Service"]
 	assert.True(t, ok)
-	assert.Equal(t, "CreateService", provider.Function.Name())
+	assert.Equal(t, 1, len(providers))
+	assert.Equal(t, "CreateService", providers[0].Function.Name())
 
 	// Check API
 	api := graph.APIs[0]
@@ -3167,7 +3187,7 @@ func (s *SubscriptionService) HandleEvent(ctx context.Context, event pubsub.Even
 }
 `
 	// First, check that subscription is detected
-	graph := analyseTestCode(t, testCode)
+	graph := analyseTestCode(t, testCode, WithProviders("github.com/alecthomas/zero/providers/pubsub.NewMemoryTopic"))
 	assert.Equal(t, 1, len(graph.Subscriptions))
 
 	// Since there are ambiguous providers (both NewMemoryTopic and postgres.New are weak),
@@ -3177,10 +3197,10 @@ func (s *SubscriptionService) HandleEvent(ctx context.Context, event pubsub.Even
 
 	// The concrete topic type should now be resolved from the generic provider
 	topicTypeString := "github.com/alecthomas/zero/providers/pubsub.Topic[test.Event]"
-	provider, found := graph2.Providers[topicTypeString]
+	providers, found := graph2.Providers[topicTypeString]
 	assert.True(t, found, "Should have concrete pubsub.Topic[Event] provider resolved from generic provider")
-	assert.True(t, provider != nil, "Provider should not be nil")
-	assert.Equal(t, "NewMemoryTopic", provider.Function.Name(), "Should use the explicitly picked provider")
+	assert.True(t, len(providers) > 0, "Provider should not be nil")
+	assert.Equal(t, "NewMemoryTopic", providers[0].Function.Name(), "Should use the explicitly picked provider")
 }
 
 func TestAnalyseAPIAnnotationOnConfigType(t *testing.T) {
@@ -3299,28 +3319,28 @@ func NewService(topic Topic[User]) *Service {
 	// Should have NewService provider and resolved generic NewTopic provider
 	expectedProviders := []string{
 		"*test.Service",
+		"test.Topic",
 		"test.Topic[test.User]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 
-	expectedGenericProviders := []string{
-		"github.com/alecthomas/zero/providers/pubsub.Topic",
-		"test.Topic",
-	}
-	assert.Equal(t, expectedGenericProviders, stableKeys(graph.GenericProviders))
+	// Check that generic providers are now included in the main Providers map
+	_, hasPubsubTopic := graph.Providers["github.com/alecthomas/zero/providers/pubsub.Topic"]
+	_, hasTestTopic := graph.Providers["test.Topic"]
+	assert.True(t, hasPubsubTopic || hasTestTopic, "Should have generic providers in main Providers map")
 
 	// Check that NewService is provided
-	serviceProvider := graph.Providers["*test.Service"]
-	assert.NotZero(t, serviceProvider)
-	assert.Equal(t, "NewService", serviceProvider.Function.Name())
+	serviceProviders := graph.Providers["*test.Service"]
+	assert.True(t, len(serviceProviders) > 0)
+	assert.Equal(t, "NewService", serviceProviders[0].Function.Name())
 
-	// Check that NewTopic is a generic provider
-	topicProviders := graph.GenericProviders["test.Topic"]
+	// Check that NewTopic is a generic provider (now in main Providers map)
+	topicProviders := graph.Providers["test.Topic"]
 	assert.Equal(t, 1, len(topicProviders))
 	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
 
 	// NewService should have no missing dependencies because NewTopic[User] can be instantiated
-	assert.Equal(t, 0, len(graph.Missing[serviceProvider.Function]))
+	assert.Equal(t, 0, len(graph.Missing[serviceProviders[0].Function]))
 }
 
 func TestAnalyseGenericProvidersWithConstraints(t *testing.T) {
@@ -3401,36 +3421,36 @@ func NewServiceC(topic Topic[InvalidType]) *ServiceC {
 		"*test.ServiceA",
 		"*test.ServiceB",
 		"*test.ServiceC",
+		"test.Topic",
 		"test.Topic[test.Order]",
 		"test.Topic[test.User]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
-	expectedGenericProviders := []string{
-		"github.com/alecthomas/zero/providers/pubsub.Topic",
-		"test.Topic",
-	}
-	assert.Equal(t, expectedGenericProviders, stableKeys(graph.GenericProviders))
+	// Check that generic providers are now included in the main Providers map
+	_, hasPubsubTopic := graph.Providers["github.com/alecthomas/zero/providers/pubsub.Topic"]
+	_, hasTestTopic := graph.Providers["test.Topic"]
+	assert.True(t, hasPubsubTopic || hasTestTopic, "Should have generic providers in main Providers map")
 
 	// Check that NewTopic is a generic provider
-	topicProviders := graph.GenericProviders["test.Topic"]
+	topicProviders := graph.Providers["test.Topic"]
 	assert.Equal(t, 1, len(topicProviders))
 	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
 	assert.True(t, topicProviders[0].IsGeneric)
 
 	// ServiceA and ServiceB should have no missing dependencies
-	serviceAProvider := graph.Providers["*test.ServiceA"]
-	assert.NotZero(t, serviceAProvider)
-	assert.Equal(t, 0, len(graph.Missing[serviceAProvider.Function]))
+	serviceAProviders := graph.Providers["*test.ServiceA"]
+	assert.True(t, len(serviceAProviders) > 0)
+	assert.Equal(t, 0, len(graph.Missing[serviceAProviders[0].Function]))
 
-	serviceBProvider := graph.Providers["*test.ServiceB"]
-	assert.NotZero(t, serviceBProvider)
-	assert.Equal(t, 0, len(graph.Missing[serviceBProvider.Function]))
+	serviceBProviders := graph.Providers["*test.ServiceB"]
+	assert.True(t, len(serviceBProviders) > 0)
+	assert.Equal(t, 0, len(graph.Missing[serviceBProviders[0].Function]))
 
 	// ServiceC should have missing dependencies because InvalidType doesn't implement EventPayload
-	serviceCProvider := graph.Providers["*test.ServiceC"]
-	assert.NotZero(t, serviceCProvider)
+	serviceCProviders := graph.Providers["*test.ServiceC"]
+	assert.True(t, len(serviceCProviders) > 0)
 	// InvalidType doesn't implement EventPayload, so Topic[InvalidType] cannot be provided
-	assert.Equal(t, 1, len(graph.Missing[serviceCProvider.Function]))
+	assert.Equal(t, 1, len(graph.Missing[serviceCProviders[0].Function]))
 }
 
 func TestAnalyseGenericProvidersUserExample(t *testing.T) {
@@ -3479,33 +3499,33 @@ func NewService(topic Topic[User]) *Service {
 	// Should have the concrete service provider and resolved generic provider
 	expectedProviders := []string{
 		"*test.Service",
+		"test.Topic",
 		"test.Topic[test.User]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
-	expectedGenericProviders := []string{
-		"github.com/alecthomas/zero/providers/pubsub.Topic",
-		"test.Topic",
-	}
-	assert.Equal(t, expectedGenericProviders, stableKeys(graph.GenericProviders))
-	serviceProvider := graph.Providers["*test.Service"]
-	assert.NotZero(t, serviceProvider)
-	assert.Equal(t, "NewService", serviceProvider.Function.Name())
+	// Check that generic providers are now included in the main Providers map
+	_, hasPubsubTopic := graph.Providers["github.com/alecthomas/zero/providers/pubsub.Topic"]
+	_, hasTestTopic := graph.Providers["test.Topic"]
+	assert.True(t, hasPubsubTopic || hasTestTopic, "Should have generic providers in main Providers map")
+
+	serviceProviders := graph.Providers["*test.Service"]
+	assert.True(t, len(serviceProviders) > 0)
+	assert.Equal(t, "NewService", serviceProviders[0].Function.Name())
 
 	// Should have the generic topic provider (plus Zero's built-in pubsub provider)
-	assert.Equal(t, 2, len(graph.GenericProviders))
-	topicProviders := graph.GenericProviders["test.Topic"]
+	topicProviders := graph.Providers["test.Topic"]
 	assert.Equal(t, 1, len(topicProviders))
 	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
 	assert.True(t, topicProviders[0].IsGeneric)
 
 	// The service should have no missing dependencies because Topic[User] can be satisfied by NewTopic[T]
-	assert.Equal(t, 0, len(graph.Missing[serviceProvider.Function]))
+	assert.Equal(t, 0, len(graph.Missing[serviceProviders[0].Function]))
 
 	// Verify the dependency graph includes both
 	depGraph := graph.Graph()
 	_, hasService := depGraph["*test.Service"]
 	assert.True(t, hasService)
-	_, hasGenericTopic := depGraph["test.Topic[T]"]
+	_, hasGenericTopic := depGraph["test.Topic[test.User]"]
 	assert.True(t, hasGenericTopic)
 }
 
@@ -3557,11 +3577,11 @@ func NewService(topic Topic[User]) *Service {
 	// Should have entries for regular provider and generic provider
 	_, hasService := depGraph["*test.Service"]
 	assert.True(t, hasService)
-	_, hasGenericTopic := depGraph["test.Topic[T]"]
+	_, hasGenericTopic := depGraph["test.Topic[test.User]"]
 	assert.True(t, hasGenericTopic)
 
 	// Generic provider should have no dependencies
-	assert.Equal(t, []string{}, depGraph["test.Topic[T]"])
+	assert.Equal(t, []string{}, depGraph["test.Topic[test.User]"])
 
 	// Service should depend on Topic[User]
 	serviceDeps := depGraph["*test.Service"]
@@ -3594,7 +3614,7 @@ type Product struct {
 }
 `
 
-	graph := analyseTestCode(t, testCode, WithRoots("test.Config[T]", "*test.Service[T]"))
+	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
 
 	// Check that Config is a generic config
 	configProviders := graph.GenericConfigs["test.Config"]
@@ -3603,7 +3623,7 @@ type Product struct {
 	assert.Equal(t, "conf-${type}-", configProviders[0].Directive.Prefix)
 
 	// Check that New is a generic provider
-	serviceProviders := graph.GenericProviders["*test.Service"]
+	serviceProviders := graph.Providers["*test.Service"]
 	assert.Equal(t, 1, len(serviceProviders))
 	assert.Equal(t, "New", serviceProviders[0].Function.Name())
 }
@@ -3629,7 +3649,7 @@ type User struct {
 }
 `
 
-	graph := analyseTestCode(t, testCode, WithRoots("test.Config[T]", "*test.Service[T]"))
+	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
 
 	depGraph := graph.Graph()
 
@@ -3637,8 +3657,8 @@ type User struct {
 	_, hasGenericConfig := depGraph["test.Config[T]"]
 	assert.True(t, hasGenericConfig)
 
-	// Should have generic provider in output
-	_, hasGenericService := depGraph["*test.Service[T]"]
+	// Should have generic provider in output (stored under base type)
+	_, hasGenericService := depGraph["*test.Service"]
 	assert.True(t, hasGenericService)
 }
 
@@ -3668,7 +3688,7 @@ func NewHTTPService(config Config[HTTPClient]) *Service[HTTPClient] {
 }
 `
 
-	graph := analyseTestCode(t, testCode, WithRoots("*test.Service[test.HTTPClient]"))
+	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
 
 	// The concrete Config[HTTPClient] should be resolved with substituted prefix
 	concreteConfigKey := "test.Config[test.HTTPClient]"

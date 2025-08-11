@@ -1,5 +1,5 @@
 resolve = [
   "github.com/alecthomas/zero/providers/leases.NewSQLLeaser",
-  # "github.com/alecthomas/zero/providers/pubsub/postgres.New",
+  "github.com/alecthomas/zero/providers/pubsub/postgres.New",
 ]
 chdir = "./_examples/service"

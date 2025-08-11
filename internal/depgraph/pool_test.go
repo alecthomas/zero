@@ -20,7 +20,7 @@ type Env struct {
 }
 
 func NewEnv(zeroDir, dir string) Env {
-	err := os.MkdirAll(dir, 0755)
+	err := os.MkdirAll(dir, 0750)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -66,6 +66,7 @@ func TestMain(m *testing.M) {
 
 // Prepare a new test environment, returning the path.
 func (p *Pool) Prepare(t *testing.T, main string) string {
+	t.Helper()
 	env := <-p.available
 	t.Cleanup(func() { p.Return(t, env) })
 	err := os.WriteFile(filepath.Join(env.dir, "main.go"), []byte(main), 0600)
@@ -75,6 +76,7 @@ func (p *Pool) Prepare(t *testing.T, main string) string {
 
 // Return a test environment to the pool.
 func (p *Pool) Return(t *testing.T, env Env) {
+	t.Helper()
 	err := os.Remove(filepath.Join(env.dir, "main.go"))
 	assert.NoError(t, err)
 	p.available <- env

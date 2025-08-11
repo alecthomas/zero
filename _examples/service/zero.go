@@ -11,6 +11,7 @@ import (
   "golang.org/x/sync/errgroup"
   imp31feb4b39618eab1 "github.com/alecthomas/zero/providers/logging"
   imp3773070ca4e7a2b8 "github.com/alecthomas/zero/providers/http"
+  imp57144815321973d3 "github.com/alecthomas/zero/providers/pubsub"
   imp71bef56b62085424 "github.com/alecthomas/zero/providers/cron"
   imp897f1a742b20547b "github.com/alecthomas/zero/providers/pubsub/postgres"
   imp9b258f273adc01df "github.com/alecthomas/zero/providers/leases"
@@ -26,6 +27,7 @@ import (
 type ZeroConfig struct {
 	Configcb396d0960e493ec imp3773070ca4e7a2b8.Config `embed:"" prefix:"server-"`
 	Configef92e6d1a86c2c7f imp31feb4b39618eab1.Config `embed:"" prefix:"log-"`
+	Configfaa7eb6ade59c634 imp897f1a742b20547b.Config[UserCreatedEvent] `embed:"" prefix:"topic-user-created-event-"`
 	Config6fab5aa5f9534d38 impc24ab568b6f3f934.Config `embed:"" prefix:"sql-"`
 }
 
@@ -73,12 +75,12 @@ func RegisterHandlers(ctx context.Context, injector *Injector) error {
 	// Parameters for the Authenticate middleware
 	m0p0 := "admin"
 	mux.Handle("POST /users", Authenticate(m0p0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p0, err := zero.DecodeRequest[User]("POST", r)
+		p1, err := zero.DecodeRequest[User]("POST", r)
 		if err != nil {
 			encodeError(logger, w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
 			return
 		}
-		herr := r0.CreateUser(p0)
+		herr := r0.CreateUser(r.Context(), p1)
 		encodeResponse(logger, r, w, encodeError, nil, herr)
 	})))
 	mux.Handle("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +171,12 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 	case reflect.TypeOf((*imp31feb4b39618eab1.Config)(nil)).Elem():
 		return any(injector.config.Configef92e6d1a86c2c7f).(T), nil
 
+	case reflect.TypeOf((**imp897f1a742b20547b.Config[UserCreatedEvent])(nil)).Elem(): // Handle pointer to config.
+		return any(&injector.config.Configfaa7eb6ade59c634).(T), nil
+
+	case reflect.TypeOf((*imp897f1a742b20547b.Config[UserCreatedEvent])(nil)).Elem():
+		return any(injector.config.Configfaa7eb6ade59c634).(T), nil
+
 	case reflect.TypeOf((**impc24ab568b6f3f934.Config)(nil)).Elem(): // Handle pointer to config.
 		return any(&injector.config.Config6fab5aa5f9534d38).(T), nil
 
@@ -215,7 +223,11 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 		if err != nil {
 			return out, err
 		}
-		o, err := NewService(p0, p1)
+		p2, err := ZeroConstructSingletons[imp57144815321973d3.Topic[UserCreatedEvent]](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		o, err := NewService(p0, p1, p2)
 		if err != nil {
 			return out, fmt.Errorf("*Service: %w", err)
 		}
@@ -235,6 +247,25 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 			return out, err
 		}
 		o := imp71bef56b62085424.NewScheduler(p0, p1, p2)
+		return any(o).(T), nil
+
+	case reflect.TypeOf((**imp897f1a742b20547b.Listener)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		p2, err := ZeroConstructSingletons[*sql.DB](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		o, err := imp897f1a742b20547b.NewListener(p0, p1, p2)
+		if err != nil {
+			return out, fmt.Errorf("*imp897f1a742b20547b.Listener: %w", err)
+		}
 		return any(o).(T), nil
 
 	case reflect.TypeOf((**slog.Logger)(nil)).Elem():
@@ -297,6 +328,33 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 		o, err := imp9b258f273adc01df.NewSQLLeaser(p0, p1, p2, p3)
 		if err != nil {
 			return out, fmt.Errorf("imp9b258f273adc01df.Leaser: %w", err)
+		}
+		return any(o).(T), nil
+
+	case reflect.TypeOf((*imp57144815321973d3.Topic[UserCreatedEvent])(nil)).Elem():
+		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		p2, err := ZeroConstructSingletons[*imp897f1a742b20547b.Listener](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		p3, err := ZeroConstructSingletons[*sql.DB](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		p4, err := ZeroConstructSingletons[imp897f1a742b20547b.Config[UserCreatedEvent]](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		o, err := imp897f1a742b20547b.New[UserCreatedEvent](p0, p1, p2, p3, p4)
+		if err != nil {
+			return out, fmt.Errorf("imp57144815321973d3.Topic[UserCreatedEvent]: %w", err)
 		}
 		return any(o).(T), nil
 

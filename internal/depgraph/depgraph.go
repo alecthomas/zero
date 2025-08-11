@@ -464,32 +464,28 @@ func WithTags(tags ...string) Option {
 }
 
 type Graph struct {
-	Dest             *types.Package
-	Providers        map[string]*Provider
-	MultiProviders   map[string][]*Provider // Multiple providers for multi types
-	GenericProviders map[string][]*Provider // Generic providers by base type name
-	Configs          map[string]*Config
-	GenericConfigs   map[string][]*Config // Generic configs by base type name
-	APIs             []*API
-	CronJobs         []*CronJob
-	Subscriptions    []*Subscription
-	Middleware       []*Middleware
-	Missing          map[*types.Func][]types.Type
+	Dest           *types.Package
+	Providers      map[string][]*Provider // All providers including multi and generic
+	Configs        map[string]*Config
+	GenericConfigs map[string][]*Config // Generic configs by base type name
+	APIs           []*API
+	CronJobs       []*CronJob
+	Subscriptions  []*Subscription
+	Middleware     []*Middleware
+	Missing        map[*types.Func][]types.Type
 }
 
 // Analyse statically loads Go packages, then analyses them for //zero:... annotations in order to build the
 // Zero's dependency injection graph.
 func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error) {
 	graph := &Graph{
-		Providers:        make(map[string]*Provider),
-		MultiProviders:   make(map[string][]*Provider),
-		GenericProviders: make(map[string][]*Provider),
-		Configs:          make(map[string]*Config),
-		GenericConfigs:   make(map[string][]*Config),
-		APIs:             make([]*API, 0),
-		CronJobs:         make([]*CronJob, 0),
-		Middleware:       make([]*Middleware, 0),
-		Missing:          make(map[*types.Func][]types.Type),
+		Providers:      make(map[string][]*Provider),
+		Configs:        make(map[string]*Config),
+		GenericConfigs: make(map[string][]*Config),
+		APIs:           make([]*API, 0),
+		CronJobs:       make([]*CronJob, 0),
+		Middleware:     make([]*Middleware, 0),
+		Missing:        make(map[*types.Func][]types.Type),
 	}
 	opts := &graphOptions{}
 	for _, opt := range options {
@@ -605,7 +601,7 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		opts.roots = append(opts.roots, "*github.com/alecthomas/zero/providers/cron.Scheduler")
 	}
 	if len(graph.Subscriptions) > 0 {
-		opts.roots = append(opts.roots, "github.com/alecthomas/zero/providers/pubsub.Topic[T]")
+		opts.roots = append(opts.roots, "github.com/alecthomas/zero/providers/pubsub.Topic")
 	}
 
 	if err := pruneUnreferencedTypes(graph, opts.roots, providers, opts.pick); err != nil {
@@ -743,16 +739,13 @@ func (g *Graph) ImportAlias(pkg string) string {
 
 // GetProviders returns all providers for a given type (both single and multi).
 func (g *Graph) GetProviders(typeStr string) []*Provider {
-	if multiProviders, exists := g.MultiProviders[typeStr]; exists {
-		return multiProviders
-	}
-	if provider, exists := g.Providers[typeStr]; exists {
-		return []*Provider{provider}
+	if providers, exists := g.Providers[typeStr]; exists {
+		return providers
 	}
 
 	// Check generic providers by base type
 	baseType := getBaseTypeNameFromString(typeStr)
-	if genericProviders, exists := g.GenericProviders[baseType]; exists {
+	if genericProviders, exists := g.Providers[baseType]; exists {
 		return genericProviders
 	}
 
@@ -764,18 +757,8 @@ func (g *Graph) GetProviders(typeStr string) []*Provider {
 func (g *Graph) Graph() map[string][]string {
 	result := make(map[string][]string)
 
-	// Add providers and their dependencies
-	for typeStr, provider := range g.Providers {
-		deps := make([]string, 0, len(provider.Requires))
-		for _, reqType := range provider.Requires {
-			depTypeStr := types.TypeString(reqType, types.RelativeTo(g.Dest))
-			deps = append(deps, depTypeStr)
-		}
-		result[typeStr] = deps
-	}
-
-	// Add multi-providers and their dependencies
-	for typeStr, providers := range g.MultiProviders {
+	// Add all providers and their dependencies
+	for typeStr, providers := range g.Providers {
 		deps := make([]string, 0)
 		for _, provider := range providers {
 			for _, reqType := range provider.Requires {
@@ -784,20 +767,6 @@ func (g *Graph) Graph() map[string][]string {
 			}
 		}
 		result[typeStr] = deps
-	}
-
-	// Add generic providers and their dependencies
-	for baseType, providers := range g.GenericProviders {
-		for _, provider := range providers {
-			deps := make([]string, 0, len(provider.Requires))
-			for _, reqType := range provider.Requires {
-				depTypeStr := types.TypeString(reqType, types.RelativeTo(g.Dest))
-				deps = append(deps, depTypeStr)
-			}
-			// Use a key that indicates this is a generic provider
-			key := baseType + "[T]"
-			result[key] = deps
-		}
 	}
 
 	// Add configs (they have no dependencies)
@@ -925,7 +894,7 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 						if provider.IsGeneric {
 							// For generic providers, store by base type name
 							baseType := getBaseTypeName(provider.Provides)
-							graph.GenericProviders[baseType] = append(graph.GenericProviders[baseType], provider)
+							providers[baseType] = append(providers[baseType], provider)
 						} else {
 							key := types.TypeString(provider.Provides, nil)
 							providers[key] = append(providers[key], provider)
@@ -1612,35 +1581,11 @@ func findMissingDependencies(graph *Graph) {
 	for key := range graph.Providers {
 		provided[key] = true
 	}
-	for key := range graph.MultiProviders {
-		provided[key] = true
-	}
 	for key := range graph.Configs {
 		provided[key] = true
 	}
 
-	for _, provider := range graph.Providers {
-		for _, required := range provider.Requires {
-			key := types.TypeString(required, nil)
-			if !provided[key] && !isProvidedByConfig(required, graph) && !canBeProvidedByGeneric(required, graph) {
-				// Check for duplicates before adding
-				existing := graph.Missing[provider.Function]
-				isDuplicate := false
-				for _, existingType := range existing {
-					if types.Identical(existingType, required) {
-						isDuplicate = true
-						break
-					}
-				}
-				if !isDuplicate {
-					graph.Missing[provider.Function] = append(graph.Missing[provider.Function], required)
-				}
-			}
-		}
-	}
-
-	// Check dependencies for multi-providers
-	for _, providers := range graph.MultiProviders {
+	for _, providers := range graph.Providers {
 		for _, provider := range providers {
 			for _, required := range provider.Requires {
 				key := types.TypeString(required, nil)
@@ -1857,12 +1802,23 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 			toProcess = append(toProcess, eventTypeStr)
 		}
 	}
+	ambiguousProviders := map[string][]*Provider{}
 
-	// Create concrete topic providers for subscriptions
+	// Transfer all generic providers to the graph immediately so they can be resolved when needed
+	for key, providerList := range providers {
+		for _, p := range providerList {
+			if p.IsGeneric {
+				// Store generic providers under their base type key for lookup
+				graph.Providers[key] = append(graph.Providers[key], p)
+			}
+		}
+	}
+
+	// Create concrete topic providers for subscriptions (after generic providers are transferred)
 	for _, subscription := range graph.Subscriptions {
 		if subscription.TopicType != nil {
 			baseType := "github.com/alecthomas/zero/providers/pubsub.Topic"
-			if genericProviders, exists := graph.GenericProviders[baseType]; exists && len(genericProviders) > 0 {
+			if genericProviders, exists := graph.Providers[baseType]; exists && len(genericProviders) > 0 {
 				// Find the pubsub.Topic generic type
 				var pubsubTopicType *types.Named
 				for _, provider := range genericProviders {
@@ -1894,8 +1850,13 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 							resolvedProvider := resolveGenericProviderWithType(graph, topicType, pick)
 							if resolvedProvider != nil {
 								// Add the concrete provider to the graph
-								graph.Providers[topicTypeStr] = resolvedProvider
-								referenced[topicTypeStr] = true
+								concreteTypeKey := types.TypeString(resolvedProvider.Provides, nil)
+								graph.Providers[concreteTypeKey] = []*Provider{resolvedProvider}
+								referenced[concreteTypeKey] = true
+
+								// Also mark the base generic provider as referenced so it's not pruned
+								baseType := "github.com/alecthomas/zero/providers/pubsub.Topic"
+								referenced[baseType] = true
 
 								// Add its requirements to be processed
 								for _, required := range resolvedProvider.Requires {
@@ -1911,7 +1872,6 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 			}
 		}
 	}
-	ambiguousProviders := map[string][]*Provider{}
 
 	// Build function name to provider mapping for directive requirements
 	// Key is "package.path/functionName" to ensure same-package requirements
@@ -1972,7 +1932,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 					includedProviders = providers
 				}
 
-				graph.MultiProviders[current] = includedProviders
+				graph.Providers[current] = includedProviders
 				for _, p := range includedProviders {
 					for _, required := range p.Requires {
 						requiredKey := types.TypeString(required, nil)
@@ -1997,7 +1957,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 				if provider == nil {
 					ambiguousProviders[current] = providers
 				} else {
-					graph.Providers[types.TypeString(provider.Provides, nil)] = provider
+					graph.Providers[types.TypeString(provider.Provides, nil)] = []*Provider{provider}
 					for _, required := range provider.Requires {
 						requiredKey := types.TypeString(required, nil)
 						if !referenced[requiredKey] {
@@ -2021,34 +1981,20 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 			// Check if this type can be provided by a generic provider
 			// First find the actual type object
 			var concreteType types.Type
-			for _, provider := range graph.Providers {
-				for _, req := range provider.Requires {
-					if types.TypeString(req, nil) == current {
-						concreteType = req
-						break
-					}
-				}
-				if concreteType != nil {
-					break
-				}
-			}
-			// Also check multi-providers
-			if concreteType == nil {
-				for _, providers := range graph.MultiProviders {
-					for _, provider := range providers {
-						for _, req := range provider.Requires {
-							if types.TypeString(req, nil) == current {
-								concreteType = req
-								break
-							}
-						}
-						if concreteType != nil {
+			for _, providers := range graph.Providers {
+				for _, provider := range providers {
+					for _, req := range provider.Requires {
+						if types.TypeString(req, nil) == current {
+							concreteType = req
 							break
 						}
 					}
 					if concreteType != nil {
 						break
 					}
+				}
+				if concreteType != nil {
+					break
 				}
 			}
 			// Also check APIs
@@ -2081,7 +2027,13 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 			if concreteType != nil {
 				if resolvedProvider := resolveGenericProviderWithType(graph, concreteType, pick); resolvedProvider != nil {
 					// Add the resolved generic provider as a concrete provider
-					graph.Providers[current] = resolvedProvider
+					concreteTypeKey := types.TypeString(resolvedProvider.Provides, nil)
+					graph.Providers[concreteTypeKey] = []*Provider{resolvedProvider}
+					referenced[concreteTypeKey] = true
+
+					// Also mark the base generic provider as referenced so it's not pruned
+					baseType := getBaseTypeName(concreteType)
+					referenced[baseType] = true
 
 					// Add the generic provider's dependencies to processing queue
 					for _, required := range resolvedProvider.Requires {
@@ -2107,7 +2059,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 				} else {
 					// Check if there are ambiguous generic providers
 					baseType := getBaseTypeName(concreteType)
-					if genericProviders, exists := graph.GenericProviders[baseType]; exists && len(genericProviders) > 0 {
+					if genericProviders, exists := graph.Providers[baseType]; exists && len(genericProviders) > 0 {
 						// Filter to providers that can actually provide this concrete type
 						validProviders := make([]*Provider, 0)
 						for _, genericProvider := range genericProviders {
@@ -2147,10 +2099,10 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 		}
 	}
 
-	// Remove unreferenced multi-providers
-	for key := range graph.MultiProviders {
+	// Remove unreferenced providers
+	for key := range graph.Providers {
 		if !referenced[key] {
-			delete(graph.MultiProviders, key)
+			delete(graph.Providers, key)
 		}
 	}
 
@@ -2347,7 +2299,7 @@ func canBeProvidedByGeneric(requiredType types.Type, graph *Graph) bool { //noli
 	baseType := getBaseTypeName(requiredType)
 
 	// Check if we have generic providers for this base type
-	providers, exists := graph.GenericProviders[baseType]
+	providers, exists := graph.Providers[baseType]
 	if !exists || len(providers) == 0 {
 		return false
 	}
@@ -2383,7 +2335,7 @@ func canBeProvidedByGeneric(requiredType types.Type, graph *Graph) bool { //noli
 // applying the same weak provider logic as regular providers
 func resolveGenericProviderWithType(graph *Graph, concreteType types.Type, pick []string) *Provider {
 	baseType := getBaseTypeName(concreteType)
-	genericProviders, exists := graph.GenericProviders[baseType]
+	genericProviders, exists := graph.Providers[baseType]
 	if !exists || len(genericProviders) == 0 {
 		return nil
 	}
@@ -2703,16 +2655,14 @@ func checkForMissingRoots(graph *Graph, roots []string) error {
 		config := configs[0]
 		collected[normaliseType(config.Type)] = true
 	}
-	for key := range graph.Providers {
-		collected[key] = true
-	}
-	for key := range graph.MultiProviders {
-		collected[key] = true
-	}
-	for _, providers := range graph.GenericProviders {
-		// TODO: add materialised types?
-		provider := providers[0]
-		collected[normaliseType(provider.Provides)] = true
+	for key, providers := range graph.Providers {
+		for _, provider := range providers {
+			collected[normaliseType(provider.Provides)] = true
+			// For generic providers, also add the base type key
+			if provider.IsGeneric {
+				collected[key] = true
+			}
+		}
 	}
 
 	for _, root := range roots {
@@ -2730,15 +2680,7 @@ func checkForMissingProviders(graph *Graph, pick []string) error {
 
 	collected := map[string]bool{}
 	// Collect all provider function names
-	for _, provider := range graph.Providers {
-		collected[provider.Function.FullName()] = true
-	}
-	for _, providers := range graph.MultiProviders {
-		for _, provider := range providers {
-			collected[provider.Function.FullName()] = true
-		}
-	}
-	for _, providers := range graph.GenericProviders {
+	for _, providers := range graph.Providers {
 		for _, provider := range providers {
 			collected[provider.Function.FullName()] = true
 		}
@@ -2780,6 +2722,12 @@ func normaliseType(t types.Type) string {
 			return t.Obj().Pkg().Path() + "." + t.Obj().Name() + tp
 		}
 		return t.Obj().Name() + tp
+
+	case *types.Map:
+		return "map[" + normaliseType(t.Key()) + "]" + normaliseType(t.Elem())
+
+	case *types.Slice:
+		return "[]" + normaliseType(t.Elem())
 
 	default:
 		panic(fmt.Sprintf("unknown type %T", t))

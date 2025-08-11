@@ -343,21 +343,34 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.W("\n")
 		}
 
-		for _, provider := range stableMapIter(graph.Providers) {
-			ref := graph.TypeRef(provider.Provides)
-			w.Import(ref.Import)
-			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
-			w.In(func(w *codewriter.Writer) {
-				writeProviderCall(w, graph, provider, "p", "o")
-				w.L("return any(o).(T), nil")
-			})
-			w.W("\n")
-		}
-
-		for _, providers := range stableMapIter(graph.MultiProviders) {
+		for _, providers := range stableMapIter(graph.Providers) {
 			if len(providers) == 0 {
 				continue
 			}
+
+			// Skip base generic providers - only generate code for concrete types
+			if len(providers) > 0 && providers[0].IsGeneric {
+				// Check if this is a base generic provider (stored for lookup only)
+				firstProviderType := types.TypeString(providers[0].Provides, nil)
+				if strings.Contains(firstProviderType, "[T]") || strings.Contains(firstProviderType, "[T ") {
+					continue // Skip base generic providers
+				}
+			}
+
+			// For single providers, generate direct case
+			if len(providers) == 1 {
+				provider := providers[0]
+				ref := graph.TypeRef(provider.Provides)
+				w.Import(ref.Import)
+				w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
+				w.In(func(w *codewriter.Writer) {
+					writeProviderCall(w, graph, provider, "p", "o")
+					w.L("return any(o).(T), nil")
+				})
+				w.W("\n")
+				continue
+			}
+			// For multi-providers, handle as before
 			ref := graph.TypeRef(providers[0].Provides)
 			w.Import(ref.Import)
 			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)

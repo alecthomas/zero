@@ -115,15 +115,15 @@ func TestMultiProvider(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check that multi-providers are detected
-	assert.True(t, len(graph.MultiProviders) > 0, "Should have multi-providers")
+	assert.True(t, len(graph.Providers) > 0, "Should have providers")
 
 	// Verify map multi-providers
-	mapProviders, exists := graph.MultiProviders["map[string]int"]
+	mapProviders, exists := graph.Providers["map[string]int"]
 	assert.True(t, exists, "Should have map[string]int multi-providers")
 	assert.Equal(t, 2, len(mapProviders), "Should have 2 map providers")
 
 	// Verify slice multi-providers
-	sliceProviders, exists := graph.MultiProviders["[]string"]
+	sliceProviders, exists := graph.Providers["[]string"]
 	assert.True(t, exists, "Should have []string multi-providers")
 	assert.Equal(t, 2, len(sliceProviders), "Should have 2 slice providers")
 
@@ -328,21 +328,24 @@ func main() {}
 	graph, err := depgraph.Analyse(t.Context(), ".", depgraph.WithRoots("*test.Service"))
 	assert.NoError(t, err)
 
-	// Verify generic provider was detected
-	assert.Equal(t, []string{
-		"github.com/alecthomas/zero/providers/pubsub.Topic",
+	// Verify providers were detected (Service + Topic base + resolved Topic[User])
+	expectedProviders := []string{
+		"*test.Service",
 		"test.Topic",
-	}, stableKeys(graph.GenericProviders), "Should have exactly one generic provider")
-	topicProviders := graph.GenericProviders["test.Topic"]
+		"test.Topic[test.User]",
+	}
+	assert.Equal(t, expectedProviders, stableKeys(graph.Providers), "Should have Service provider, base generic provider, and resolved generic provider")
+
+	// Verify the Topic generic provider
+	topicProviders := graph.Providers["test.Topic"]
 	assert.Equal(t, 1, len(topicProviders), "Should have one Topic generic provider")
 	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
 	assert.True(t, topicProviders[0].IsGeneric)
 
-	// Verify regular providers were detected (Service + resolved Topic[User])
-	assert.Equal(t, 2, len(graph.Providers), "Should have Service provider and resolved generic provider")
-	serviceProvider := graph.Providers["*test.Service"]
-	assert.NotZero(t, serviceProvider)
-	assert.Equal(t, "NewService", serviceProvider.Function.Name())
+	// Verify service provider
+	serviceProviders := graph.Providers["*test.Service"]
+	assert.True(t, len(serviceProviders) > 0)
+	assert.Equal(t, "NewService", serviceProviders[0].Function.Name())
 
 	// Verify no missing dependencies (generic provider should satisfy Topic[User])
 	assert.Equal(t, 0, len(graph.Missing), "Should have no missing dependencies")

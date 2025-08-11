@@ -63,14 +63,15 @@ func Authenticate(role string) func(next http.Handler) http.Handler {
 }
 
 type Service struct {
-	dal    *DAL
-	logger *slog.Logger
+	dal              *DAL
+	logger           *slog.Logger
+	userCreatedTopic pubsub.Topic[UserCreatedEvent]
 }
 
 //zero:provider
-func NewService(dal *DAL, logger *slog.Logger) (*Service, error) {
+func NewService(dal *DAL, logger *slog.Logger, userCreatedTopic pubsub.Topic[UserCreatedEvent]) (*Service, error) {
 	// Other initialisation
-	return &Service{dal: dal, logger: logger}, nil
+	return &Service{dal: dal, logger: logger, userCreatedTopic: userCreatedTopic}, nil
 }
 
 type User struct {
@@ -88,8 +89,14 @@ func (s *Service) ListUsers() ([]User, error) {
 }
 
 //zero:api POST /users authenticated role=admin
-func (s *Service) CreateUser(user User) error {
-	return s.dal.CreateUser(user)
+func (s *Service) CreateUser(ctx context.Context, user User) error {
+	if err := s.dal.CreateUser(user); err != nil {
+		return err
+	}
+	if err := s.userCreatedTopic.Publish(ctx, pubsub.NewEvent(UserCreatedEvent(user))); err != nil {
+		return err
+	}
+	return nil
 }
 
 //zero:api GET /users/{id}
@@ -133,9 +140,9 @@ func main() {
 		kctx.Exit(0)
 	}
 
-	injector := NewInjector(ctx, cli.ZeroConfig)
-	_, err := ZeroConstructSingletons[pubsub.Topic[UserCreatedEvent]](ctx, injector)
+	// injector := NewInjector(ctx, cli.ZeroConfig)
+	// _, err := ZeroConstructSingletons[pubsub.Topic[UserCreatedEvent]](ctx, injector)
 
-	// err := Run(ctx, cli.ZeroConfig)
+	err := Run(ctx, cli.ZeroConfig)
 	kctx.FatalIfErrorf(err)
 }
