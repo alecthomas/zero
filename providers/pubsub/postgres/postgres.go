@@ -379,3 +379,14 @@ func (t *Topic[T]) Subscribe(ctx context.Context, handler func(context.Context, 
 	t.subscribers = append(t.subscribers, handler)
 	return nil
 }
+
+func (t *Topic[T]) RetryDeadLetter(ctx context.Context, cloudeventsID string) error {
+	success, err := t.queries.RetryDeadLetterEvent(ctx, cloudeventsID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to retry dead letter event %s", cloudeventsID)
+	}
+	if !success {
+		return errors.Errorf("event %s not found or not in dead letter queue", cloudeventsID)
+	}
+	return nil
+}

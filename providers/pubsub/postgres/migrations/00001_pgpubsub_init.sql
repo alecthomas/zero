@@ -378,3 +378,37 @@ BEGIN
   RETURN v_row_count > 0;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Function to retry a dead-lettered event by clearing its retry state and returning it to pending
+CREATE OR REPLACE FUNCTION pubsub_retry_dead_letter_event(p_cloudevents_id VARCHAR(64))
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_event_id BIGINT;
+  v_event_exists BOOLEAN;
+  v_row_count BIGINT;
+BEGIN
+  -- Find the event ID and check if it exists and is in failed state with a dead letter entry
+  SELECT e.id INTO v_event_id
+  FROM pubsub_events e
+  JOIN pubsub_dead_letters dl ON e.id = dl.event_id
+  WHERE e.cloudevents_id = p_cloudevents_id AND e.state = 'failed';
+
+  IF v_event_id IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  -- Remove from dead letter queue
+  DELETE FROM pubsub_dead_letters WHERE event_id = v_event_id;
+
+  -- Clear any retry records
+  DELETE FROM pubsub_retries WHERE event_id = v_event_id;
+
+  -- Move event back to pending state
+  UPDATE pubsub_events
+  SET state = 'pending'
+  WHERE id = v_event_id;
+
+  GET DIAGNOSTICS v_row_count = ROW_COUNT;
+  RETURN v_row_count > 0;
+END;
+$$ LANGUAGE plpgsql;

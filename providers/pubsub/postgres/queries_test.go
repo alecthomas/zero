@@ -699,3 +699,94 @@ func TestClearStuckEventsNoMatches(t *testing.T) {
 	assert.Equal(t, int64(1), stats.ActiveCount)
 	assert.Equal(t, int64(0), stats.StuckCount) // Recent event should not be stuck
 }
+
+func TestRetryDeadLetterEvent(t *testing.T) {
+	t.Parallel()
+	db, _ := sqltest.NewForTesting(t, sqltest.PostgresDSN, Migrations())
+	queries := internal.New(db)
+	ctx := context.Background()
+
+	tests := []struct {
+		name            string
+		dlqEnabled      bool
+		setupDeadLetter bool
+		expectSuccess   bool
+	}{
+		{
+			name:            "RetryDeadLetteredEventSuccess",
+			dlqEnabled:      true,
+			setupDeadLetter: true,
+			expectSuccess:   true,
+		},
+		{
+			name:            "RetryNonExistentEvent",
+			dlqEnabled:      true,
+			setupDeadLetter: false,
+			expectSuccess:   false,
+		},
+		{
+			name:            "RetryEventWithoutDLQ",
+			dlqEnabled:      false,
+			setupDeadLetter: false,
+			expectSuccess:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Create topic with DLQ configuration
+			topic, err := queries.CreateTopic(ctx, internal.CreateTopicParams{
+				Name:              "retry-dlq-topic-" + tt.name,
+				MaxRetries:        0, // No retries to force dead lettering
+				InitialBackoff:    internal.Duration(time.Minute),
+				BackoffMax:        internal.Duration(5 * time.Minute),
+				BackoffMultiplier: 2.0,
+				DlqEnabled:        tt.dlqEnabled,
+				DlqMaxAge:         internal.Duration(7 * 24 * time.Hour),
+			})
+			assert.NoError(t, err)
+
+			cloudEventsID := "retry-test-event-" + tt.name
+			var eventID int64
+
+			if tt.setupDeadLetter {
+				// Publish and claim event
+				eventID, err = queries.PublishEvent(ctx, topic.ID, cloudEventsID, json.RawMessage(`{"test": "data"}`), json.RawMessage(`{"header": "value"}`))
+				assert.NoError(t, err)
+
+				_, err = queries.ClaimNextEvent(ctx, topic.ID)
+				assert.NoError(t, err)
+
+				// Fail the event to send it to dead letter queue
+				action, err := queries.FailEvent(ctx, eventID, "test error for dead lettering")
+				assert.NoError(t, err)
+				if tt.dlqEnabled {
+					assert.Equal(t, internal.PubsubFailActionDeadLettered, action)
+				} else {
+					assert.Equal(t, internal.PubsubFailActionFailed, action)
+				}
+			}
+
+			// Try to retry the dead letter event
+			success, err := queries.RetryDeadLetterEvent(ctx, cloudEventsID)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectSuccess, success)
+
+			if tt.expectSuccess {
+				// Verify event is back in pending state
+				stats, err := queries.GetEventStats(ctx, internal.Duration(5*time.Minute), topic.ID)
+				assert.NoError(t, err)
+				assert.Equal(t, int64(1), stats.PendingCount)
+				assert.Equal(t, int64(0), stats.FailedCount)
+				assert.Equal(t, int64(0), stats.DeadLetterCount)
+
+				// Verify we can claim and process the event again
+				event, err := queries.ClaimNextEvent(ctx, topic.ID)
+				assert.NoError(t, err)
+				assert.Equal(t, cloudEventsID, event.CloudeventsID)
+				assert.Equal(t, internal.PubsubEventStateActive, event.State)
+			}
+		})
+	}
+}

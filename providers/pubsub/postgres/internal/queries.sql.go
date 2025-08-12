@@ -284,3 +284,16 @@ func (q *Queries) PublishEvent(ctx context.Context, topicID int64, cloudeventsID
 	err := row.Scan(&event_id)
 	return event_id, err
 }
+
+const retryDeadLetterEvent = `-- name: RetryDeadLetterEvent :one
+SELECT pubsub_retry_dead_letter_event($1) as success
+`
+
+// RetryDeadLetterEvent clears the retry state for a dead-lettered event and returns it to pending state.
+// This allows failed events to be retried by removing them from the dead letter queue and resetting their state.
+func (q *Queries) RetryDeadLetterEvent(ctx context.Context, cloudeventsID string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, retryDeadLetterEvent, cloudeventsID)
+	var success bool
+	err := row.Scan(&success)
+	return success, err
+}

@@ -96,3 +96,8 @@ SELECT pubsub_dead_letter_event(sqlc.arg(event_id), sqlc.arg(error_message)) as 
 -- This is useful for cleanup operations or when events should be permanently removed.
 -- name: DeleteEvent :one
 SELECT pubsub_delete_event(sqlc.arg(event_id)) as success;
+
+-- RetryDeadLetterEvent clears the retry state for a dead-lettered event and returns it to pending state.
+-- This allows failed events to be retried by removing them from the dead letter queue and resetting their state.
+-- name: RetryDeadLetterEvent :one
+SELECT pubsub_retry_dead_letter_event(sqlc.arg(cloudevents_id)) as success;
