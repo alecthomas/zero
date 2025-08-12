@@ -1,0 +1,209 @@
+{{define "navigationItem"}}
+  {{if .Children}}
+    <li>
+      <a class="has-text-white" onclick="toggleSubmenu(this)" style="cursor: pointer;">
+        <span class="icon">
+          <i class="fas fa-{{.Detail.Icon}}"></i>
+        </span>
+        <span>{{.Detail.Title}}</span>
+        <span class="icon is-small is-pulled-right">
+          <i class="fas fa-chevron-down submenu-arrow"></i>
+        </span>
+      </a>
+      <ul class="menu-list is-hidden" data-submenu="{{.Detail.Slug}}">
+        {{range .Children}}
+          <li>
+            <a href="/_admin/{{.Detail.Slug}}" class="has-text-white-ter" onclick="setActiveItem(this)">
+              <span class="icon">
+                <i class="fas fa-{{.Detail.Icon}}"></i>
+              </span>
+              <span>{{.Detail.Title}}</span>
+            </a>
+          </li>
+        {{end}}
+      </ul>
+    </li>
+  {{else}}
+    <li>
+      <a href="/_admin/{{.Detail.Slug}}" class="has-text-white" onclick="setActiveItem(this)">
+        <span class="icon">
+          <i class="fas fa-{{.Detail.Icon}}"></i>
+        </span>
+        <span>{{.Detail.Title}}</span>
+      </a>
+    </li>
+  {{end}}
+{{end}}
+
+{{define "sidebar"}}
+  <div class="column is-narrow">
+    <aside class="menu has-background-dark has-text-white" style="min-height: 100vh; width: 250px; padding: 1rem;">
+      <div class="mb-4">
+        <a class="menu-label has-text-white has-text-weight-bold is-size-5" href="/_admin/">
+          <span class="icon">
+            <i class="fas fa-cog"></i>
+          </span>
+          Zero Admin
+        </a>
+      </div>
+      <ul class="menu-list">
+        {{range .Components}}
+          {{template "navigationItem" .}}
+        {{end}}
+      </ul>
+    </aside>
+  </div>
+{{end}}
+
+{{define "welcome"}}
+  <div class="container is-fluid">
+    <div class="section">
+      <div class="has-text-centered">
+        <h1 class="title">Dashboard</h1>
+        <h2 class="subtitle">Welcome to the Zero Admin Dashboard</h2>
+        <div class="content">
+          <p class="icon is-large has-text-grey-light">
+            <i class="fas fa-th" style="font-size: 4rem;"></i>
+          </p>
+        </div>
+        <!-- <h3 class="title is-5 has-text-grey">Select a component from the sidebar to get started</h3> -->
+        <p class="has-text-grey">Choose from the available dashboard components on the left to view and manage your application.</p>
+      </div>
+    </div>
+  </div>
+{{end}}
+
+{{define "errorContent"}}
+  <div class="container is-fluid">
+    <div class="section">
+      <div class="notification is-danger">
+        <h1 class="title is-4 has-text-white">
+          <span class="icon">
+            <i class="fas fa-exclamation-triangle"></i>
+          </span>
+          Error Loading Component
+        </h1>
+        <div class="content has-text-white">
+          <p><strong>Component:</strong> {{.SelectedComponent.Detail.Title}}</p>
+          <p><strong>Error:</strong> {{.Error.Error}}</p>
+          <p class="is-size-7">Please check the component implementation or contact your administrator.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+{{end}}
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Zero Admin Dashboard</title>
+    <!-- Bulma CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css"/>
+    <!-- Font Awesome 5 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"/>
+    <style>
+      /* Custom styles for better integration */
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      .menu-list a:hover {
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        color: white !important;
+      }
+
+      .menu-list a.is-active {
+        background-color: hsl(204, 86%, 53%) !important;
+        color: white !important;
+      }
+
+      .submenu-arrow {
+        transition: transform 0.3s ease;
+      }
+
+      .submenu-arrow.is-rotated {
+        transform: rotate(180deg);
+      }
+
+      /* Sidebar scrolling */
+      aside.menu {
+        overflow-y: auto;
+        height: 100vh;
+        position: sticky;
+        top: 0;
+      }
+
+      /* Make sidebar darker */
+      .has-background-dark {
+        background-color: #2b2b2b !important;
+      }
+
+      /* Icon alignment */
+      .menu-list .icon {
+        margin-right: 0.5rem;
+        width: auto;
+      }
+
+      /* Nested menu styling */
+      .menu-list ul {
+        margin: 0.5rem 0 0.5rem 1rem;
+        padding-left: 1rem;
+        border-left: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .menu-list ul a {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.875rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="columns is-gapless is-multiline">
+      {{template "sidebar" .}}
+      <div class="column">
+        <div class="pt-4">
+          {{if .Content}}
+            {{.Content}}
+          {{else}}
+            {{template "welcome" .}}
+          {{end}}
+        </div>
+      </div>
+    </div>
+    <script>
+      function toggleSubmenu(element) {
+        const arrow = element.querySelector('.submenu-arrow');
+        const submenu = element.parentElement.querySelector('[data-submenu]');
+
+        if (submenu) {
+          submenu.classList.toggle('is-hidden');
+          arrow.classList.toggle('is-rotated');
+        }
+      }
+
+      function setActiveItem(element) {
+        // Remove active class from all menu items
+        document.querySelectorAll('.menu-list a').forEach(item => {
+          item.classList.remove('is-active');
+        });
+
+        // Add active class to clicked item
+        element.classList.add('is-active');
+      }
+
+      // Initialize: set active item based on current URL
+      document.addEventListener('DOMContentLoaded', function() {
+        const currentPath = window.location.pathname;
+        const menuItems = document.querySelectorAll('.menu-list a[href]');
+
+        menuItems.forEach(item => {
+          if (item.getAttribute('href') === currentPath) {
+            item.classList.add('is-active');
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

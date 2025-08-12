@@ -12,6 +12,20 @@ import (
 	"github.com/alecthomas/zero/providers/logging"
 )
 
+// TODO: Fix middleware code generation.
+//zero:middleware
+// func LoggingMiddleware(logger *slog.Logger) zero.Middleware {
+// 	return func(next http.Handler) http.Handler {
+// 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 			start := time.Now()
+// 			defer func() {
+// 				logger.Debug("request", "method", r.Method, "path", r.URL.Path, "status", http.StatusOK, "duration", time.Since(start))
+// 			}()
+// 			next.ServeHTTP(w, r)
+// 		})
+// 	}
+// }
+
 // DefaultErrorEncoder for otherwise unhandled errors. It can be overridden.
 //
 // The response will be JSON in the form:

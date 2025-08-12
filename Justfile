@@ -22,3 +22,7 @@ release:
 # Run "go mod tidy" in all modules
 tidy:
   git ls-files | grep go.mod | xargs dirname | xargs -I {} go mod -C {} tidy
+
+# Run the exemplar with hot reload
+hotreload:
+  @reflex -d fancy -c reflex.conf

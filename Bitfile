@@ -1,0 +1,7 @@
+GO_SOURCES = %(go list -f '{{range .GoFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .EmbedFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}' ./...)%
+
+_examples/service/zero.go: %{GO_SOURCES}
+  build: zero
+
+providers/pubsub/postgres/internal/queries.sql.go providers/pubsub/postgres/internal/models.go: providers/pubsub/postgres/**/*.sql
+  build: sqlc generate

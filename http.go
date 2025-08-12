@@ -26,7 +26,7 @@ type ErrorEncoder func(logger *slog.Logger, w http.ResponseWriter, msg string, c
 type ResponseEncoder func(logger *slog.Logger, r *http.Request, w http.ResponseWriter, errorEncoder ErrorEncoder, data any, outErr error)
 
 // Middleware is a convenience type for Zero middleware.
-type Middleware func(http.Handler) http.Handler
+type Middleware func(next http.Handler) http.Handler
 
 // An APIError is an error that is also a http.Handler used to encode the error.
 //

@@ -412,3 +412,34 @@ BEGIN
   RETURN v_row_count > 0;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Function to delete a dead-lettered event by CloudEvents ID
+CREATE OR REPLACE FUNCTION pubsub_delete_dead_letter(p_cloudevents_id VARCHAR(64))
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_event_id BIGINT;
+  v_row_count BIGINT;
+BEGIN
+  -- Find the event ID and check if it exists and is in failed state with a dead letter entry
+  SELECT e.id INTO v_event_id
+  FROM pubsub_events e
+  JOIN pubsub_dead_letters dl ON e.id = dl.event_id
+  WHERE e.cloudevents_id = p_cloudevents_id AND e.state = 'failed';
+
+  IF v_event_id IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  -- Delete from dead letter queue
+  DELETE FROM pubsub_dead_letters WHERE event_id = v_event_id;
+
+  -- Clear any retry records
+  DELETE FROM pubsub_retries WHERE event_id = v_event_id;
+
+  -- Delete the event itself
+  DELETE FROM pubsub_events WHERE id = v_event_id;
+
+  GET DIAGNOSTICS v_row_count = ROW_COUNT;
+  RETURN v_row_count > 0;
+END;
+$$ LANGUAGE plpgsql;

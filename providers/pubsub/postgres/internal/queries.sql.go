@@ -27,14 +27,14 @@ FROM pubsub_claim_next_event($1)
 `
 
 type ClaimNextEventRow struct {
-	ID            int64
-	CreatedAt     time.Time
-	LastUpdated   time.Time
-	TopicID       int64
-	State         PubsubEventState
-	CloudeventsID string
-	Message       json.RawMessage
-	Headers       json.RawMessage
+	ID            int64            `json:"id"`
+	CreatedAt     time.Time        `json:"createdAt"`
+	LastUpdated   time.Time        `json:"lastUpdated"`
+	TopicID       int64            `json:"topicId"`
+	State         PubsubEventState `json:"state"`
+	CloudeventsID string           `json:"cloudeventsId"`
+	Message       json.RawMessage  `json:"message"`
+	Headers       json.RawMessage  `json:"headers"`
 }
 
 // ClaimNextEvent atomically claims the next pending event for processing using UPDATE SKIP LOCKED
@@ -112,13 +112,13 @@ RETURNING id, created_at, name, max_retries, initial_backoff, backoff_max, backo
 `
 
 type CreateTopicParams struct {
-	Name              string
-	MaxRetries        int64
-	InitialBackoff    Duration
-	BackoffMax        Duration
-	BackoffMultiplier float64
-	DlqEnabled        bool
-	DlqMaxAge         Duration
+	Name              string   `json:"name"`
+	MaxRetries        int64    `json:"maxRetries"`
+	InitialBackoff    Duration `json:"initialBackoff"`
+	BackoffMax        Duration `json:"backoffMax"`
+	BackoffMultiplier float64  `json:"backoffMultiplier"`
+	DlqEnabled        bool     `json:"dlqEnabled"`
+	DlqMaxAge         Duration `json:"dlqMaxAge"`
 }
 
 // CreateTopic creates or updates a topic with the given configuration.
@@ -147,6 +147,17 @@ func (q *Queries) CreateTopic(ctx context.Context, arg CreateTopicParams) (Pubsu
 	return i, err
 }
 
+const deadLetterCount = `-- name: DeadLetterCount :one
+SELECT COUNT(*) as count FROM pubsub_dead_letters
+`
+
+func (q *Queries) DeadLetterCount(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, deadLetterCount)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deadLetterEvent = `-- name: DeadLetterEvent :one
 SELECT pubsub_dead_letter_event($1, $2) as success
 `
@@ -155,6 +166,20 @@ SELECT pubsub_dead_letter_event($1, $2) as success
 // This bypasses retry logic and is useful for events that should not be retried.
 func (q *Queries) DeadLetterEvent(ctx context.Context, eventID int64, errorMessage string) (bool, error) {
 	row := q.db.QueryRowContext(ctx, deadLetterEvent, eventID, errorMessage)
+	var success bool
+	err := row.Scan(&success)
+	return success, err
+}
+
+const deleteDeadLetter = `-- name: DeleteDeadLetter :one
+SELECT pubsub_delete_dead_letter($1) as success
+`
+
+// DeleteDeadLetter deletes a dead-lettered event by its CloudEvents ID.
+// This completely removes the event and all its references from the database,
+// but only if the event is currently in the dead letter queue.
+func (q *Queries) DeleteDeadLetter(ctx context.Context, cloudeventsID string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, deleteDeadLetter, cloudeventsID)
 	var success bool
 	err := row.Scan(&success)
 	return success, err
@@ -204,13 +229,13 @@ WHERE e.topic_id = $2
 `
 
 type GetEventStatsRow struct {
-	PendingCount    int64
-	RetryCount      int64
-	ActiveCount     int64
-	SucceededCount  int64
-	FailedCount     int64
-	StuckCount      int64
-	DeadLetterCount int64
+	PendingCount    int64 `json:"pendingCount"`
+	RetryCount      int64 `json:"retryCount"`
+	ActiveCount     int64 `json:"activeCount"`
+	SucceededCount  int64 `json:"succeededCount"`
+	FailedCount     int64 `json:"failedCount"`
+	StuckCount      int64 `json:"stuckCount"`
+	DeadLetterCount int64 `json:"deadLetterCount"`
 }
 
 // GetEventStats returns comprehensive statistics for a topic.
@@ -266,6 +291,70 @@ func (q *Queries) GetTopicByName(ctx context.Context, name string) (PubsubTopic,
 		&i.DlqMaxAge,
 	)
 	return i, err
+}
+
+const listDeadLetters = `-- name: ListDeadLetters :many
+SELECT
+  dl.id as dead_letter_id,
+  dl.created_at as dead_letter_created_at,
+  dl.error_message,
+  e.id as event_id,
+  e.created_at as event_created_at,
+  e.cloudevents_id,
+  e.message,
+  e.headers,
+  t.name as topic_name
+FROM pubsub_dead_letters dl
+JOIN pubsub_events e ON dl.event_id = e.id
+JOIN pubsub_topics t ON e.topic_id = t.id
+ORDER BY dl.created_at DESC
+LIMIT $2 OFFSET $1
+`
+
+type ListDeadLettersRow struct {
+	DeadLetterID        int64           `json:"deadLetterId"`
+	DeadLetterCreatedAt time.Time       `json:"deadLetterCreatedAt"`
+	ErrorMessage        string          `json:"errorMessage"`
+	EventID             int64           `json:"eventId"`
+	EventCreatedAt      time.Time       `json:"eventCreatedAt"`
+	CloudeventsID       string          `json:"cloudeventsId"`
+	Message             json.RawMessage `json:"message"`
+	Headers             json.RawMessage `json:"headers"`
+	TopicName           string          `json:"topicName"`
+}
+
+// ListDeadLetters returns dead-lettered events with pagination, ordered by creation time (newest first).
+func (q *Queries) ListDeadLetters(ctx context.Context, offsetCount int32, limitCount int32) ([]ListDeadLettersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDeadLetters, offsetCount, limitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDeadLettersRow
+	for rows.Next() {
+		var i ListDeadLettersRow
+		if err := rows.Scan(
+			&i.DeadLetterID,
+			&i.DeadLetterCreatedAt,
+			&i.ErrorMessage,
+			&i.EventID,
+			&i.EventCreatedAt,
+			&i.CloudeventsID,
+			&i.Message,
+			&i.Headers,
+			&i.TopicName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const publishEvent = `-- name: PublishEvent :one

@@ -218,7 +218,6 @@ type StorageConfig[T any] struct {
 func Storage(uconf StorageConfig[User], aconf StorageConfig[Address]) *Store { ... }
 ```
 
-
 ## Middleware
 
 A function annotated with `//zero:middleware [<label>]` will be automatically used as HTTP middleware for any method matching the given `<label>` if provided, or applied globally if not. Option values can be retrieved from the request with `zero.HandlerOptions(r)`.
@@ -248,6 +247,15 @@ func Auth(role string, dal *DAL) func(http.Handler) http.Handler {
   }
 }
 ```
+
+## Admin Dashboard
+
+Zero has an extensible dashboard built in and served under `/_admin/`.
+
+To define your own dashboard components:
+
+1. Implement the `github.com/alecthomas/zero/providers/dashboard.Component` interface.
+2. Define a `//zero:api GET /_admin/<slug>` endpoint and use `dashboard.Renderer` to render your HTML. This helper type will render the Dashboard frame around your components content.
 
 ## Dependency injection
 

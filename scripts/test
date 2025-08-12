@@ -1,3 +1,0 @@
-#!/bin/bash
-zero
-go run -C ./_examples/service . --log-level=debug --sql-create --sql-migrate

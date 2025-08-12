@@ -1,4 +1,5 @@
-package depgraph
+// Package buildtesting provides a pool of Go build environments for use in tests.
+package buildtesting
 
 import (
 	"context"
@@ -9,7 +10,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
@@ -19,7 +19,7 @@ type Env struct {
 	dir string
 }
 
-func NewEnv(zeroDir, dir string) Env {
+func newEnv(zeroDir, dir string) Env {
 	err := os.MkdirAll(dir, 0750)
 	if err != nil {
 		log.Fatalln(err)
@@ -34,10 +34,12 @@ type Pool struct {
 	available chan Env
 }
 
-var pool *Pool
-var poolOnce sync.Once
-
-func TestMain(m *testing.M) {
+// Run should be called from TestMain.
+//
+//	func TestMain(m *testing.M) { buildtesting.Run(m) }`)
+//
+// Then use Get() to retrieve the pool.
+func Run(m *testing.M) {
 	gitRevParse, err := exec.CommandContext(context.Background(), "git", "rev-parse", "--show-toplevel").CombinedOutput()
 	if err != nil {
 		log.Fatalln(err)
@@ -56,26 +58,35 @@ func TestMain(m *testing.M) {
 	}
 	// Fill the pool with new environments.
 	for i := range count {
-		pool.available <- NewEnv(zeroDir, filepath.Join(dir, strconv.Itoa(i)))
+		pool.available <- newEnv(zeroDir, filepath.Join(dir, strconv.Itoa(i)))
 	}
-
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
 
+var pool *Pool
+
 // Prepare a new test environment, returning the path.
+func Prepare(t *testing.T, main string) string {
+	t.Helper()
+	return pool.Prepare(t, main)
+}
+
+// Prepare a new test environment, returning the path.
+//
+// When the test completes the environment will be returned to the pool.
 func (p *Pool) Prepare(t *testing.T, main string) string {
 	t.Helper()
 	env := <-p.available
-	t.Cleanup(func() { p.Return(t, env) })
+	t.Cleanup(func() { p.returnEnv(t, env) })
 	err := os.WriteFile(filepath.Join(env.dir, "main.go"), []byte(main), 0600)
 	assert.NoError(t, err)
 	return env.dir
 }
 
-// Return a test environment to the pool.
-func (p *Pool) Return(t *testing.T, env Env) {
+// returnEnv a test environment to the pool.
+func (p *Pool) returnEnv(t *testing.T, env Env) {
 	t.Helper()
 	err := os.Remove(filepath.Join(env.dir, "main.go"))
 	assert.NoError(t, err)

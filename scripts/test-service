@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+zero
+go mod tidy -C ./_examples/service
+go build -C ./_examples/service -o ../../dist/service .
+./dist/service --log-level=debug --sql-create --sql-migrate &
+pid=$!
+trap 'kill $pid' SIGINT SIGTERM EXIT
+
+sleep 2
+
+curl --fail http://127.0.0.1:8080/_admin/ > /dev/null

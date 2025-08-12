@@ -101,3 +101,30 @@ SELECT pubsub_delete_event(sqlc.arg(event_id)) as success;
 -- This allows failed events to be retried by removing them from the dead letter queue and resetting their state.
 -- name: RetryDeadLetterEvent :one
 SELECT pubsub_retry_dead_letter_event(sqlc.arg(cloudevents_id)) as success;
+
+-- DeleteDeadLetter deletes a dead-lettered event by its CloudEvents ID.
+-- This completely removes the event and all its references from the database,
+-- but only if the event is currently in the dead letter queue.
+-- name: DeleteDeadLetter :one
+SELECT pubsub_delete_dead_letter(sqlc.arg(cloudevents_id)) as success;
+
+-- ListDeadLetters returns dead-lettered events with pagination, ordered by creation time (newest first).
+-- name: ListDeadLetters :many
+SELECT
+  dl.id as dead_letter_id,
+  dl.created_at as dead_letter_created_at,
+  dl.error_message,
+  e.id as event_id,
+  e.created_at as event_created_at,
+  e.cloudevents_id,
+  e.message,
+  e.headers,
+  t.name as topic_name
+FROM pubsub_dead_letters dl
+JOIN pubsub_events e ON dl.event_id = e.id
+JOIN pubsub_topics t ON e.topic_id = t.id
+ORDER BY dl.created_at DESC
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+
+-- name: DeadLetterCount :one
+SELECT COUNT(*) as count FROM pubsub_dead_letters;

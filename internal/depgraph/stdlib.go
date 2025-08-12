@@ -12,7 +12,7 @@ var rawStdlib string
 
 // stdlib contains the list of stdlib packages for the version of Go that Zero is built with.
 var stdlib = func() map[string]struct{} {
-	if !strings.HasPrefix(runtime.Version(), "go1.24") {
+	if !strings.HasPrefix(runtime.Version(), "go1.25") {
 		panic("run go generate ./internal/depgraph")
 	}
 	out := make(map[string]struct{}, 512)

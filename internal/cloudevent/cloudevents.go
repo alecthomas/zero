@@ -3,11 +3,8 @@ package cloudevent
 
 import (
 	"reflect"
-	"runtime/debug"
 	"time"
 )
-
-var buildInfo *debug.BuildInfo
 
 type Event[T any] struct {
 	SpecVersion     string    `json:"specversion"`

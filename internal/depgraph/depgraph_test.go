@@ -4,12 +4,11 @@ import (
 	"go/types"
 	"maps"
 	"net/http"
-	"os/exec"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
+	"github.com/alecthomas/zero/internal/buildtesting"
 	"github.com/alecthomas/zero/internal/directiveparser"
 )
 
@@ -1858,7 +1857,7 @@ func analyseTestCodeWithError(t *testing.T, code string, options ...Option) (*Gr
 
 func analyseCodeString(t *testing.T, code string, options ...Option) (*Graph, error) {
 	t.Helper()
-	tmpDir := pool.Prepare(t, code)
+	tmpDir := buildtesting.Prepare(t, code)
 	graph, err := Analyse(t.Context(), tmpDir, options...)
 	if err != nil {
 		return nil, err
@@ -3740,15 +3739,4 @@ func TestToKebabCase(t *testing.T) {
 			assert.Equal(t, tt.expected, actual)
 		})
 	}
-}
-
-func execIn(t *testing.T, dir string, cmd ...string) {
-	t.Helper()
-	c := exec.CommandContext(t.Context(), cmd[0], cmd[1:]...)
-	b := &strings.Builder{}
-	c.Stdout = b
-	c.Stderr = b
-	c.Dir = dir
-	err := c.Run()
-	assert.NoError(t, err, b.String())
 }

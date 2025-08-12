@@ -43,7 +43,6 @@ linters:
     - recvcheck
     - revive
     - testpackage
-    - unused
     - varnamelen
     - wastedassign
     - whitespace

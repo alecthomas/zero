@@ -44,7 +44,6 @@ type ListenerCallback func(ctx context.Context, notification Notification) error
 //
 // It consumes a single connection.
 type Listener struct {
-	db         *sql.DB
 	listenConn *pgx.Conn
 	logger     *slog.Logger
 	lock       sync.Mutex
@@ -198,7 +197,7 @@ var _ pubsub.Topic[string] = (*Topic[string])(nil)
 
 // New creates a new [pubsub.Topic] backed by Postgres.
 //
-//zero:provider weak
+//zero:provider weak require="github.com/alecthomas/zero/providers/pubsub/postgres/dashboard.New"
 func New[T any](
 	ctx context.Context,
 	logger *slog.Logger,

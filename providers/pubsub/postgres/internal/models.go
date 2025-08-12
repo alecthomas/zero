@@ -35,8 +35,8 @@ func (e *PubsubEventState) Scan(src interface{}) error {
 }
 
 type NullPubsubEventState struct {
-	PubsubEventState PubsubEventState
-	Valid            bool // Valid is true if PubsubEventState is not NULL
+	PubsubEventState PubsubEventState `json:"pubsubEventState"`
+	Valid            bool             `json:"valid"` // Valid is true if PubsubEventState is not NULL
 }
 
 // Scan implements the Scanner interface.
@@ -78,8 +78,8 @@ func (e *PubsubFailAction) Scan(src interface{}) error {
 }
 
 type NullPubsubFailAction struct {
-	PubsubFailAction PubsubFailAction
-	Valid            bool // Valid is true if PubsubFailAction is not NULL
+	PubsubFailAction PubsubFailAction `json:"pubsubFailAction"`
+	Valid            bool             `json:"valid"` // Valid is true if PubsubFailAction is not NULL
 }
 
 // Scan implements the Scanner interface.
@@ -101,13 +101,13 @@ func (ns NullPubsubFailAction) Value() (driver.Value, error) {
 }
 
 type PubsubTopic struct {
-	ID                int64
-	CreatedAt         time.Time
-	Name              string
-	MaxRetries        int64
-	InitialBackoff    Duration
-	BackoffMax        Duration
-	BackoffMultiplier float64
-	DlqEnabled        bool
-	DlqMaxAge         Duration
+	ID                int64     `json:"id"`
+	CreatedAt         time.Time `json:"createdAt"`
+	Name              string    `json:"name"`
+	MaxRetries        int64     `json:"maxRetries"`
+	InitialBackoff    Duration  `json:"initialBackoff"`
+	BackoffMax        Duration  `json:"backoffMax"`
+	BackoffMultiplier float64   `json:"backoffMultiplier"`
+	DlqEnabled        bool      `json:"dlqEnabled"`
+	DlqMaxAge         Duration  `json:"dlqMaxAge"`
 }

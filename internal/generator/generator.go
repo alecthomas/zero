@@ -82,38 +82,31 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 	w.L("// RegisterHandlers registers all Zero handlers with the injector's [http.ServeMux].")
 	w.L("func RegisterHandlers(ctx context.Context, injector *Injector) error {")
 	w.In(func(w *codewriter.Writer) {
-		// First, collect the receiver types so we can construct them.
-		type Receiver struct {
-			Imp string
-			Typ string
-		}
-		receivers := map[Receiver]int{}
+		receivers := map[depgraph.Ref]int{}
 		receiverIndex := 0
 		for _, api := range graph.APIs {
 			receiver := api.Function.Signature().Recv().Type()
 			ref := graph.TypeRef(receiver)
 			w.Import(ref.Import)
-			key := Receiver{ref.Import, ref.Ref}
-			if _, ok := receivers[key]; !ok {
-				receivers[key] = receiverIndex
+			if _, ok := receivers[ref]; !ok {
+				receivers[ref] = receiverIndex
 				receiverIndex++
 			}
 		}
-		for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b Receiver) int {
-			return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
+		for _, ref := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b depgraph.Ref) int {
+			return strings.Compare(a.String(), b.String())
 		}) {
-			index := receivers[receiver]
-			writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, receiver.Typ)
+			index := receivers[ref]
+			writeZeroConstructSingletonByName(w, graph, fmt.Sprintf("r%d", index), ref.String(), ref.String())
 		}
 
 		// Register the handlers across receiver types.
-		writeZeroConstructSingletonByName(w, "mux", "*http.ServeMux", "")
+		writeZeroConstructSingletonByName(w, graph, "mux", "*net/http.ServeMux", "")
 		w.L("_ = mux")
-		writeZeroConstructSingletonByName(w, "logger", "*slog.Logger", "")
+		writeZeroConstructSingletonByName(w, graph, "logger", "*log/slog.Logger", "")
 		w.L("_ = logger")
-		w.Import("github.com/alecthomas/zero")
-		writeZeroConstructSingletonByName(w, "encodeError", "zero.ErrorEncoder", "")
-		writeZeroConstructSingletonByName(w, "encodeResponse", "zero.ResponseEncoder", "")
+		writeZeroConstructSingletonByName(w, graph, "encodeError", "github.com/alecthomas/zero.ErrorEncoder", "")
+		writeZeroConstructSingletonByName(w, graph, "encodeResponse", "github.com/alecthomas/zero.ResponseEncoder", "")
 		w.L("_ = encodeError")
 		w.L("_ = encodeResponse")
 		for _, api := range graph.APIs {
@@ -146,7 +139,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 				signature := api.Function.Signature()
 
 				ref := graph.TypeRef(signature.Recv().Type())
-				receiverIndex := receivers[Receiver{ref.Import, ref.Ref}]
+				receiverIndex := receivers[ref]
 				params := signature.Params()
 
 				// First pass, decode any parameters from the Request
@@ -216,41 +209,35 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.L("return nil")
 		} else {
 			// First, collect the receiver types so we can construct them.
-			type Receiver struct {
-				Imp string
-				Typ string
-			}
-			receivers := map[Receiver]int{}
+			receivers := map[depgraph.Ref]int{}
 			receiverIndex := 0
 			for _, subscription := range graph.Subscriptions {
 				receiver := subscription.Function.Signature().Recv().Type()
-				ref := graph.TypeRef(receiver)
-				w.Import(ref.Import)
-				key := Receiver{ref.Import, ref.Ref}
+				key := graph.TypeRef(receiver)
+				w.Import(key.Import)
 				if _, ok := receivers[key]; !ok {
 					receivers[key] = receiverIndex
 					receiverIndex++
 				}
 			}
-			for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b Receiver) int {
-				return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
+			for _, ref := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b depgraph.Ref) int {
+				return strings.Compare(a.String(), b.String())
 			}) {
-				index := receivers[receiver]
-				writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, receiver.Typ)
+				index := receivers[ref]
+				writeZeroConstructSingletonByName(w, graph, fmt.Sprintf("r%d", index), ref.String(), ref.String())
 			}
 
 			// Register the subscribers with their topics
 			for _, subscription := range graph.Subscriptions {
 				ref := graph.TypeRef(subscription.Function.Signature().Recv().Type())
-				receiverIndex := receivers[Receiver{ref.Import, ref.Ref}]
+				receiverIndex := receivers[ref]
 
 				// Get the topic type for this subscription
 				topicRef := graph.TypeRef(subscription.TopicType)
 				w.Import(topicRef.Import)
 
 				// Construct the topic
-				w.Import("github.com/alecthomas/zero/providers/pubsub")
-				writeZeroConstructSingletonByName(w, fmt.Sprintf("topic%s", hash(topicRef.Ref)), fmt.Sprintf("pubsub.Topic[%s]", topicRef.Ref), "")
+				writeZeroConstructSingletonByName(w, graph, fmt.Sprintf("topic%s", hash(topicRef.Ref)), fmt.Sprintf("github.com/alecthomas/zero/providers/pubsub.Topic[%s]", topicRef.Ref), "")
 
 				// Subscribe to the topic
 				w.L("if err := topic%s.Subscribe(ctx, r%d.%s); err != nil {", hash(topicRef.Ref), receiverIndex, subscription.Function.Name())
@@ -282,18 +269,16 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.L(`return fmt.Errorf("failed to register subscribers: %%w", err)`)
 		})
 		w.L("}")
-		writeZeroConstructSingletonByName(w, "server", "*http.Server", "")
+		writeZeroConstructSingletonByName(w, graph, "server", "*net/http.Server", "")
 
 		if len(graph.CronJobs) > 0 {
-			w.Import("github.com/alecthomas/zero/providers/cron")
-			writeZeroConstructSingletonByName(w, "cron", "*cron.Scheduler", "")
+			writeZeroConstructSingletonByName(w, graph, "cron", "*github.com/alecthomas/zero/providers/cron.Scheduler", "")
 			writeCronJobRegistration(w, graph)
 		}
 
 		w.Import("golang.org/x/sync/errgroup")
 		w.L("wg, ctx := errgroup.WithContext(ctx)")
-		w.Import("log/slog")
-		writeZeroConstructSingletonByName(w, "logger", "*slog.Logger", "")
+		writeZeroConstructSingletonByName(w, graph, "logger", "*log/slog.Logger", "")
 		w.L(`logger.Info("Server starting", "bind", server.Addr)`)
 		w.L("wg.Go(func() error { return server.ListenAndServe() })")
 		w.L("return wg.Wait()")
@@ -509,9 +494,15 @@ func writeZeroConstructSingleton(w *codewriter.Writer, graph *depgraph.Graph, va
 	w.L("}")
 }
 
-// writeZeroConstructSingletonByName writes code to construct a dependency using ZeroConstructSingletons by type name.
-func writeZeroConstructSingletonByName(w *codewriter.Writer, varName string, typeName string, errorWrapper string) {
-	w.L("%s, err := ZeroConstructSingletons[%s](ctx, injector)", varName, typeName)
+// writeZeroConstructSingletonByName writes code to construct a dependency using ZeroConstructSingletons by fully-qualified type reference.
+//
+// It also adds imports for the specified type.
+func writeZeroConstructSingletonByName(w *codewriter.Writer, g *depgraph.Graph, varName string, typeRef string, errorWrapper string) {
+	ref := g.ParseTypeRef(typeRef)
+	if ref.Import != "" {
+		w.Import(ref.Import)
+	}
+	w.L("%s, err := ZeroConstructSingletons[%s](ctx, injector)", varName, ref.Ref)
 	w.L("if err != nil {")
 	w.In(func(w *codewriter.Writer) {
 		if errorWrapper != "" {
@@ -604,34 +595,29 @@ func hash(s string) string {
 
 func writeCronJobRegistration(w *codewriter.Writer, graph *depgraph.Graph) {
 	// First, collect the receiver types so we can construct them.
-	type Receiver struct {
-		Imp string
-		Typ string
-	}
-	receivers := map[Receiver]int{}
+	receivers := map[depgraph.Ref]int{}
 	receiverIndex := 0
 	for _, cronJob := range graph.CronJobs {
 		receiver := cronJob.Function.Signature().Recv().Type()
-		ref := graph.TypeRef(receiver)
-		w.Import(ref.Import)
-		key := Receiver{ref.Import, ref.Ref}
+		key := graph.TypeRef(receiver)
+		w.Import(key.Import)
 		if _, ok := receivers[key]; !ok {
 			receivers[key] = receiverIndex
 			receiverIndex++
 		}
 	}
-	for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b Receiver) int {
-		return strings.Compare(a.Imp+"."+a.Typ, b.Imp+"."+b.Typ)
+	for _, receiver := range slices.SortedStableFunc(maps.Keys(receivers), func(a, b depgraph.Ref) int {
+		return strings.Compare(a.String(), b.String())
 	}) {
 		index := receivers[receiver]
-		writeZeroConstructSingletonByName(w, fmt.Sprintf("r%d", index), receiver.Typ, "")
+		writeZeroConstructSingletonByName(w, graph, fmt.Sprintf("r%d", index), receiver.String(), "")
 	}
 
 	// Register each cron job
 	for _, cronJob := range graph.CronJobs {
 		receiver := cronJob.Function.Signature().Recv().Type()
 		ref := graph.TypeRef(receiver)
-		receiverIndex := receivers[Receiver{ref.Import, ref.Ref}]
+		receiverIndex := receivers[ref]
 
 		// Create the job name from the full type signature
 		jobName := fmt.Sprintf("%s.%s", ref, cronJob.Function.Name())
