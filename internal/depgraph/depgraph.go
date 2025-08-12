@@ -1874,12 +1874,16 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 	}
 
 	// Build function name to provider mapping for directive requirements
-	// Key is "package.path/functionName" to ensure same-package requirements
+	// Key is "package.path/functionName" for cross-package requirements
+	// Also include simple function names for same-package requirements
 	funcNameToProvider := map[string]*Provider{}
 	for _, providerList := range providers {
 		for _, p := range providerList {
-			funcKey := p.Package.PkgPath + "/" + p.Function.Name()
-			funcNameToProvider[funcKey] = p
+			// Full qualified key for cross-package requirements
+			fullKey := p.Package.PkgPath + "/" + p.Function.Name()
+			funcNameToProvider[fullKey] = p
+			// Simple function name key for same-package requirements
+			funcNameToProvider[p.Function.Name()] = p
 		}
 	}
 
@@ -1888,12 +1892,11 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 	for _, providerList := range providers {
 		for _, p := range providerList {
 			for _, requiredFuncName := range p.Directive.Require {
-				requiredFuncKey := p.Package.PkgPath + "/" + requiredFuncName
-				if _, exists := funcNameToProvider[requiredFuncKey]; exists {
-					explicitlyRequired[requiredFuncKey] = true
-				} else {
-					return errors.Errorf("provider %s requires %s, but %s is not a valid provider function in the same package", p.Function.Name(), requiredFuncName, requiredFuncName)
+				requiredProvider, err := resolveRequiredProvider(funcNameToProvider, requiredFuncName, p)
+				if err != nil {
+					return err
 				}
+				explicitlyRequired[requiredProvider.Package.PkgPath+"/"+requiredProvider.Function.Name()] = true
 			}
 		}
 	}
@@ -1942,9 +1945,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 					}
 					// Handle directive requirements for multi-providers
 					for _, requiredFuncName := range p.Directive.Require {
-						// Only allow requiring functions from the same package
-						requiredFuncKey := p.Package.PkgPath + "/" + requiredFuncName
-						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
+						if requiredProvider, err := resolveRequiredProvider(funcNameToProvider, requiredFuncName, p); err == nil {
 							requiredKey := types.TypeString(requiredProvider.Provides, nil)
 							if !referenced[requiredKey] {
 								toProcess = append(toProcess, requiredKey)
@@ -1966,9 +1967,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 					}
 					// Handle directive requirements
 					for _, requiredFuncName := range provider.Directive.Require {
-						// Only allow requiring functions from the same package
-						requiredFuncKey := provider.Package.PkgPath + "/" + requiredFuncName
-						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
+						if requiredProvider, err := resolveRequiredProvider(funcNameToProvider, requiredFuncName, provider); err == nil {
 							requiredKey := types.TypeString(requiredProvider.Provides, nil)
 							if !referenced[requiredKey] {
 								toProcess = append(toProcess, requiredKey)
@@ -2045,8 +2044,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 
 					// Handle directive requirements for generic providers
 					for _, requiredFuncName := range resolvedProvider.Directive.Require {
-						requiredFuncKey := resolvedProvider.Package.PkgPath + "/" + requiredFuncName
-						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
+						if requiredProvider, err := resolveRequiredProvider(funcNameToProvider, requiredFuncName, resolvedProvider); err == nil {
 							requiredKey := types.TypeString(requiredProvider.Provides, nil)
 							if !referenced[requiredKey] {
 								toProcess = append(toProcess, requiredKey)
@@ -2642,6 +2640,24 @@ func substituteTypeParams(t types.Type, typeParams *types.TypeParamList, typeArg
 	default:
 		// For other types (basic types, interfaces, etc.), no substitution needed
 		return typ
+	}
+}
+
+// resolveRequiredProvider resolves a required provider by name from the funcNameToProvider map
+func resolveRequiredProvider(funcNameToProvider map[string]*Provider, requiredFuncName string, requiringProvider *Provider) (*Provider, error) {
+	// Check if it's a cross-package requirement (contains "/")
+	if strings.Contains(requiredFuncName, "/") {
+		// Use the full qualified name directly
+		if provider, exists := funcNameToProvider[requiredFuncName]; exists {
+			return provider, nil
+		}
+		return nil, errors.Errorf("provider %s requires %s, but %s is not a valid provider function", requiringProvider.Function.Name(), requiredFuncName, requiredFuncName)
+	} else {
+		// Same-package requirement - use simple name
+		if provider, exists := funcNameToProvider[requiredFuncName]; exists {
+			return provider, nil
+		}
+		return nil, errors.Errorf("provider %s requires %s, but %s is not a valid provider function in the same package", requiringProvider.Function.Name(), requiredFuncName, requiredFuncName)
 	}
 }
 

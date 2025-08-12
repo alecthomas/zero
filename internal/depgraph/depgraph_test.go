@@ -4,7 +4,9 @@ import (
 	"go/types"
 	"maps"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -3740,6 +3742,171 @@ func TestToKebabCase(t *testing.T) {
 			assert.Equal(t, tt.expected, actual)
 		})
 	}
+}
+
+// Helper function to create and analyse test code with multiple files
+func analyseTestFiles(t *testing.T, files map[string]string, options ...Option) (*Graph, error) {
+	t.Helper()
+
+	env := <-pool.available
+	t.Cleanup(func() {
+		// Clean up all created files
+		for path := range files {
+			fullPath := filepath.Join(env.dir, path)
+			if dir := filepath.Dir(fullPath); dir != env.dir {
+				os.RemoveAll(dir)
+			} else {
+				os.Remove(fullPath)
+			}
+		}
+		pool.available <- env
+	})
+
+	// Create directory structure and files
+	for path, content := range files {
+		fullPath := filepath.Join(env.dir, path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0750); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0600); err != nil {
+			return nil, err
+		}
+	}
+
+	// Add pattern to load all subdirectories to ensure cross-package providers are found
+	options = append(options, WithPatterns("./..."))
+	return Analyse(t.Context(), env.dir, options...)
+}
+
+func analyseTestFilesWithError(t *testing.T, files map[string]string, options ...Option) (*Graph, error) {
+	t.Helper()
+	return analyseTestFiles(t, files, options...)
+}
+
+func TestAnalyseCrossPackageProviderRequirements(t *testing.T) {
+	t.Parallel()
+
+	// Create a test with multiple packages
+	files := map[string]string{
+		"main.go": `
+package main
+
+import "test/sub"
+
+//zero:provider weak require="test/sub/SubProvider"
+func MainProvider() string {
+	_ = sub.SubProvider() // Dummy usage to ensure package is loaded
+	return "main"
+}
+`,
+		"sub/sub.go": `
+package sub
+
+//zero:provider
+func SubProvider() int {
+	return 42
+}
+`,
+	}
+
+	graph, err := analyseTestFiles(t, files, WithRoots("string"))
+	assert.NoError(t, err)
+
+	// MainProvider should be included as it provides the root type "string"
+	mainProviders, ok := graph.Providers["string"]
+	assert.True(t, ok, "MainProvider should be included")
+	assert.Equal(t, 1, len(mainProviders))
+	assert.Equal(t, "MainProvider", mainProviders[0].Function.Name())
+
+	// SubProvider should be included because MainProvider requires it via directive
+	subProviders, ok := graph.Providers["int"]
+	assert.True(t, ok, "SubProvider should be included due to cross-package requirement")
+	assert.Equal(t, 1, len(subProviders))
+	assert.Equal(t, "SubProvider", subProviders[0].Function.Name())
+}
+
+func TestAnalyseCrossPackageProviderRequirementsInvalid(t *testing.T) {
+	t.Parallel()
+
+	// Create a test with invalid cross-package requirement
+	files := map[string]string{
+		"main.go": `
+package main
+
+import "test/sub"
+
+//zero:provider weak require="test/sub/NonExistentProvider"
+func MainProvider() string {
+	_ = sub.SubProvider() // Dummy usage to ensure package is loaded
+	return "main"
+}
+`,
+		"sub/sub.go": `
+package sub
+
+//zero:provider
+func SubProvider() int {
+	return 42
+}
+`,
+	}
+
+	_, err := analyseTestFilesWithError(t, files, WithRoots("string"))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "requires test/sub/NonExistentProvider, but test/sub/NonExistentProvider is not a valid provider function")
+}
+
+func TestAnalyseMixedSameAndCrossPackageRequirements(t *testing.T) {
+	t.Parallel()
+
+	// Create a test with both same-package and cross-package requirements
+	files := map[string]string{
+		"main.go": `
+package main
+
+import "test/sub"
+
+//zero:provider
+func LocalProvider() bool {
+	return true
+}
+
+//zero:provider weak require=LocalProvider,"test/sub/SubProvider"
+func MainProvider() string {
+	_ = sub.SubProvider() // Dummy usage to ensure package is loaded
+	return "main"
+}
+`,
+		"sub/sub.go": `
+package sub
+
+//zero:provider
+func SubProvider() int {
+	return 42
+}
+`,
+	}
+
+	graph, err := analyseTestFiles(t, files, WithRoots("string"))
+	assert.NoError(t, err)
+
+	// MainProvider should be included
+	mainProviders, ok := graph.Providers["string"]
+	assert.True(t, ok, "MainProvider should be included")
+	assert.Equal(t, 1, len(mainProviders))
+	assert.Equal(t, "MainProvider", mainProviders[0].Function.Name())
+
+	// LocalProvider should be included (same-package requirement)
+	localProviders, ok := graph.Providers["bool"]
+	assert.True(t, ok, "LocalProvider should be included due to same-package requirement")
+	assert.Equal(t, 1, len(localProviders))
+	assert.Equal(t, "LocalProvider", localProviders[0].Function.Name())
+
+	// SubProvider should be included (cross-package requirement)
+	subProviders, ok := graph.Providers["int"]
+	assert.True(t, ok, "SubProvider should be included due to cross-package requirement")
+	assert.Equal(t, 1, len(subProviders))
+	assert.Equal(t, "SubProvider", subProviders[0].Function.Name())
 }
 
 func execIn(t *testing.T, dir string, cmd ...string) {
