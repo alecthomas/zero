@@ -591,7 +591,8 @@ func TestClearStuckEvents(t *testing.T) {
 	// Verify event stats
 	stats, err := queries.GetEventStats(ctx, internal.Duration(5*time.Minute), topic.ID)
 	assert.NoError(t, err)
-	assert.Equal(t, int64(2), stats.PendingCount)
+	assert.Equal(t, int64(0), stats.PendingCount)
+	assert.Equal(t, int64(2), stats.RetryCount)  // Two events moved to retry state
 	assert.Equal(t, int64(1), stats.ActiveCount) // One event should still be active
 	assert.Equal(t, int64(0), stats.StuckCount)  // No events should be stuck (recent active event)
 }
@@ -650,7 +651,8 @@ func TestClearStuckEventsWithLimits(t *testing.T) {
 	// Verify counts
 	stats, err := queries.GetEventStats(ctx, internal.Duration(5*time.Minute), topic.ID)
 	assert.NoError(t, err)
-	assert.Equal(t, int64(3), stats.PendingCount)
+	assert.Equal(t, int64(0), stats.PendingCount)
+	assert.Equal(t, int64(3), stats.RetryCount)  // 3 events moved to retry state
 	assert.Equal(t, int64(2), stats.ActiveCount) // 2 events should still be active
 	assert.Equal(t, int64(2), stats.StuckCount)  // 2 events should be stuck
 }

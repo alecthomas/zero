@@ -15,6 +15,13 @@ import (
 	"go.jetify.com/typeid/v2"
 )
 
+var (
+	// ErrDeadLetter can be returned by a subscriber to immediately send the event to the dead-letter queue.
+	ErrDeadLetter = errors.New("dead-lettered event")
+	// ErrDiscard can be returned by a subscriber to immediately discard the event without retries/dead-lettering.
+	ErrDiscard = errors.New("discarded event")
+)
+
 // DeadLetter represents a dead-lettered event.
 //
 // It is itself an event.

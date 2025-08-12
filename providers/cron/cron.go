@@ -81,13 +81,16 @@ func (s *Scheduler) run(ctx context.Context) {
 			release, err := s.leaser.Acquire(ctx, "cron/"+schedule.name, schedule.period/2)
 			if err != nil {
 				s.logger.Error("Failed to acquire lease for cron job", "job", schedule.name, "error", err)
+				continue
 			}
 			schedule.lastRun = now
 			if err := schedule.run(ctx); err != nil {
 				s.logger.Error("Cron job failed", "job", schedule.name, "error", err)
+				continue
 			}
 			if err = release(ctx); err != nil {
 				s.logger.Error("Failed to release lease for cron job", "job", schedule.name, "error", err)
+				continue
 			}
 		}
 		s.sortSchedulesNoLock()

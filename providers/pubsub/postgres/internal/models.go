@@ -19,6 +19,7 @@ const (
 	PubsubEventStateActive    PubsubEventState = "active"
 	PubsubEventStateSucceeded PubsubEventState = "succeeded"
 	PubsubEventStateFailed    PubsubEventState = "failed"
+	PubsubEventStateRetry     PubsubEventState = "retry"
 )
 
 func (e *PubsubEventState) Scan(src interface{}) error {

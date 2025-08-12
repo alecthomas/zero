@@ -147,6 +147,32 @@ func (q *Queries) CreateTopic(ctx context.Context, arg CreateTopicParams) (Pubsu
 	return i, err
 }
 
+const deadLetterEvent = `-- name: DeadLetterEvent :one
+SELECT pubsub_dead_letter_event($1, $2) as success
+`
+
+// DeadLetterEvent immediately sends an event to the dead letter queue and marks it as failed.
+// This bypasses retry logic and is useful for events that should not be retried.
+func (q *Queries) DeadLetterEvent(ctx context.Context, eventID int64, errorMessage string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, deadLetterEvent, eventID, errorMessage)
+	var success bool
+	err := row.Scan(&success)
+	return success, err
+}
+
+const deleteEvent = `-- name: DeleteEvent :one
+SELECT pubsub_delete_event($1) as success
+`
+
+// DeleteEvent completely removes an event and all its references from the database.
+// This is useful for cleanup operations or when events should be permanently removed.
+func (q *Queries) DeleteEvent(ctx context.Context, eventID int64) (bool, error) {
+	row := q.db.QueryRowContext(ctx, deleteEvent, eventID)
+	var success bool
+	err := row.Scan(&success)
+	return success, err
+}
+
 const failEvent = `-- name: FailEvent :one
 SELECT pubsub_fail_event($1, $2)::pubsub_fail_action as action_taken
 `
@@ -166,6 +192,7 @@ func (q *Queries) FailEvent(ctx context.Context, eventID int64, errorMessage str
 const getEventStats = `-- name: GetEventStats :one
 SELECT
   COUNT(*) FILTER (WHERE e.state = 'pending') as pending_count,
+  COUNT(*) FILTER (WHERE e.state = 'retry') as retry_count,
   COUNT(*) FILTER (WHERE e.state = 'active') as active_count,
   COUNT(*) FILTER (WHERE e.state = 'succeeded') as succeeded_count,
   COUNT(*) FILTER (WHERE e.state = 'failed') as failed_count,
@@ -178,6 +205,7 @@ WHERE e.topic_id = $2
 
 type GetEventStatsRow struct {
 	PendingCount    int64
+	RetryCount      int64
 	ActiveCount     int64
 	SucceededCount  int64
 	FailedCount     int64
@@ -191,6 +219,7 @@ func (q *Queries) GetEventStats(ctx context.Context, stuckThreshold Duration, to
 	var i GetEventStatsRow
 	err := row.Scan(
 		&i.PendingCount,
+		&i.RetryCount,
 		&i.ActiveCount,
 		&i.SucceededCount,
 		&i.FailedCount,
@@ -204,7 +233,7 @@ const getPendingEventCount = `-- name: GetPendingEventCount :one
 SELECT COUNT(*) as count
 FROM pubsub_events e
 LEFT JOIN pubsub_retries r ON e.id = r.event_id
-WHERE e.state = 'pending'
+WHERE e.state IN ('pending', 'retry')
   AND e.topic_id = $1
   AND (r.id IS NULL OR r.next_attempt <= CURRENT_TIMESTAMP)
 `

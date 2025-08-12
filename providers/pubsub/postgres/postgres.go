@@ -334,11 +334,27 @@ func (t *Topic[T]) processEvent(ctx context.Context, eventID int64, event pubsub
 	// Have the event, send it to a subscriber
 	err := subscriber(ctx, event)
 	if err != nil {
-		_, ferr := t.queries.FailEvent(ctx, eventID, err.Error())
-		if ferr != nil {
-			err = errors.Join(err, errors.Wrapf(ferr, "failed to mark event %d as failed", eventID))
+		if errors.Is(err, pubsub.ErrDeadLetter) {
+			// Immediately send to dead letter queue
+			_, ferr := t.queries.DeadLetterEvent(ctx, eventID, err.Error())
+			if ferr != nil {
+				err = errors.Join(err, errors.Wrapf(ferr, "failed to dead letter event %d", eventID))
+			}
+			return errors.Errorf("dead lettered event %d: %w", eventID, err)
+		} else if errors.Is(err, pubsub.ErrDiscard) {
+			// Immediately delete the event
+			_, ferr := t.queries.DeleteEvent(ctx, eventID)
+			if ferr != nil {
+				err = errors.Join(err, errors.Wrapf(ferr, "failed to delete event %d", eventID))
+			}
+			return errors.Errorf("discarded event %d: %w", eventID, err)
+		} else {
+			action, ferr := t.queries.FailEvent(ctx, eventID, err.Error())
+			if ferr != nil {
+				err = errors.Join(err, errors.Wrapf(ferr, "failed to mark event %d as failed", eventID))
+			}
+			return errors.Errorf("failed to send event %d to subscriber (%s): %w", eventID, action, err)
 		}
-		return errors.Errorf("failed to send event %d to subscriber: %w", eventID, err)
 	}
 	_, err = t.queries.CompleteEvent(ctx, eventID)
 	return errors.Wrapf(err, "failed to mark event %d as complete", eventID)

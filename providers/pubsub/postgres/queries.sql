@@ -64,7 +64,7 @@ WHERE id IN (
 SELECT COUNT(*) as count
 FROM pubsub_events e
 LEFT JOIN pubsub_retries r ON e.id = r.event_id
-WHERE e.state = 'pending'
+WHERE e.state IN ('pending', 'retry')
   AND e.topic_id = sqlc.arg(topic_id)
   AND (r.id IS NULL OR r.next_attempt <= CURRENT_TIMESTAMP);
 
@@ -72,6 +72,7 @@ WHERE e.state = 'pending'
 -- name: GetEventStats :one
 SELECT
   COUNT(*) FILTER (WHERE e.state = 'pending') as pending_count,
+  COUNT(*) FILTER (WHERE e.state = 'retry') as retry_count,
   COUNT(*) FILTER (WHERE e.state = 'active') as active_count,
   COUNT(*) FILTER (WHERE e.state = 'succeeded') as succeeded_count,
   COUNT(*) FILTER (WHERE e.state = 'failed') as failed_count,
@@ -85,3 +86,13 @@ WHERE e.topic_id = sqlc.arg(topic_id);
 -- This is used to recover from crashed subscribers that left events in active state.
 -- name: ClearStuckEvents :one
 SELECT pubsub_clear_stuck_events(sqlc.arg(topic_id), sqlc.arg(count), sqlc.arg(older_than)) as cleared_count;
+
+-- DeadLetterEvent immediately sends an event to the dead letter queue and marks it as failed.
+-- This bypasses retry logic and is useful for events that should not be retried.
+-- name: DeadLetterEvent :one
+SELECT pubsub_dead_letter_event(sqlc.arg(event_id), sqlc.arg(error_message)) as success;
+
+-- DeleteEvent completely removes an event and all its references from the database.
+-- This is useful for cleanup operations or when events should be permanently removed.
+-- name: DeleteEvent :one
+SELECT pubsub_delete_event(sqlc.arg(event_id)) as success;

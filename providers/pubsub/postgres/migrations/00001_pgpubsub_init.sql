@@ -1,4 +1,4 @@
-CREATE TYPE pubsub_event_state AS ENUM ('pending', 'active', 'succeeded', 'failed');
+CREATE TYPE pubsub_event_state AS ENUM ('pending', 'active', 'succeeded', 'failed', 'retry');
 
 CREATE TYPE pubsub_fail_action AS ENUM ('retrying', 'dead_lettered', 'failed');
 
@@ -101,13 +101,13 @@ BEGIN
   -- We need to use a subquery to avoid FOR UPDATE with LEFT JOIN
   SELECT e.id INTO v_event_id
   FROM pubsub_events e
-  WHERE e.state = 'pending'
+  WHERE e.state IN ('pending', 'retry')
     AND e.topic_id = p_topic_id
     AND e.id IN (
       SELECT ev.id
       FROM pubsub_events ev
       LEFT JOIN pubsub_retries r ON ev.id = r.event_id
-      WHERE ev.state = 'pending'
+      WHERE ev.state IN ('pending', 'retry')
         AND ev.topic_id = p_topic_id
         AND (r.id IS NULL OR r.next_attempt <= CURRENT_TIMESTAMP)
     )
@@ -203,8 +203,8 @@ BEGIN
       retry_count = EXCLUDED.retry_count,
       next_attempt = EXCLUDED.next_attempt;
 
-    -- Keep event as pending for retry
-    UPDATE pubsub_events SET state = 'pending' WHERE id = p_event_id AND state = 'active';
+    -- Keep event as retry for retry
+    UPDATE pubsub_events SET state = 'retry' WHERE id = p_event_id AND state = 'active';
 
     RETURN 'retrying'::pubsub_fail_action;
   ELSE
@@ -254,7 +254,7 @@ BEGIN
       e.headers
     FROM pubsub_events e
     LEFT JOIN pubsub_retries r ON e.id = r.event_id
-    WHERE e.state = 'pending'
+    WHERE e.state IN ('pending', 'retry')
       AND e.topic_id = p_topic_id
       AND (r.id IS NULL OR r.next_attempt <= CURRENT_TIMESTAMP)
     ORDER BY e.created_at ASC
@@ -274,7 +274,7 @@ BEGIN
   -- Update active events that haven't been updated in the specified duration
   -- Add a 1-minute grace period to prevent race conditions with active processing
   UPDATE pubsub_events
-  SET state = 'pending'
+  SET state = 'retry'
   WHERE id IN (
     SELECT id
     FROM pubsub_events
@@ -315,3 +315,66 @@ CREATE INDEX idx_pubsub_retries_next_attempt
 
 CREATE INDEX idx_pubsub_events_state_topic
   ON pubsub_events(state, topic_id);
+
+-- Function to immediately send an event to the dead letter queue and mark it as failed
+CREATE OR REPLACE FUNCTION pubsub_dead_letter_event(
+  p_event_id BIGINT,
+  p_error_message TEXT
+) RETURNS BOOLEAN AS $$
+DECLARE
+  v_topic_dlq_enabled BOOLEAN;
+  v_row_count BIGINT;
+BEGIN
+  -- Check if the event exists and get DLQ configuration
+  SELECT t.dlq_enabled INTO v_topic_dlq_enabled
+  FROM pubsub_events e
+  JOIN pubsub_topics t ON e.topic_id = t.id
+  WHERE e.id = p_event_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Event not found: %', p_event_id;
+  END IF;
+
+  -- Insert into dead letter queue if DLQ is enabled
+  IF v_topic_dlq_enabled THEN
+    INSERT INTO pubsub_dead_letters (event_id, error_message)
+    VALUES (p_event_id, p_error_message);
+  END IF;
+
+  -- Clean up any retry records
+  DELETE FROM pubsub_retries WHERE event_id = p_event_id;
+
+  -- Mark event as failed
+  UPDATE pubsub_events
+  SET state = 'failed'
+  WHERE id = p_event_id;
+
+  GET DIAGNOSTICS v_row_count = ROW_COUNT;
+  RETURN v_row_count > 0;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to completely delete an event and all its references
+CREATE OR REPLACE FUNCTION pubsub_delete_event(p_event_id BIGINT)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_row_count BIGINT;
+BEGIN
+  -- Check if event exists
+  IF NOT EXISTS (SELECT 1 FROM pubsub_events WHERE id = p_event_id) THEN
+    RETURN FALSE;
+  END IF;
+
+  -- Delete from dead letter queue (if present)
+  DELETE FROM pubsub_dead_letters WHERE event_id = p_event_id;
+
+  -- Delete from retry queue (if present)
+  DELETE FROM pubsub_retries WHERE event_id = p_event_id;
+
+  -- Delete the event itself
+  DELETE FROM pubsub_events WHERE id = p_event_id;
+
+  GET DIAGNOSTICS v_row_count = ROW_COUNT;
+  RETURN v_row_count > 0;
+END;
+$$ LANGUAGE plpgsql;
