@@ -225,6 +225,20 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
+			name:    "ProviderWithStringRequire",
+			pattern: `zero:provider require="github.com/example/pkg/ExternalProvider"`,
+			want: &DirectiveProvider{
+				Require: []string{"github.com/example/pkg/ExternalProvider"},
+			},
+		},
+		{
+			name:    "ProviderMixedRequire",
+			pattern: `zero:provider require=LocalProvider,"github.com/example/pkg/ExternalProvider"`,
+			want: &DirectiveProvider{
+				Require: []string{"LocalProvider", "github.com/example/pkg/ExternalProvider"},
+			},
+		},
+		{
 			name:    "Config",
 			pattern: "zero:config",
 			want:    &DirectiveConfig{},

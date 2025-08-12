@@ -4,9 +4,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"database/sql"
-	"embed"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"time"
@@ -15,15 +13,6 @@ import (
 	"github.com/alecthomas/zero/internal"
 	zerosql "github.com/alecthomas/zero/providers/sql"
 )
-
-//go:embed migrations/*.sql
-var migrations embed.FS
-
-//zero:provider weak multi
-func SQLLeaserMigrations() zerosql.Migrations {
-	sub, _ := fs.Sub(migrations, "migrations")
-	return zerosql.Migrations{sub}
-}
 
 type SQLLeaser struct {
 	holder string
@@ -38,7 +27,7 @@ var _ Leaser = (*SQLLeaser)(nil)
 
 // NewSQLLeaser creates a [Leaser] backed by an SQL database.
 //
-//zero:provider weak require=SQLLeaserMigrations
+//zero:provider weak require="github.com/alecthomas/zero/providers/leases/migrations.Migrations"
 func NewSQLLeaser(
 	ctx context.Context,
 	logger *slog.Logger,

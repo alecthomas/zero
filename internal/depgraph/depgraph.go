@@ -1878,7 +1878,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 	funcNameToProvider := map[string]*Provider{}
 	for _, providerList := range providers {
 		for _, p := range providerList {
-			funcKey := p.Package.PkgPath + "/" + p.Function.Name()
+			funcKey := p.Package.PkgPath + "." + p.Function.Name()
 			funcNameToProvider[funcKey] = p
 		}
 	}
@@ -1888,11 +1888,11 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 	for _, providerList := range providers {
 		for _, p := range providerList {
 			for _, requiredFuncName := range p.Directive.Require {
-				requiredFuncKey := p.Package.PkgPath + "/" + requiredFuncName
+				requiredFuncKey := resolveRequireFunc(p.Package, requiredFuncName)
 				if _, exists := funcNameToProvider[requiredFuncKey]; exists {
 					explicitlyRequired[requiredFuncKey] = true
 				} else {
-					return errors.Errorf("provider %s requires %s, but %s is not a valid provider function in the same package", p.Function.Name(), requiredFuncName, requiredFuncName)
+					return errors.Errorf("provider %s requires %s, but it is not a valid provider function", p.Function.FullName(), requiredFuncName)
 				}
 			}
 		}
@@ -1921,7 +1921,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 				// For multi-providers, include non-weak providers by default, plus any explicitly required weak providers
 				var includedProviders []*Provider
 				for _, p := range providers {
-					funcKey := p.Package.PkgPath + "/" + p.Function.Name()
+					funcKey := p.Function.FullName()
 					if !p.Directive.Weak || explicitlyRequired[funcKey] {
 						includedProviders = append(includedProviders, p)
 					}
@@ -1943,7 +1943,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 					// Handle directive requirements for multi-providers
 					for _, requiredFuncName := range p.Directive.Require {
 						// Only allow requiring functions from the same package
-						requiredFuncKey := p.Package.PkgPath + "/" + requiredFuncName
+						requiredFuncKey := resolveRequireFunc(p.Package, requiredFuncName)
 						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
 							requiredKey := types.TypeString(requiredProvider.Provides, nil)
 							if !referenced[requiredKey] {
@@ -1967,7 +1967,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 					// Handle directive requirements
 					for _, requiredFuncName := range provider.Directive.Require {
 						// Only allow requiring functions from the same package
-						requiredFuncKey := provider.Package.PkgPath + "/" + requiredFuncName
+						requiredFuncKey := resolveRequireFunc(provider.Package, requiredFuncName)
 						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
 							requiredKey := types.TypeString(requiredProvider.Provides, nil)
 							if !referenced[requiredKey] {
@@ -2045,7 +2045,7 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 
 					// Handle directive requirements for generic providers
 					for _, requiredFuncName := range resolvedProvider.Directive.Require {
-						requiredFuncKey := resolvedProvider.Package.PkgPath + "/" + requiredFuncName
+						requiredFuncKey := resolvedProvider.Package.PkgPath + "." + requiredFuncName
 						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
 							requiredKey := types.TypeString(requiredProvider.Provides, nil)
 							if !referenced[requiredKey] {
@@ -2732,4 +2732,11 @@ func normaliseType(t types.Type) string {
 	default:
 		panic(fmt.Sprintf("unknown type %T", t))
 	}
+}
+
+func resolveRequireFunc(pkg *packages.Package, require string) string {
+	if strings.Contains(require, "/") {
+		return require
+	}
+	return pkg.PkgPath + "." + require
 }

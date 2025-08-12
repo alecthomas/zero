@@ -47,7 +47,7 @@ type Directive interface {
 type DirectiveProvider struct {
 	Weak    bool     `parser:"'provider' (  @'weak'"`
 	Multi   bool     `parser:"            | @'multi'"`
-	Require []string `parser:"            | 'require' '=' @Ident (',' @Ident)*)*"`
+	Require []string `parser:"            | 'require' '=' (@Ident | @String) (',' (@Ident | @String))*)*"`
 }
 
 func (p *DirectiveProvider) directive() {}

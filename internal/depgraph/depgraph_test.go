@@ -1736,7 +1736,7 @@ func WeakProvider() string {
 	// Test that invalid function names in require directive return an error
 	_, err := analyseTestCodeWithError(t, testCode, WithRoots("string"))
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "requires NonExistentFunction, but NonExistentFunction is not a valid provider function in the same package")
+	assert.Contains(t, err.Error(), "provider test.WeakProvider requires NonExistentFunction, but it is not a valid provider function")
 }
 
 func TestAnalyseRequireNonProviderFunction(t *testing.T) {
@@ -1756,7 +1756,7 @@ func WeakProvider() int {
 	// Test that requiring a non-provider function returns an error
 	_, err := analyseTestCodeWithError(t, testCode, WithRoots("int"))
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "requires RegularFunction, but RegularFunction is not a valid provider function in the same package")
+	assert.Contains(t, err.Error(), "provider test.WeakProvider requires RegularFunction, but it is not a valid provider function")
 }
 
 func TestAnalyseAPIValidParameterTypes(t *testing.T) {

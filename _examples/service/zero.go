@@ -12,6 +12,7 @@ import (
   imp31feb4b39618eab1 "github.com/alecthomas/zero/providers/logging"
   imp3773070ca4e7a2b8 "github.com/alecthomas/zero/providers/http"
   imp57144815321973d3 "github.com/alecthomas/zero/providers/pubsub"
+  imp610fef263c076d55 "github.com/alecthomas/zero/providers/leases/migrations"
   imp71bef56b62085424 "github.com/alecthomas/zero/providers/cron"
   imp897f1a742b20547b "github.com/alecthomas/zero/providers/pubsub/postgres"
   imp9b258f273adc01df "github.com/alecthomas/zero/providers/leases"
@@ -370,7 +371,7 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*impc24ab568b6f3f934.Migrations)(nil)).Elem():
-		r0 := imp9b258f273adc01df.SQLLeaserMigrations()
+		r0 := imp610fef263c076d55.Migrations()
 		r1 := imp897f1a742b20547b.Migrations()
 		r2 := Migrations()
 		var result impc24ab568b6f3f934.Migrations
