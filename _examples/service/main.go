@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"maps"
@@ -107,7 +108,7 @@ func (s *Service) GetUser(id string) (User, error) {
 //zero:subscribe
 func (s *Service) OnUserCreated(ctx context.Context, user pubsub.Event[UserCreatedEvent]) error {
 	s.logger.Info("OnUserCreated received event", "user", user.Payload().Name)
-	return nil
+	return errors.New("bad")
 }
 
 //zero:cron 5s

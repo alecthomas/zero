@@ -277,10 +277,10 @@ func (t *Topic[T]) processBacklog(ctx context.Context) {
 
 func (t *Topic[T]) processOneBacklogEvent(ctx context.Context) (processed bool, err error) {
 	eventRow, err := t.queries.ClaimNextEvent(ctx, t.topicID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
 		return false, errors.Errorf("failed to get pending events for topic %s: %w", t.topic, err)
 	}
 	var event pubsub.Event[T]
@@ -309,6 +309,9 @@ func (t *Topic[T]) notified(ctx context.Context, notification Notification) erro
 	// Claim an event
 	eventRow, err := t.queries.ClaimNextEvent(ctx, t.topicID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
 		return errors.Errorf("failed to claim next event from topic %q: %w", t.topic, err)
 	}
 	var event pubsub.Event[T]
