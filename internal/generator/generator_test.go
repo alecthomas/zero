@@ -184,7 +184,7 @@ func TestCronJobGeneration(t *testing.T) {
 	generatedCode := readFile(t)
 	assert.Contains(t, generatedCode, "Scheduler)(nil)).Elem():")
 	assert.Contains(t, generatedCode, "NewScheduler(")
-	assert.Contains(t, generatedCode, `cron.Register("test.Service.CheckUsers"`)
+	assert.Contains(t, generatedCode, `cron.Register("*test.Service.CheckUsers"`)
 	assert.Contains(t, generatedCode, "time.Duration(3600000000000)") // The duration literal (1 hour in nanoseconds)
 
 	goModTidy(t, dir)
@@ -542,7 +542,7 @@ func main() {}
 	generatedCode := readFile(t)
 	assert.Contains(t, generatedCode, "Scheduler)(nil)).Elem():")
 	assert.Contains(t, generatedCode, "NewScheduler(")
-	assert.Contains(t, generatedCode, `cron.Register("test.TestService.CleanupJob"`)
+	assert.Contains(t, generatedCode, `cron.Register("*test.TestService.CleanupJob"`)
 	assert.Contains(t, generatedCode, "time.Duration(600000000000)") // 10 minutes in nanoseconds
 
 	goModTidy(t, dir)

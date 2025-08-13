@@ -33,8 +33,17 @@ type Ref struct {
 	Ref    string // *sql.DB or *impe1d11ad6baa4124f.DB
 }
 
+// String is the fully-qualified type reference, eg. *database/sql.DB
 func (r Ref) String() string {
-	return fmt.Sprintf("%s.%s", r.Pkg, strings.TrimPrefix(r.Ref, "*"))
+	ref := r.Ref
+	if i := strings.LastIndex(ref, "."); i != -1 {
+		ref = ref[i+1:]
+	}
+	ref = strings.TrimPrefix(ref, "*")
+	if strings.HasPrefix(r.Ref, "*") {
+		return "*" + r.Pkg + "." + ref
+	}
+	return r.Pkg + "." + ref
 }
 
 // A Provider represents a constructor for a type.
@@ -624,6 +633,40 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 	}
 
 	return graph, nil
+}
+
+// ParseTypeRef parses a type reference string into a Ref.
+//
+// A type reference string is in the form [*]<pkg>.<type>, eg. *net/http.ServeMux
+func (g *Graph) ParseTypeRef(ref string) Ref {
+	ptr := strings.HasPrefix(ref, "*")
+	cut := strings.LastIndex(ref, ".")
+	if cut == -1 {
+		panic(fmt.Sprintf("invalid type reference: %s", ref))
+	}
+	pkg := strings.TrimPrefix(ref[:cut], "*")
+	typ := ref[cut+1:]
+	alias := g.ImportAlias(pkg)
+	if pkg == g.Dest.Path() {
+		return Ref{
+			Ref: typ,
+		}
+	}
+	imp := pkg
+	if alias != "" {
+		imp = fmt.Sprintf("%s %q", alias, imp)
+		typ = alias + "." + typ
+	} else {
+		typ = path.Base(pkg) + "." + typ
+	}
+	if ptr {
+		typ = "*" + typ
+	}
+	return Ref{
+		Pkg:    pkg,
+		Import: imp,
+		Ref:    typ,
+	}
 }
 
 // TypeRef splits a type into its import alias+path and type reference.
@@ -1790,91 +1833,121 @@ var internalAPITypes = []string{
 // pruneUnreferencedTypes removes providers and configs that are not transitively referenced from the given roots
 func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][]*Provider, pick []string) error {
 	referenced := map[string]bool{}
+	toProcess := initializeToProcess(graph, roots)
+
+	transferGenericProviders(graph, providers)
+	if err := createSubscriptionTopicProviders(graph, referenced, &toProcess, pick); err != nil {
+		return err
+	}
+
+	funcNameToProvider := buildFuncToProviderMapping(providers)
+	explicitlyRequired, err := processDirectiveRequirements(providers, funcNameToProvider)
+	if err != nil {
+		return err
+	}
+
+	if err := validateAllMultiProviderConstraints(providers); err != nil {
+		return err
+	}
+
+	ambiguousProviders := processReferencedTypes(graph, providers, pick, referenced, &toProcess, funcNameToProvider, explicitlyRequired)
+
+	if err := checkAmbiguousProviders(ambiguousProviders, referenced); err != nil {
+		return err
+	}
+
+	cleanupUnreferencedResources(graph, providers, referenced)
+	return nil
+}
+
+func initializeToProcess(graph *Graph, roots []string) []string {
 	toProcess := slices.Clone(roots)
 	if len(graph.APIs) > 0 {
 		toProcess = append(toProcess, internalAPITypes...)
 	}
 
-	// Add subscription event types to ensure they are preserved
 	for _, subscription := range graph.Subscriptions {
 		if subscription.TopicType != nil {
 			eventTypeStr := types.TypeString(subscription.TopicType, nil)
 			toProcess = append(toProcess, eventTypeStr)
 		}
 	}
-	ambiguousProviders := map[string][]*Provider{}
+	return toProcess
+}
 
-	// Transfer all generic providers to the graph immediately so they can be resolved when needed
+func transferGenericProviders(graph *Graph, providers map[string][]*Provider) {
 	for key, providerList := range providers {
 		for _, p := range providerList {
 			if p.IsGeneric {
-				// Store generic providers under their base type key for lookup
 				graph.Providers[key] = append(graph.Providers[key], p)
 			}
 		}
 	}
+}
 
-	// Create concrete topic providers for subscriptions (after generic providers are transferred)
+func createSubscriptionTopicProviders(graph *Graph, referenced map[string]bool, toProcess *[]string, pick []string) error {
 	for _, subscription := range graph.Subscriptions {
 		if subscription.TopicType != nil {
-			baseType := "github.com/alecthomas/zero/providers/pubsub.Topic"
-			if genericProviders, exists := graph.Providers[baseType]; exists && len(genericProviders) > 0 {
-				// Find the pubsub.Topic generic type
-				var pubsubTopicType *types.Named
-				for _, provider := range genericProviders {
-					for _, imp := range provider.Package.Imports {
-						if imp.PkgPath == "github.com/alecthomas/zero/providers/pubsub" {
-							if obj := imp.Types.Scope().Lookup("Topic"); obj != nil {
-								if typeName, ok := obj.(*types.TypeName); ok {
-									if named, ok := typeName.Type().(*types.Named); ok {
-										pubsubTopicType = named
-										break
-									}
-								}
-							}
-						}
-					}
-					if pubsubTopicType != nil {
-						break
-					}
-				}
+			if err := createTopicProvider(graph, subscription.TopicType, referenced, toProcess, pick); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
-				if pubsubTopicType != nil {
-					// Create the instantiated type pubsub.Topic[TopicType]
-					topicType, err := types.Instantiate(nil, pubsubTopicType, []types.Type{subscription.TopicType}, false)
-					if err == nil {
-						topicTypeStr := types.TypeString(topicType, nil)
-						// Check if this topic type already exists
-						if _, exists := graph.Providers[topicTypeStr]; !exists {
-							// Resolve the generic provider with the concrete topic type
-							resolvedProvider := resolveGenericProviderWithType(graph, topicType, pick)
-							if resolvedProvider != nil {
-								// Add the concrete provider to the graph
-								concreteTypeKey := types.TypeString(resolvedProvider.Provides, nil)
-								graph.Providers[concreteTypeKey] = []*Provider{resolvedProvider}
-								referenced[concreteTypeKey] = true
+func createTopicProvider(graph *Graph, topicType types.Type, referenced map[string]bool, toProcess *[]string, pick []string) error {
+	baseType := "github.com/alecthomas/zero/providers/pubsub.Topic"
+	genericProviders, exists := graph.Providers[baseType]
+	if !exists || len(genericProviders) == 0 {
+		return nil
+	}
 
-								// Also mark the base generic provider as referenced so it's not pruned
-								baseType := "github.com/alecthomas/zero/providers/pubsub.Topic"
-								referenced[baseType] = true
+	pubsubTopicType := findPubsubTopicType(genericProviders)
+	if pubsubTopicType == nil {
+		return nil
+	}
 
-								// Add its requirements to be processed
-								for _, required := range resolvedProvider.Requires {
-									requiredKey := types.TypeString(required, nil)
-									if !referenced[requiredKey] {
-										toProcess = append(toProcess, requiredKey)
-									}
-								}
-							}
+	instantiatedType, err := types.Instantiate(nil, pubsubTopicType, []types.Type{topicType}, false)
+	if err != nil {
+		return errors.Wrap(err, "failed to instantiate topic type")
+	}
+
+	topicTypeStr := types.TypeString(instantiatedType, nil)
+	if _, exists := graph.Providers[topicTypeStr]; exists {
+		return nil
+	}
+
+	resolvedProvider := resolveGenericProviderWithType(graph, instantiatedType, pick)
+	if resolvedProvider != nil {
+		concreteTypeKey := types.TypeString(resolvedProvider.Provides, nil)
+		graph.Providers[concreteTypeKey] = []*Provider{resolvedProvider}
+		referenced[concreteTypeKey] = true
+		referenced[baseType] = true
+
+		addRequirementsToProcess(resolvedProvider.Requires, referenced, toProcess)
+	}
+	return nil
+}
+
+func findPubsubTopicType(providers []*Provider) *types.Named {
+	for _, provider := range providers {
+		for _, imp := range provider.Package.Imports {
+			if imp.PkgPath == "github.com/alecthomas/zero/providers/pubsub" {
+				if obj := imp.Types.Scope().Lookup("Topic"); obj != nil {
+					if typeName, ok := obj.(*types.TypeName); ok {
+						if named, ok := typeName.Type().(*types.Named); ok {
+							return named
 						}
 					}
 				}
 			}
 		}
 	}
+	return nil
+}
 
-	// Build function name to provider mapping for directive requirements
-	// Key is "package.path/functionName" to ensure same-package requirements
+func buildFuncToProviderMapping(providers map[string][]*Provider) map[string]*Provider {
 	funcNameToProvider := map[string]*Provider{}
 	for _, providerList := range providers {
 		for _, p := range providerList {
@@ -1882,8 +1955,10 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 			funcNameToProvider[funcKey] = p
 		}
 	}
+	return funcNameToProvider
+}
 
-	// Pre-process directive requirements to identify explicitly required providers
+func processDirectiveRequirements(providers map[string][]*Provider, funcNameToProvider map[string]*Provider) (map[string]bool, error) {
 	explicitlyRequired := map[string]bool{}
 	for _, providerList := range providers {
 		for _, p := range providerList {
@@ -1892,206 +1967,197 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 				if _, exists := funcNameToProvider[requiredFuncKey]; exists {
 					explicitlyRequired[requiredFuncKey] = true
 				} else {
-					return errors.Errorf("provider %s requires %s, but it is not a valid provider function", p.Function.FullName(), requiredFuncName)
+					return nil, errors.Errorf("provider %s requires %s, but it is not a valid provider function", p.Function.FullName(), requiredFuncName)
 				}
 			}
 		}
 	}
+	return explicitlyRequired, nil
+}
 
-	// Validate multi-provider constraints first
+func validateAllMultiProviderConstraints(providers map[string][]*Provider) error {
 	for key, providerList := range providers {
 		if err := validateMultiProviderConstraints(key, providerList); err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
-	// Transitive closure: find all referenced types
-	for len(toProcess) > 0 {
-		current := toProcess[0]
-		toProcess = toProcess[1:]
+func processReferencedTypes(graph *Graph, providers map[string][]*Provider, pick []string, referenced map[string]bool, toProcess *[]string, funcNameToProvider map[string]*Provider, explicitlyRequired map[string]bool) map[string][]*Provider {
+	ambiguousProviders := map[string][]*Provider{}
+
+	for len(*toProcess) > 0 {
+		current := (*toProcess)[0]
+		*toProcess = (*toProcess)[1:]
 
 		if referenced[current] {
 			continue
 		}
 		referenced[current] = true
 
-		// If this type has a provider, add its dependencies
-		if providers, exists := providers[current]; exists {
-			if isMultiProvider(providers) {
-				// For multi-providers, include non-weak providers by default, plus any explicitly required weak providers
-				var includedProviders []*Provider
-				for _, p := range providers {
-					funcKey := p.Function.FullName()
-					if !p.Directive.Weak || explicitlyRequired[funcKey] {
-						includedProviders = append(includedProviders, p)
-					}
-				}
-
-				// If no non-weak providers exist and none are explicitly required, include all (weak) providers
-				if len(includedProviders) == 0 {
-					includedProviders = providers
-				}
-
-				graph.Providers[current] = includedProviders
-				for _, p := range includedProviders {
-					for _, required := range p.Requires {
-						requiredKey := types.TypeString(required, nil)
-						if !referenced[requiredKey] {
-							toProcess = append(toProcess, requiredKey)
-						}
-					}
-					// Handle directive requirements for multi-providers
-					for _, requiredFuncName := range p.Directive.Require {
-						// Only allow requiring functions from the same package
-						requiredFuncKey := resolveRequireFunc(p.Package, requiredFuncName)
-						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
-							requiredKey := types.TypeString(requiredProvider.Provides, nil)
-							if !referenced[requiredKey] {
-								toProcess = append(toProcess, requiredKey)
-							}
-						}
-					}
-				}
-			} else {
-				provider := pickProvider(providers, pick)
-				if provider == nil {
-					ambiguousProviders[current] = providers
-				} else {
-					graph.Providers[types.TypeString(provider.Provides, nil)] = []*Provider{provider}
-					for _, required := range provider.Requires {
-						requiredKey := types.TypeString(required, nil)
-						if !referenced[requiredKey] {
-							toProcess = append(toProcess, requiredKey)
-						}
-					}
-					// Handle directive requirements
-					for _, requiredFuncName := range provider.Directive.Require {
-						// Only allow requiring functions from the same package
-						requiredFuncKey := resolveRequireFunc(provider.Package, requiredFuncName)
-						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
-							requiredKey := types.TypeString(requiredProvider.Provides, nil)
-							if !referenced[requiredKey] {
-								toProcess = append(toProcess, requiredKey)
-							}
-						}
-					}
-				}
-			}
+		if providerList, exists := providers[current]; exists {
+			processExistingProviders(graph, current, providerList, pick, referenced, toProcess, funcNameToProvider, explicitlyRequired, ambiguousProviders)
 		} else {
-			// Check if this type can be provided by a generic provider
-			// First find the actual type object
-			var concreteType types.Type
-			for _, providers := range graph.Providers {
-				for _, provider := range providers {
-					for _, req := range provider.Requires {
-						if types.TypeString(req, nil) == current {
-							concreteType = req
-							break
-						}
-					}
-					if concreteType != nil {
-						break
-					}
-				}
-				if concreteType != nil {
-					break
-				}
-			}
-			// Also check APIs
-			if concreteType == nil {
-				for _, api := range graph.APIs {
-					if recv := api.Function.Signature().Recv(); recv != nil {
-						recvType := recv.Type()
-						if types.TypeString(recvType, nil) == current {
-							concreteType = recvType
-							break
-						}
-					}
-				}
-			}
-			// Also check middleware
-			if concreteType == nil {
-				for _, middleware := range graph.Middleware {
-					for _, req := range middleware.Requires {
-						if types.TypeString(req, nil) == current {
-							concreteType = req
-							break
-						}
-					}
-					if concreteType != nil {
-						break
-					}
-				}
-			}
+			processGenericProviders(graph, current, pick, referenced, toProcess, funcNameToProvider, ambiguousProviders)
+		}
+	}
+	return ambiguousProviders
+}
 
-			if concreteType != nil {
-				if resolvedProvider := resolveGenericProviderWithType(graph, concreteType, pick); resolvedProvider != nil {
-					// Add the resolved generic provider as a concrete provider
-					concreteTypeKey := types.TypeString(resolvedProvider.Provides, nil)
-					graph.Providers[concreteTypeKey] = []*Provider{resolvedProvider}
-					referenced[concreteTypeKey] = true
+func processExistingProviders(graph *Graph, current string, providers []*Provider, pick []string, referenced map[string]bool, toProcess *[]string, funcNameToProvider map[string]*Provider, explicitlyRequired map[string]bool, ambiguousProviders map[string][]*Provider) {
+	if isMultiProvider(providers) {
+		processMultiProviders(graph, current, providers, referenced, toProcess, funcNameToProvider, explicitlyRequired)
+	} else {
+		processSingleProvider(graph, current, providers, pick, referenced, toProcess, funcNameToProvider, ambiguousProviders)
+	}
+}
 
-					// Also mark the base generic provider as referenced so it's not pruned
-					baseType := getBaseTypeName(concreteType)
-					referenced[baseType] = true
+func processMultiProviders(graph *Graph, current string, providers []*Provider, referenced map[string]bool, toProcess *[]string, funcNameToProvider map[string]*Provider, explicitlyRequired map[string]bool) {
+	var includedProviders []*Provider
+	for _, p := range providers {
+		funcKey := p.Function.FullName()
+		if !p.Directive.Weak || explicitlyRequired[funcKey] {
+			includedProviders = append(includedProviders, p)
+		}
+	}
 
-					// Add the generic provider's dependencies to processing queue
-					for _, required := range resolvedProvider.Requires {
-						requiredKey := types.TypeString(required, nil)
-						if !referenced[requiredKey] {
-							toProcess = append(toProcess, requiredKey)
-						}
-					}
+	if len(includedProviders) == 0 {
+		includedProviders = providers
+	}
 
-					// Handle directive requirements for generic providers
-					for _, requiredFuncName := range resolvedProvider.Directive.Require {
-						requiredFuncKey := resolvedProvider.Package.PkgPath + "." + requiredFuncName
-						if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
-							requiredKey := types.TypeString(requiredProvider.Provides, nil)
-							if !referenced[requiredKey] {
-								toProcess = append(toProcess, requiredKey)
-							}
-						}
-					}
-				} else if resolvedConfig := resolveGenericConfigWithType(graph, concreteType); resolvedConfig != nil {
-					// Add the resolved generic config as a concrete config
-					graph.Configs[current] = resolvedConfig
-				} else {
-					// Check if there are ambiguous generic providers
-					baseType := getBaseTypeName(concreteType)
-					if genericProviders, exists := graph.Providers[baseType]; exists && len(genericProviders) > 0 {
-						// Filter to providers that can actually provide this concrete type
-						validProviders := make([]*Provider, 0)
-						for _, genericProvider := range genericProviders {
-							if canProvideConcreteTypeWithConstraints(concreteType, genericProvider) {
-								validProviders = append(validProviders, genericProvider)
-							}
-						}
-						if len(validProviders) > 0 {
-							ambiguousProviders[current] = validProviders
-						}
-					}
+	graph.Providers[current] = includedProviders
+	for _, p := range includedProviders {
+		addRequirementsToProcess(p.Requires, referenced, toProcess)
+		addDirectiveRequirementsToProcess(p, funcNameToProvider, referenced, toProcess)
+	}
+}
+
+func processSingleProvider(graph *Graph, current string, providers []*Provider, pick []string, referenced map[string]bool, toProcess *[]string, funcNameToProvider map[string]*Provider, ambiguousProviders map[string][]*Provider) {
+	provider := pickProvider(providers, pick)
+	if provider == nil {
+		ambiguousProviders[current] = providers
+	} else {
+		graph.Providers[types.TypeString(provider.Provides, nil)] = []*Provider{provider}
+		addRequirementsToProcess(provider.Requires, referenced, toProcess)
+		addDirectiveRequirementsToProcess(provider, funcNameToProvider, referenced, toProcess)
+	}
+}
+
+func processGenericProviders(graph *Graph, current string, pick []string, referenced map[string]bool, toProcess *[]string, funcNameToProvider map[string]*Provider, ambiguousProviders map[string][]*Provider) {
+	concreteType := findConcreteType(graph, current)
+	if concreteType == nil {
+		return
+	}
+
+	if resolvedProvider := resolveGenericProviderWithType(graph, concreteType, pick); resolvedProvider != nil {
+		processResolvedGenericProvider(resolvedProvider, concreteType, graph, referenced, toProcess, funcNameToProvider)
+	} else if resolvedConfig := resolveGenericConfigWithType(graph, concreteType); resolvedConfig != nil {
+		graph.Configs[current] = resolvedConfig
+	} else {
+		checkAmbiguousGenericProviders(current, concreteType, graph, ambiguousProviders)
+	}
+}
+
+func findConcreteType(graph *Graph, current string) types.Type {
+	// Check providers
+	for _, providers := range graph.Providers {
+		for _, provider := range providers {
+			for _, req := range provider.Requires {
+				if types.TypeString(req, nil) == current {
+					return req
 				}
 			}
 		}
 	}
 
+	// Check APIs
+	for _, api := range graph.APIs {
+		if recv := api.Function.Signature().Recv(); recv != nil {
+			recvType := recv.Type()
+			if types.TypeString(recvType, nil) == current {
+				return recvType
+			}
+		}
+	}
+
+	// Check middleware
+	for _, middleware := range graph.Middleware {
+		for _, req := range middleware.Requires {
+			if types.TypeString(req, nil) == current {
+				return req
+			}
+		}
+	}
+	return nil
+}
+
+func processResolvedGenericProvider(resolvedProvider *Provider, concreteType types.Type, graph *Graph, referenced map[string]bool, toProcess *[]string, funcNameToProvider map[string]*Provider) {
+	concreteTypeKey := types.TypeString(resolvedProvider.Provides, nil)
+	graph.Providers[concreteTypeKey] = []*Provider{resolvedProvider}
+	referenced[concreteTypeKey] = true
+
+	baseType := getBaseTypeName(concreteType)
+	referenced[baseType] = true
+
+	addRequirementsToProcess(resolvedProvider.Requires, referenced, toProcess)
+	addDirectiveRequirementsToProcess(resolvedProvider, funcNameToProvider, referenced, toProcess)
+}
+
+func checkAmbiguousGenericProviders(current string, concreteType types.Type, graph *Graph, ambiguousProviders map[string][]*Provider) {
+	baseType := getBaseTypeName(concreteType)
+	if genericProviders, exists := graph.Providers[baseType]; exists && len(genericProviders) > 0 {
+		var validProviders []*Provider
+		for _, genericProvider := range genericProviders {
+			if canProvideConcreteTypeWithConstraints(concreteType, genericProvider) {
+				validProviders = append(validProviders, genericProvider)
+			}
+		}
+		if len(validProviders) > 0 {
+			ambiguousProviders[current] = validProviders
+		}
+	}
+}
+
+func addRequirementsToProcess(requires []types.Type, referenced map[string]bool, toProcess *[]string) {
+	for _, required := range requires {
+		requiredKey := types.TypeString(required, nil)
+		if !referenced[requiredKey] {
+			*toProcess = append(*toProcess, requiredKey)
+		}
+	}
+}
+
+func addDirectiveRequirementsToProcess(provider *Provider, funcNameToProvider map[string]*Provider, referenced map[string]bool, toProcess *[]string) {
+	for _, requiredFuncName := range provider.Directive.Require {
+		requiredFuncKey := resolveRequireFunc(provider.Package, requiredFuncName)
+		if requiredProvider, exists := funcNameToProvider[requiredFuncKey]; exists {
+			requiredKey := types.TypeString(requiredProvider.Provides, nil)
+			if !referenced[requiredKey] {
+				*toProcess = append(*toProcess, requiredKey)
+			}
+		}
+	}
+}
+
+func checkAmbiguousProviders(ambiguousProviders map[string][]*Provider, referenced map[string]bool) error {
 	for key := range ambiguousProviders {
 		if !referenced[key] {
 			delete(ambiguousProviders, key)
 		}
 	}
 
-	// Return an error for the first ambiguous provider
 	for key, providers := range ambiguousProviders {
-		providerKeys := make([]string, 0, len(providers))
+		var providerKeys []string
 		for _, provider := range providers {
-			providerKey := provider.Function.FullName()
-			providerKeys = append(providerKeys, providerKey)
+			providerKeys = append(providerKeys, provider.Function.FullName())
 		}
 		return fmt.Errorf("ambiguous providers for type %s: %s", key, strings.Join(providerKeys, ", "))
 	}
+	return nil
+}
 
+func cleanupUnreferencedResources(graph *Graph, providers map[string][]*Provider, referenced map[string]bool) {
 	// Remove unreferenced providers
 	for key := range providers {
 		if !referenced[key] {
@@ -2099,7 +2165,6 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 		}
 	}
 
-	// Remove unreferenced providers
 	for key := range graph.Providers {
 		if !referenced[key] {
 			delete(graph.Providers, key)
@@ -2115,7 +2180,6 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 
 	// Remove unreferenced generic configs
 	for baseType := range graph.GenericConfigs {
-		// Check if any concrete instantiation of this generic config is referenced
 		isReferenced := false
 		for refKey := range referenced {
 			if strings.HasPrefix(refKey, baseType+"[") {
@@ -2130,40 +2194,40 @@ func pruneUnreferencedTypes(graph *Graph, roots []string, providers map[string][
 
 	// Remove unused middleware
 	if len(graph.APIs) > 0 {
-		// Collect all labels used by APIs
-		usedLabels := make(map[string]bool)
-		for _, api := range graph.APIs {
-			if api.Pattern != nil && api.Pattern.Labels != nil {
-				for _, label := range api.Pattern.Labels {
-					usedLabels[label.Name] = true
-				}
-			}
-		}
-
-		// Filter middleware: keep if no labels (global) or if any label matches API labels
-		var filteredMiddleware []*Middleware
-		for _, mw := range graph.Middleware {
-			if len(mw.Directive.Labels) == 0 {
-				// Global middleware (no labels) - always keep
-				filteredMiddleware = append(filteredMiddleware, mw)
-			} else {
-				// Check if any middleware label matches any API label
-				hasMatchingLabel := false
-				for _, label := range mw.Directive.Labels {
-					if usedLabels[label] {
-						hasMatchingLabel = true
-						break
-					}
-				}
-				if hasMatchingLabel {
-					filteredMiddleware = append(filteredMiddleware, mw)
-				}
-			}
-		}
-		graph.Middleware = filteredMiddleware
+		usedLabels := collectUsedLabels(graph.APIs)
+		graph.Middleware = filterMiddleware(graph.Middleware, usedLabels)
 	}
+}
 
-	return nil
+func collectUsedLabels(apis []*API) map[string]bool {
+	usedLabels := make(map[string]bool)
+	for _, api := range apis {
+		if api.Pattern != nil && api.Pattern.Labels != nil {
+			for _, label := range api.Pattern.Labels {
+				usedLabels[label.Name] = true
+			}
+		}
+	}
+	return usedLabels
+}
+
+func filterMiddleware(middleware []*Middleware, usedLabels map[string]bool) []*Middleware {
+	var filtered []*Middleware
+	for _, mw := range middleware {
+		if len(mw.Directive.Labels) == 0 {
+			// Global middleware (no labels) - always keep
+			filtered = append(filtered, mw)
+		} else {
+			// Check if any middleware label matches any API label
+			for _, label := range mw.Directive.Labels {
+				if usedLabels[label] {
+					filtered = append(filtered, mw)
+					break
+				}
+			}
+		}
+	}
+	return filtered
 }
 
 func isConfigReferenced(configKey string, referenced map[string]bool) bool {
@@ -2262,8 +2326,6 @@ func isMultiProvider(providers []*Provider) bool {
 	return true
 }
 
-// requireAppropriateScheduler automatically adds the appropriate scheduler provider
-// to the pick list based on whether cron jobs are present in the graph.
 // getBaseTypeName extracts the base type name from a type, handling generic types.
 // For example, "Topic[T]" becomes "Topic", "*Service" becomes "*Service"
 func getBaseTypeName(t types.Type) string {
