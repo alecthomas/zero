@@ -5,7 +5,6 @@ go 1.24.0
 toolchain go1.24.5
 
 require (
-	github.com/a-h/templ v0.3.924
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.12.1
 	github.com/alecthomas/kong-toml v0.4.0
