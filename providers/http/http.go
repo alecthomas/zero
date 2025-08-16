@@ -56,7 +56,7 @@ type Config struct {
 }
 
 //zero:provider weak
-func DefaultServer(ctx context.Context, logger *slog.Logger, config Config, mux *http.ServeMux) *http.Server {
+func NewServer(ctx context.Context, logger *slog.Logger, config Config, mux *http.ServeMux) *http.Server {
 	return &http.Server{
 		Addr:              config.Bind,
 		Handler:           mux,

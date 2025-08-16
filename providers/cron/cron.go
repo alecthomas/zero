@@ -43,7 +43,7 @@ type Scheduler struct {
 //
 // The [Scheduler] uses [leases.Leaser] to prevent cron jobs from running concurrently.
 //
-//zero:provider
+//zero:provider weak
 func NewScheduler(ctx context.Context, logger *slog.Logger, leaser leases.Leaser) *Scheduler {
 	s := &Scheduler{logger: logger, leaser: leaser}
 	go s.run(ctx)

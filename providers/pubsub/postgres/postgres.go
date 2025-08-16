@@ -1,5 +1,6 @@
 //go:build postgres
 
+// Package postgres provides a PostgreSQL PubSub provider.
 package postgres
 
 import (
@@ -29,7 +30,7 @@ var pgMigrations embed.FS
 
 // Migrations returns a set of migrations for the PostgreSQL PubSub provider.
 //
-//zero:provider multi
+//zero:provider weak multi
 func Migrations() zerosql.Migrations {
 	sub, err := fs.Sub(pgMigrations, "migrations")
 	if err != nil {
@@ -54,7 +55,7 @@ type Listener struct {
 //
 // It consumes a single connection.
 //
-//zero:provider
+//zero:provider weak
 func NewListener(ctx context.Context, logger *slog.Logger, db *sql.DB) (*Listener, error) {
 	// We need a pgx.Conn to wait for notifications, so we need to explicitly unwrap the underlying connection.
 	conn, err := db.Conn(ctx)

@@ -126,7 +126,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 						args = append(args, fmt.Sprintf("m%dp%d", mi, i))
 						paramType := params.At(i).Type()
 						paramName := params.At(i).Name()
-						writeParameterConstruction(w, graph, paramType, api.Label(paramName), fmt.Sprintf("m%dp", mi), i, true, "")
+						writeParameterConstruction(w, graph, paramType, api.APILabel(paramName), fmt.Sprintf("m%dp", mi), i, true, "")
 					}
 					handler = fmt.Sprintf("%s(%s)(%s", ref.Ref, strings.Join(args, ", "), handler)
 				} else {
@@ -518,7 +518,7 @@ func writeZeroConstructSingletonByName(w *codewriter.Writer, g *depgraph.Graph, 
 // writeProviderCall generates code to call a provider function with its dependencies.
 func writeProviderCall(w *codewriter.Writer, graph *depgraph.Graph, provider *depgraph.Provider, depVarPrefix string, resultVar string) {
 	// Construct all dependencies
-	for i, require := range provider.Requires {
+	for i, require := range provider.Requires() {
 		writeZeroConstructSingleton(w, graph, fmt.Sprintf("%s%d", depVarPrefix, i), require, "")
 	}
 
@@ -556,9 +556,9 @@ func writeProviderCall(w *codewriter.Writer, graph *depgraph.Graph, provider *de
 	}
 
 	w.W("(")
-	for i := range len(provider.Requires) {
+	for i := range len(provider.Requires()) {
 		w.W("%s%d", depVarPrefix, i)
-		if i < len(provider.Requires)-1 {
+		if i < len(provider.Requires())-1 {
 			w.W(", ")
 		}
 	}

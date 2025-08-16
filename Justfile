@@ -25,4 +25,15 @@ tidy:
 
 # Run the exemplar with hot reload
 hotreload:
-  @reflex -d fancy -c reflex.conf
+  #!/bin/bash
+  reflex -d fancy -c <(cat <<EOF
+  -r '\.sql$' -- sqlc generate
+  -s -r '\.(go|gohtml)$' -R 'zero.go$' -- sh -c 'zero && go run -C ./_examples/service . --log-level=debug'
+  EOF)
+
+# Run tests with hot reload
+hottest *flags:
+  #!/bin/bash
+  reflex -d none -c <(cat <<EOF
+  -r '\.go$' -R 'zero.go$' -- sh -c 'clear; go test {{flags}}'
+  EOF)

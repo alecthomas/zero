@@ -63,7 +63,7 @@ type Topic[T any] interface {
 // The name is a lower_snake_case string derived from the type name.
 func TopicName[T any]() string {
 	t := reflect.TypeFor[T]()
-	for t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	return strings.ReplaceAll(strings.ToLower(strings.Join(strcase.Split(t.Name()), "_")), "__", "_")

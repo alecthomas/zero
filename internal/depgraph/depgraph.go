@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 
@@ -44,367 +43,6 @@ func (r Ref) String() string {
 		return "*" + r.Pkg + "." + ref
 	}
 	return r.Pkg + "." + ref
-}
-
-// A Provider represents a constructor for a type.
-type Provider struct {
-	// Position is the position of the function declaration.
-	Position  token.Position
-	Directive *directiveparser.DirectiveProvider
-	// Function is the function that provides the type.
-	Function *types.Func
-	// Package is the package that contains the function.
-	Package  *packages.Package
-	Provides types.Type
-	Requires []types.Type
-	// IsGeneric indicates if this provider is a generic function
-	IsGeneric bool
-	// TypeParams holds the type parameters for generic providers
-	TypeParams *types.TypeParamList
-}
-
-// API represents a method that is an exposed API endpoint. API endpoints are annotated like so:
-//
-//	//zero:api [<method>] [<host>]/[<path>] [<option>[=<value>] ...]
-type API struct {
-	// Position is the position of the function declaration.
-	Position token.Position
-	// Pattern is the parsed HTTP mux pattern
-	Pattern *directiveparser.DirectiveAPI
-	// Function is the function that handles the API
-	Function *types.Func
-	// Documentation is the extracted function comments
-	Documentation string
-	// Package is the package that contains the function
-	Package *packages.Package
-	// OpenAPI is the OpenAPI operation spec for this endpoint
-	OpenAPI *spec.Operation
-}
-
-func (a *API) Label(name string) string {
-	for _, label := range a.Pattern.Labels {
-		if label.Name == name {
-			return label.Value
-		}
-	}
-	return ""
-}
-
-// GenerateOpenAPIOperation creates an OpenAPI operation spec for this API endpoint
-func (a *API) GenerateOpenAPIOperation(definitions spec.Definitions) *spec.Operation {
-	operation := &spec.Operation{
-		OperationProps: spec.OperationProps{
-			Description: a.extractDocumentation(),
-			Parameters:  a.generateParameters(definitions),
-			Responses:   a.generateResponses(definitions),
-			Tags:        []string{a.extractTag()},
-		},
-	}
-	return operation
-}
-
-func (a *API) extractDocumentation() string {
-	if a.Documentation != "" {
-		return a.Documentation
-	}
-	return ""
-}
-
-func (a *API) extractTag() string {
-	// Extract tag from package name or directive labels
-	if tag := a.Label("tag"); tag != "" {
-		return tag
-	}
-	return a.Package.Name
-}
-
-func (a *API) generateParameters(definitions spec.Definitions) []spec.Parameter {
-	var parameters []spec.Parameter
-	signature := a.Function.Signature()
-	params := signature.Params()
-
-	for i := range params.Len() {
-		param := params.At(i)
-		paramType := param.Type()
-		paramName := param.Name()
-
-		// Skip context parameters
-		if isContextType(paramType) {
-			continue
-		}
-
-		// Handle different parameter types
-		if isStandardHTTPType(paramType) {
-			continue // Skip standard HTTP types
-		}
-
-		if isBodyParameterStruct(paramType) {
-			// Body parameter
-			schema := a.generateSchemaFromType(paramType, definitions)
-			parameters = append(parameters, spec.Parameter{
-				ParamProps: spec.ParamProps{
-					Name:     "body",
-					In:       "body",
-					Required: true,
-					Schema:   schema,
-				},
-			})
-		} else if isStringOrIntType(paramType) {
-			// Path or query parameter
-			parameterType := "string"
-			if strings.Contains(paramType.String(), "int") {
-				parameterType = "integer"
-			}
-
-			// Determine if it's a path parameter from the pattern
-			inType := "query"
-			if a.isPathParameter(paramName) {
-				inType = "path"
-			}
-
-			parameters = append(parameters, spec.Parameter{
-				ParamProps: spec.ParamProps{
-					Name:     paramName,
-					In:       inType,
-					Required: inType == "path",
-				},
-				SimpleSchema: spec.SimpleSchema{
-					Type: parameterType,
-				},
-			})
-		}
-	}
-
-	return parameters
-}
-
-func (a *API) generateResponses(definitions spec.Definitions) *spec.Responses {
-	responses := &spec.Responses{
-		ResponsesProps: spec.ResponsesProps{
-			StatusCodeResponses: make(map[int]spec.Response),
-		},
-	}
-
-	signature := a.Function.Signature()
-	results := signature.Results()
-
-	if results.Len() == 0 {
-		// No return value - 204 No Content
-		responses.StatusCodeResponses[204] = spec.Response{
-			ResponseProps: spec.ResponseProps{
-				Description: "No Content",
-			},
-		}
-	} else if results.Len() == 1 && isErrorType(results.At(0).Type()) {
-		// Only error return - 204 No Content
-		responses.StatusCodeResponses[204] = spec.Response{
-			ResponseProps: spec.ResponseProps{
-				Description: "No Content",
-			},
-		}
-	} else if results.Len() >= 1 {
-		firstResult := results.At(0)
-		if !isErrorType(firstResult.Type()) {
-			// Has a return value - 200 OK
-			schema := a.generateSchemaFromType(firstResult.Type(), definitions)
-			responses.StatusCodeResponses[200] = spec.Response{
-				ResponseProps: spec.ResponseProps{
-					Description: "Success",
-					Schema:      schema,
-				},
-			}
-		}
-	}
-
-	// Always add error responses
-	responses.StatusCodeResponses[400] = spec.Response{
-		ResponseProps: spec.ResponseProps{
-			Description: "Bad Request",
-		},
-	}
-	responses.StatusCodeResponses[500] = spec.Response{
-		ResponseProps: spec.ResponseProps{
-			Description: "Internal Server Error",
-		},
-	}
-
-	return responses
-}
-
-func (a *API) isPathParameter(paramName string) bool {
-	// Check if the parameter name is a wildcard in the parsed path structure
-	return a.Pattern.Wildcard(paramName)
-}
-
-func (a *API) generateSchemaFromType(t types.Type, definitions spec.Definitions) *spec.Schema {
-	schema := &spec.Schema{}
-
-	// Remove pointer indirection
-	for {
-		if ptr, ok := t.(*types.Pointer); ok {
-			t = ptr.Elem()
-		} else {
-			break
-		}
-	}
-
-	switch typ := t.(type) {
-	case *types.Basic:
-		switch typ.Kind() {
-		case types.String:
-			schema.Type = []string{"string"}
-		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
-			types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
-			schema.Type = []string{"integer"}
-		case types.Float32, types.Float64:
-			schema.Type = []string{"number"}
-		case types.Bool:
-			schema.Type = []string{"boolean"}
-		default:
-			schema.Type = []string{"string"}
-		}
-	case *types.Struct:
-		schema.Type = []string{"object"}
-		schema.Properties = make(map[string]spec.Schema)
-
-		for i := range typ.NumFields() {
-			field := typ.Field(i)
-			if field.Exported() {
-				fieldName := getJSONFieldName(field, typ.Tag(i))
-				if fieldName != "" {
-					fieldSchema := a.generateSchemaFromType(field.Type(), definitions)
-					schema.Properties[fieldName] = *fieldSchema
-				}
-			}
-		}
-	case *types.Slice:
-		schema.Type = []string{"array"}
-		itemSchema := a.generateSchemaFromType(typ.Elem(), definitions)
-		schema.Items = &spec.SchemaOrArray{
-			Schema: itemSchema,
-		}
-	case *types.Named:
-		// For named types, create a reference to a shared definition
-		typeName := typ.Obj().Name()
-		pkg := typ.Obj().Pkg()
-		var defName string
-		if pkg != nil {
-			defName = pkg.Name() + "." + typeName
-		} else {
-			defName = typeName
-		}
-
-		// Add to definitions if not already present
-		if _, exists := definitions[defName]; !exists {
-			underlyingSchema := a.generateSchemaFromType(typ.Underlying(), definitions)
-			definitions[defName] = *underlyingSchema
-		}
-
-		// Return a reference schema
-		schema.Ref = spec.MustCreateRef("#/definitions/" + defName)
-		return schema
-	default:
-		// Fallback for unknown types
-		schema.Type = []string{"object"}
-	}
-
-	return schema
-}
-
-// getJSONFieldName returns the JSON field name from the struct tag if present,
-// otherwise returns the field name with the first letter lowercased.
-func getJSONFieldName(field *types.Var, tag string) string {
-	if tag != "" {
-		structTag := reflect.StructTag(tag)
-		if jsonTag := structTag.Get("json"); jsonTag != "" {
-			// Parse the JSON tag - it might have options like "name,omitempty"
-			parts := strings.Split(jsonTag, ",")
-			if parts[0] == "-" {
-				return "" // Field should be excluded
-			}
-			if parts[0] != "" {
-				return parts[0]
-			}
-		}
-	}
-
-	// No JSON tag found, lowercase the first letter
-	name := field.Name()
-	if len(name) > 0 {
-		return strings.ToLower(name[:1]) + name[1:]
-	}
-	return name
-}
-
-// CronJob represents a cron job method in the graph.
-//
-//	//zero:cron <schedule>
-type CronJob struct {
-	// Position is the position of the function declaration.
-	Position token.Position
-	// Schedule is the parsed cron schedule directive
-	Schedule *directiveparser.DirectiveCron
-	// Function is the function that handles the cron job
-	Function *types.Func
-	// Package is the package that contains the function
-	Package *packages.Package
-}
-
-type Subscription struct {
-	// Position is the position of the function declaration.
-	Position token.Position
-	// Function is the function that handles the subscription
-	Function *types.Func
-	// Package is the package that contains the function
-	Package *packages.Package
-	// TopicType is the event type extracted from pubsub.Event[T]
-	TopicType types.Type
-}
-
-// Config represents command-line/file configuration. Config structs are annotated like so:
-//
-//	//zero:config [prefix="<prefix>"]
-type Config struct {
-	// Position of the type declaration.
-	Position  token.Position
-	Type      types.Type
-	Directive *directiveparser.DirectiveConfig
-	// IsGeneric indicates if this config is a generic type
-	IsGeneric bool
-	// TypeParams holds the type parameters for generic configs
-	TypeParams *types.TypeParamList
-}
-
-// Middleware represents a function that is an HTTP middleware. Middleware functions are annotated like so:
-//
-//	//zero:middleware [<label>]
-type Middleware struct {
-	// Position is the position of the function declaration.
-	Position token.Position
-	// Directive is the parsed middleware directive
-	Directive *directiveparser.DirectiveMiddleware
-	// Function is the function that implements the middleware
-	Function *types.Func
-	// Package is the package that contains the function
-	Package *packages.Package
-	// Requires are the dependencies required by this middleware
-	Requires []types.Type
-	// Factory represents whether the middleware is a factory, or direct middleware function
-	Factory bool
-}
-
-func (m *Middleware) Match(api *API) bool {
-	if len(m.Directive.Labels) == 0 {
-		return true
-	}
-	for _, label := range m.Directive.Labels {
-		for _, apiLabel := range api.Pattern.Labels {
-			if label == apiLabel.Name {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 type graphOptions struct {
@@ -834,7 +472,7 @@ func (g *Graph) Graph() map[string][]string {
 	for typeStr, providers := range g.Providers {
 		deps := make([]string, 0)
 		for _, provider := range providers {
-			for _, reqType := range provider.Requires {
+			for _, reqType := range provider.Requires() {
 				depTypeStr := types.TypeString(reqType, types.RelativeTo(g.Dest))
 				deps = append(deps, depTypeStr)
 			}
@@ -1025,32 +663,33 @@ func analysePackage(pkg *packages.Package, graph *Graph, providers map[string][]
 					}
 					switch directive := directive.(type) {
 					case *directiveparser.DirectiveConfig:
-						configType := pkg.TypesInfo.TypeOf(typeSpec.Name)
-						if configType != nil {
-							// Check if this is a generic config
-							var typeParams *types.TypeParamList
-							var isGeneric bool
-							if named, ok := configType.(*types.Named); ok {
-								typeParams = named.TypeParams()
-								isGeneric = typeParams != nil && typeParams.Len() > 0
-							}
+						configType, ok := pkg.TypesInfo.TypeOf(typeSpec.Name).(*types.Named)
+						if !ok {
+							return errors.Errorf("%s: //zero:config must be applied to a named struct", fset.Position(typeSpec.Pos()))
+						}
 
-							config := &Config{
-								Position:   fset.Position(typeSpec.Pos()),
-								Type:       configType,
-								Directive:  directive,
-								IsGeneric:  isGeneric,
-								TypeParams: typeParams,
-							}
+						// Check if this is a generic config
+						var typeParams *types.TypeParamList
+						var isGeneric bool
+						typeParams = configType.TypeParams()
+						isGeneric = typeParams != nil && typeParams.Len() > 0
 
-							if isGeneric {
-								// For generic configs, store by base type name
-								baseType := getBaseTypeName(configType)
-								graph.GenericConfigs[baseType] = append(graph.GenericConfigs[baseType], config)
-							} else {
-								key := types.TypeString(configType, nil)
-								graph.Configs[key] = config
-							}
+						config := &Config{
+							Position:   fset.Position(typeSpec.Pos()),
+							Package:    pkg,
+							Type:       configType,
+							Directive:  directive,
+							IsGeneric:  isGeneric,
+							TypeParams: typeParams,
+						}
+
+						if isGeneric {
+							// For generic configs, store by base type name
+							baseType := getBaseTypeName(configType)
+							graph.GenericConfigs[baseType] = append(graph.GenericConfigs[baseType], config)
+						} else {
+							key := types.TypeString(configType, nil)
+							graph.Configs[key] = config
 						}
 
 					default:
@@ -1092,12 +731,6 @@ func createProvider(fn *ast.FuncDecl, pkg *packages.Package, directive *directiv
 		}
 	}
 
-	params := sig.Params()
-	requiredTypes := make([]types.Type, params.Len())
-	for i := range params.Len() {
-		requiredTypes[i] = params.At(i).Type()
-	}
-
 	// Check if this is a generic function
 	typeParams := sig.TypeParams()
 	isGeneric := typeParams != nil && typeParams.Len() > 0
@@ -1108,7 +741,6 @@ func createProvider(fn *ast.FuncDecl, pkg *packages.Package, directive *directiv
 		Package:    pkg,
 		Position:   fset.Position(fn.Pos()),
 		Provides:   providedType,
-		Requires:   requiredTypes,
 		IsGeneric:  isGeneric,
 		TypeParams: typeParams,
 	}, nil
@@ -1660,7 +1292,7 @@ func findMissingDependencies(graph *Graph) {
 
 	for _, providers := range graph.Providers {
 		for _, provider := range providers {
-			for _, required := range provider.Requires {
+			for _, required := range provider.Requires() {
 				key := types.TypeString(required, nil)
 				if !provided[key] && !isProvidedByConfig(required, graph) && !canBeProvidedByGeneric(required, graph) {
 					// Check for duplicates before adding
@@ -1956,7 +1588,7 @@ func createTopicProvider(graph *Graph, topicType types.Type, referenced map[stri
 		referenced[concreteTypeKey] = true
 		referenced[baseType] = true
 
-		addRequirementsToProcess(resolvedProvider.Requires, referenced, toProcess)
+		addRequirementsToProcess(resolvedProvider.Requires(), referenced, toProcess)
 	}
 	return nil
 }
@@ -2060,7 +1692,7 @@ func processMultiProviders(graph *Graph, current string, providers []*Provider, 
 
 	graph.Providers[current] = includedProviders
 	for _, p := range includedProviders {
-		addRequirementsToProcess(p.Requires, referenced, toProcess)
+		addRequirementsToProcess(p.Requires(), referenced, toProcess)
 		addDirectiveRequirementsToProcess(p, funcNameToProvider, referenced, toProcess)
 	}
 }
@@ -2084,7 +1716,7 @@ func processSingleProvider(graph *Graph, current string, providers []*Provider, 
 		ambiguousProviders[current] = filteredProviders
 	} else {
 		graph.Providers[types.TypeString(provider.Provides, nil)] = []*Provider{provider}
-		addRequirementsToProcess(provider.Requires, referenced, toProcess)
+		addRequirementsToProcess(provider.Requires(), referenced, toProcess)
 		addDirectiveRequirementsToProcess(provider, funcNameToProvider, referenced, toProcess)
 	}
 }
@@ -2108,7 +1740,7 @@ func findConcreteType(graph *Graph, current string) types.Type {
 	// Check providers
 	for _, providers := range graph.Providers {
 		for _, provider := range providers {
-			for _, req := range provider.Requires {
+			for _, req := range provider.Requires() {
 				if types.TypeString(req, nil) == current {
 					return req
 				}
@@ -2145,7 +1777,7 @@ func processResolvedGenericProvider(resolvedProvider *Provider, concreteType typ
 	baseType := getBaseTypeName(concreteType)
 	referenced[baseType] = true
 
-	addRequirementsToProcess(resolvedProvider.Requires, referenced, toProcess)
+	addRequirementsToProcess(resolvedProvider.Requires(), referenced, toProcess)
 	addDirectiveRequirementsToProcess(resolvedProvider, funcNameToProvider, referenced, toProcess)
 }
 
@@ -2507,8 +2139,9 @@ func resolveGenericProviderWithType(graph *Graph, concreteType types.Type, pick 
 
 	// Create a new provider instance with the concrete type
 	// Resolve requirements by substituting type parameters with concrete types
-	resolvedRequires := make([]types.Type, len(selectedGenericProvider.Requires))
-	copy(resolvedRequires, selectedGenericProvider.Requires)
+	selectedRequires := selectedGenericProvider.Requires()
+	resolvedRequires := make([]types.Type, len(selectedRequires))
+	copy(resolvedRequires, selectedRequires)
 
 	// Extract type arguments from the concrete type for substitution
 	if namedType, ok := concreteType.(*types.Named); ok {
@@ -2521,14 +2154,14 @@ func resolveGenericProviderWithType(graph *Graph, concreteType types.Type, pick 
 	}
 
 	concreteProvider := &Provider{
-		Position:   selectedGenericProvider.Position,
-		Directive:  selectedGenericProvider.Directive,
-		Function:   selectedGenericProvider.Function,
-		Package:    selectedGenericProvider.Package,
-		Provides:   concreteType,
-		Requires:   resolvedRequires,
-		IsGeneric:  true, // Keep this flag to indicate it needs type instantiation
-		TypeParams: selectedGenericProvider.TypeParams,
+		Position:         selectedGenericProvider.Position,
+		Directive:        selectedGenericProvider.Directive,
+		Function:         selectedGenericProvider.Function,
+		Package:          selectedGenericProvider.Package,
+		Provides:         concreteType,
+		IsGeneric:        true, // Keep this flag to indicate it needs type instantiation
+		TypeParams:       selectedGenericProvider.TypeParams,
+		resolvedRequires: resolvedRequires,
 	}
 
 	return concreteProvider
@@ -2617,10 +2250,16 @@ func resolveGenericConfigWithType(graph *Graph, concreteType types.Type) *Config
 	// TODO: Apply similar logic as pickProvider if needed
 	selectedGenericConfig := validConfigs[0]
 
+	namedType, ok := concreteType.(*types.Named)
+	if !ok {
+		return nil
+	}
+
 	// Create a new concrete config instance with substituted prefix
 	concreteConfig := &Config{
 		Position:   selectedGenericConfig.Position,
-		Type:       concreteType,
+		Type:       namedType,
+		Package:    selectedGenericConfig.Package,
 		Directive:  selectedGenericConfig.Directive,
 		IsGeneric:  false,
 		TypeParams: nil,

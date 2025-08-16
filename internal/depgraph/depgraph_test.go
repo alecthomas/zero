@@ -35,7 +35,7 @@ func NewDB() *sql.DB {
 	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok)
 	assert.Equal(t, 1, len(dbProviders))
-	assert.Equal(t, 0, len(dbProviders[0].Requires))
+	assert.Equal(t, 0, len(dbProviders[0].Requires()))
 }
 
 func TestAnalyseProviderWithError(t *testing.T) {
@@ -85,8 +85,8 @@ func NewDB(cfg *Config) (*sql.DB, error) {
 	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok)
 	assert.Equal(t, 1, len(dbProviders))
-	assert.Equal(t, 1, len(dbProviders[0].Requires))
-	assert.Equal(t, "*test.Config", types.TypeString(dbProviders[0].Requires[0], nil))
+	assert.Equal(t, 1, len(dbProviders[0].Requires()))
+	assert.Equal(t, "*test.Config", types.TypeString(dbProviders[0].Requires()[0], nil))
 }
 
 func TestAnalyseMissingDependencies(t *testing.T) {
@@ -149,7 +149,7 @@ func NewDB(cfg *Config, logger *log.Logger) (*sql.DB, error) {
 	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok)
 	assert.Equal(t, 1, len(dbProviders))
-	assert.Equal(t, 2, len(dbProviders[0].Requires))
+	assert.Equal(t, 2, len(dbProviders[0].Requires()))
 }
 
 func TestAnalyseInvalidProvider(t *testing.T) {
@@ -312,8 +312,8 @@ func NewDB(cfg *Config) (*sql.DB, error) {
 	dbProviders, ok := graph.Providers["*database/sql.DB"]
 	assert.True(t, ok)
 	assert.Equal(t, 1, len(dbProviders))
-	assert.Equal(t, 1, len(dbProviders[0].Requires))
-	assert.Equal(t, "*test.Config", types.TypeString(dbProviders[0].Requires[0], nil))
+	assert.Equal(t, 1, len(dbProviders[0].Requires()))
+	assert.Equal(t, "*test.Config", types.TypeString(dbProviders[0].Requires()[0], nil))
 }
 
 func TestAnalyseMultipleConfigs(t *testing.T) {
@@ -344,7 +344,7 @@ func NewService(dbCfg *DatabaseConfig, srvCfg *ServerConfig) string {
 	serviceProviders := graph.Providers["string"]
 	assert.NotZero(t, serviceProviders)
 	assert.Equal(t, 1, len(serviceProviders))
-	assert.Equal(t, 2, len(serviceProviders[0].Requires))
+	assert.Equal(t, 2, len(serviceProviders[0].Requires()))
 }
 
 func TestAnalyseConfigWithoutAnnotation(t *testing.T) {
@@ -434,12 +434,12 @@ func NeedsPointer(cfg *Config) int {
 	assert.True(t, len(strProviders) > 0)
 	assert.Equal(t, 1, len(strProviders))
 	// Config dependencies are in Requires but handled automatically (no missing deps)
-	assert.Equal(t, 1, len(strProviders[0].Requires))
+	assert.Equal(t, 1, len(strProviders[0].Requires()))
 
 	intProviders := graph.Providers["int"]
 	assert.True(t, len(intProviders) > 0)
 	assert.Equal(t, 1, len(intProviders))
-	assert.Equal(t, 1, len(intProviders[0].Requires))
+	assert.Equal(t, 1, len(intProviders[0].Requires()))
 }
 
 func TestAnalyseAPIFunctions(t *testing.T) {
@@ -2512,7 +2512,7 @@ type Service struct {
 	serviceProviders, ok := graph.Providers["*test.Service"]
 	assert.True(t, ok)
 	assert.Equal(t, 1, len(serviceProviders))
-	assert.Equal(t, 1, len(serviceProviders[0].Requires))
+	assert.Equal(t, 1, len(serviceProviders[0].Requires()))
 
 	// Test GetProviders method
 	sliceProviders := graph.GetProviders("[]string")
@@ -2628,6 +2628,7 @@ type Service struct {
 }
 `
 	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
+	t.Logf("Providers in graph: %v", stableKeys(graph.Providers))
 	assert.Equal(t, 2, len(graph.Providers))
 	assert.Equal(t, 0, len(graph.Missing))
 
@@ -3323,10 +3324,9 @@ func NewService(topic Topic[User]) *Service {
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 
-	// Check that generic providers are now included in the main Providers map
-	_, hasPubsubTopic := graph.Providers["github.com/alecthomas/zero/providers/pubsub.Topic"]
-	_, hasTestTopic := graph.Providers["test.Topic"]
-	assert.True(t, hasPubsubTopic || hasTestTopic, "Should have generic providers in main Providers map")
+	// Check that the instantiated generic provider is included
+	_, hasInstantiatedTopic := graph.Providers["test.Topic[test.User]"]
+	assert.True(t, hasInstantiatedTopic, "Should have instantiated generic provider in Providers map")
 
 	// Check that NewService is provided
 	serviceProviders := graph.Providers["*test.Service"]
