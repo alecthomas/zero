@@ -70,7 +70,7 @@ type Config struct {
 
 // DriverForConfig returns the [Driver] associated with the given [Config].
 //
-//zero:provider
+//zero:provider weak
 func DriverForConfig(config Config) (Driver, error) {
 	driver, ok := drivers[dsnScheme(config.DSN)]
 	if !ok {

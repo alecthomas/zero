@@ -2628,6 +2628,7 @@ type Service struct {
 }
 `
 	graph := analyseTestCode(t, testCode, WithRoots("*test.Service"))
+	t.Logf("Providers in graph: %v", stableKeys(graph.Providers))
 	assert.Equal(t, 2, len(graph.Providers))
 	assert.Equal(t, 0, len(graph.Missing))
 
@@ -3323,10 +3324,9 @@ func NewService(topic Topic[User]) *Service {
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 
-	// Check that generic providers are now included in the main Providers map
-	_, hasPubsubTopic := graph.Providers["github.com/alecthomas/zero/providers/pubsub.Topic"]
-	_, hasTestTopic := graph.Providers["test.Topic"]
-	assert.True(t, hasPubsubTopic || hasTestTopic, "Should have generic providers in main Providers map")
+	// Check that the instantiated generic provider is included
+	_, hasInstantiatedTopic := graph.Providers["test.Topic[test.User]"]
+	assert.True(t, hasInstantiatedTopic, "Should have instantiated generic provider in Providers map")
 
 	// Check that NewService is provided
 	serviceProviders := graph.Providers["*test.Service"]

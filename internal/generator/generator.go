@@ -126,7 +126,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 						args = append(args, fmt.Sprintf("m%dp%d", mi, i))
 						paramType := params.At(i).Type()
 						paramName := params.At(i).Name()
-						writeParameterConstruction(w, graph, paramType, api.Label(paramName), fmt.Sprintf("m%dp", mi), i, true, "")
+						writeParameterConstruction(w, graph, paramType, api.APILabel(paramName), fmt.Sprintf("m%dp", mi), i, true, "")
 					}
 					handler = fmt.Sprintf("%s(%s)(%s", ref.Ref, strings.Join(args, ", "), handler)
 				} else {
