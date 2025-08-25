@@ -50,7 +50,6 @@ var _ Node = (*Provider)(nil)
 func (p *Provider) node()                        {}
 func (p *Provider) NodePosition() token.Position { return p.Position }
 func (p *Provider) NodeKey() Key                 { return NodeKey(p.Function.FullName()) }
-func (p *Provider) NodeType() types.Type         { return p.Provides }
 func (p *Provider) NodeRequiredBy() []Key        { return []Key{TypeKey(p.Provides.String())} }
 func (p *Provider) NodeRequires() []Key {
 	requires := p.Requires()

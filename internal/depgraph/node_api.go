@@ -36,7 +36,6 @@ func (a *API) node() {}
 
 func (a *API) NodePosition() token.Position { return a.Position }
 func (a *API) NodeKey() Key                 { return NodeKey(a.Function.FullName()) }
-func (a *API) NodeType() types.Type         { return nil }
 func (a *API) NodeRequires() []Key          { return nil }
 func (a *API) NodeRequiredBy() []Key        { return []Key{TypeKeyForReceiver(a.Function)} }
 

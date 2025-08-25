@@ -32,7 +32,6 @@ var _ Node = (*Middleware)(nil)
 func (m *Middleware) node()                        {}
 func (m *Middleware) NodePosition() token.Position { return m.Position }
 func (m *Middleware) NodeKey() Key                 { return NodeKey(m.Function.FullName()) }
-func (m *Middleware) NodeType() types.Type         { return nil }
 func (m *Middleware) NodeRequiredBy() []Key        { return nil }
 func (m *Middleware) NodeRequires() []Key {
 	out := make([]Key, len(m.Requires))

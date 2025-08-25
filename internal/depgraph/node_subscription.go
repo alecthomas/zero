@@ -24,7 +24,6 @@ var _ Node = (*Subscription)(nil)
 func (s *Subscription) node()                        {}
 func (s *Subscription) NodePosition() token.Position { return s.Position }
 func (s *Subscription) NodeKey() Key                 { return NodeKey(s.Function.FullName()) }
-func (s *Subscription) NodeType() types.Type         { return nil }
 func (s *Subscription) NodeRequiredBy() []Key        { return []Key{TypeKeyForReceiver(s.Function)} }
 func (s *Subscription) NodeRequires() []Key {
 	return []Key{

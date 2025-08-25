@@ -2,7 +2,6 @@ package depgraph
 
 import (
 	"go/token"
-	"go/types"
 )
 
 // Multi represents a collection of multi [Provider]s.
@@ -27,4 +26,3 @@ func (m Multi) NodeRequires() []Key {
 	}
 	return combined
 }
-func (m Multi) NodeType() types.Type { return m[0].NodeType() }

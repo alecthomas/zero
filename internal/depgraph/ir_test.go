@@ -469,23 +469,23 @@ func TestIR(t *testing.T) {
 			},
 			graph: map[Key][]Key{
 				serviceProvider.NodeKey(): {
-					TypeKey(appConfig.NodeType().String()),
-					TypeKey("github.com/example/app.Database"),
-					TypeKey("github.com/example/app.Logger"),
-					TypeKey("github.com/example/app.UserService"),
+					TypeKey(appConfigType.String()),
+					TypeKey(dbType.String()),
+					TypeKey(loggerType.String()),
+					TypeKey(serviceType.String()),
 				},
 				reportCronJob.NodeKey(): {
-					TypeKey("github.com/example/app.UserService"),
+					TypeKey(serviceType.String()),
 				},
 				weakDatabaseProvider.NodeKey(): {
 					TypeKey(dbConfigType.String()),
+					TypeKey(dbType.String()),
 				},
-				weakLoggerProviderA.NodeKey(): {},
 				TypeKey(dbType.String()): {
 					weakDatabaseProvider.NodeKey(),
 				},
-				weakLoggerProviderA.NodeKey(): {
-					TypeKey(loggerType.String()),
+				TypeKey(loggerType.String()): {
+					weakLoggerProviderA.NodeKey(),
 				},
 				TypeKey(serviceType.String()): {
 					serviceProvider.NodeKey(),

@@ -28,7 +28,6 @@ var _ Node = (*Config)(nil)
 
 func (c *Config) node()                        {}
 func (c *Config) NodePosition() token.Position { return c.Position }
-func (c *Config) NodeKey() Key                 { return TypeKey(c.Package.PkgPath + "." + c.Type.Obj().Name()) }
-func (c *Config) NodeType() types.Type         { return c.Type }
+func (c *Config) NodeKey() Key                 { return normaliseTypeToTypeKey(c.Type) }
 func (c *Config) NodeRequiredBy() []Key        { return nil }
 func (c *Config) NodeRequires() []Key          { return nil }

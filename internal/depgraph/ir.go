@@ -22,10 +22,6 @@ type Node interface {
 	// eg. for the cron.Scheduler provider it would return
 	// github.com/alecthomas/zero/providers/cron.NewScheduler
 	NodeKey() Key
-	// NodeType returns the type this node provides (if any).
-	//
-	// eg. for the cron.NewScheduler provider function this would return *cron.Scheduler.
-	NodeType() types.Type
 	// NodeRequires returns the types and providers this node requires
 	NodeRequires() []Key
 	// NodeRequiredBy returns the types and providers that require this node.
@@ -181,19 +177,14 @@ func (i *IR) AddNode(node Node) error {
 		return errors.Errorf("%s: %s %s already exists in the graph", node.NodePosition(), node.NodeKey().Kind(), node.NodeKey())
 	}
 	i.nodes[node.NodeKey()] = node
-	fmt.Println("REQUIREDBY", node.NodeKey(), node.NodeRequiredBy())
 	for _, key := range node.NodeRequiredBy() {
 		i.extraDependencies[key] = append(i.extraDependencies[key], node.NodeKey())
 	}
-	t := node.NodeType()
-	if t == nil {
-		return nil
-	}
 	// If the Node provides a type we add it to the provides map.
-	key := normaliseTypeToTypeKey(t)
 	switch node := node.(type) {
 	// If there are multi-providers we try to merge them.
 	case *Provider:
+		key := normaliseTypeToTypeKey(node.Provides)
 		switch old := i.provides[key].(type) {
 		case Multi:
 			if !node.Directive.Multi {
@@ -233,11 +224,8 @@ func (i *IR) AddNode(node Node) error {
 			return errors.Errorf("%s: conflicting providers for %s: %s and %s", node.NodePosition(), key, old.NodeKey(), node.NodeKey())
 		}
 
-	default:
-		if existing, ok := i.provides[key]; ok {
-			return errors.Errorf("%s: conflicting providers for %s: %s and %s", node.NodePosition(), key, existing.NodeKey(), node.NodeKey())
-		}
-		i.provides[key] = node
+	case *Config:
+		i.provides[normaliseTypeToTypeKey(node.Type)] = node
 	}
 	return nil
 }
@@ -322,8 +310,8 @@ func (i *IR) lookup(key Key) Node {
 
 func (i *IR) dependenciesForNode(node Node) []Key {
 	extra := i.extraDependencies[node.NodeKey()]
-	if node.NodeType() != nil {
-		extra = append(extra, normaliseTypeToTypeKey(node.NodeType()))
+	if typeKey, ok := node.NodeKey().(TypeKey); ok {
+		extra = append(extra, typeKey)
 	}
 	return append(node.NodeRequires(), extra...)
 }
