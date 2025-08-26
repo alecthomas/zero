@@ -53,7 +53,11 @@ func (p *Provider) NodeKey() Key                 { return NodeKey(p.Function.Ful
 func (p *Provider) NodeRequiredBy() []Key        { return []Key{TypeKey(p.Provides.String())} }
 func (p *Provider) NodeRequires() []Key {
 	requires := p.Requires()
-	out := make([]Key, 0, len(requires)+len(p.Directive.Require))
+	extraReqs := len(p.Directive.Require)
+	if !p.Directive.Weak {
+		extraReqs++ // Add one for the provided type
+	}
+	out := make([]Key, 0, len(requires)+extraReqs)
 	for _, req := range requires {
 		out = append(out, TypeKey(req.String()))
 	}
@@ -62,6 +66,10 @@ func (p *Provider) NodeRequires() []Key {
 			req = p.Package.PkgPath + "." + req
 		}
 		out = append(out, NodeKey(req))
+	}
+	// Only non-weak providers require the type they provide to activate method nodes
+	if !p.Directive.Weak {
+		out = append(out, normaliseTypeToTypeKey(p.Provides))
 	}
 	return out
 }

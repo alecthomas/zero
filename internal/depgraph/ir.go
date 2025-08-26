@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/alecthomas/errors"
-	"github.com/alecthomas/repr"
 )
 
 // Node represents a node in the dependency graph
@@ -124,7 +123,16 @@ func NewIR(nodes []Node, options ...Option) (*IR, error) {
 func (i *IR) Graph() map[Key][]Key {
 	graph := make(map[Key][]Key)
 	for node := range i.RequiredNodes() {
-		graph[node.NodeKey()] = i.dependenciesForNode(node)
+		deps := i.dependenciesForNode(node)
+		if len(deps) > 0 {
+			graph[node.NodeKey()] = deps
+		}
+	}
+	// Also include types that have dependencies (from extraDependencies)
+	for key, deps := range i.extraDependencies {
+		if len(deps) > 0 {
+			graph[key] = deps
+		}
 	}
 	return graph
 }
@@ -259,8 +267,6 @@ func (i *IR) validate() error {
 func (i *IR) propagate() error {
 	queue := slices.Collect(maps.Keys(i.required))
 	count := 0
-	fmt.Println("PROPAGATE", queue)
-	repr.Println(i.extraDependencies)
 
 	for len(queue) > 0 {
 		count++
@@ -273,12 +279,20 @@ func (i *IR) propagate() error {
 		queue = queue[1:]
 
 		deps := i.dependenciesForNode(i.lookup(key))
-		fmt.Println("DEPS", key, deps)
 		for _, require := range deps {
 			if i.required[require] {
 				continue
 			}
 			queue = append(queue, require)
+		}
+
+		// Also mark any nodes that depend on this key as required
+		if extraDeps := i.extraDependencies[key]; len(extraDeps) > 0 {
+			for _, dep := range extraDeps {
+				if !i.required[dep] {
+					queue = append(queue, dep)
+				}
+			}
 		}
 	}
 
@@ -310,16 +324,13 @@ func (i *IR) lookup(key Key) Node {
 
 func (i *IR) dependenciesForNode(node Node) []Key {
 	extra := i.extraDependencies[node.NodeKey()]
-	if typeKey, ok := node.NodeKey().(TypeKey); ok {
-		extra = append(extra, typeKey)
-	}
 	return append(node.NodeRequires(), extra...)
 }
 
 func normaliseTypeToTypeKey(t types.Type) TypeKey {
 	switch t := t.(type) {
 	case *types.Pointer:
-		return TypeKey("*" + normaliseTypeToTypeKey(t.Elem()))
+		return "*" + normaliseTypeToTypeKey(t.Elem())
 
 	case *types.Basic:
 		return TypeKey(t.String())
@@ -344,10 +355,10 @@ func normaliseTypeToTypeKey(t types.Type) TypeKey {
 		return TypeKey(t.Obj().Name() + tp)
 
 	case *types.Map:
-		return TypeKey("map[" + normaliseTypeToTypeKey(t.Key()) + "]" + normaliseTypeToTypeKey(t.Elem()))
+		return "map[" + normaliseTypeToTypeKey(t.Key()) + "]" + normaliseTypeToTypeKey(t.Elem())
 
 	case *types.Slice:
-		return TypeKey("[]" + normaliseTypeToTypeKey(t.Elem()))
+		return "[]" + normaliseTypeToTypeKey(t.Elem())
 
 	default:
 		panic(fmt.Sprintf("unsupported type %T", t))

@@ -14,8 +14,6 @@ import (
 // Sample types for testing
 var (
 	stringType = types.Typ[types.String]
-	intType    = types.Typ[types.Int]
-	boolType   = types.Typ[types.Bool]
 
 	// Named types
 	appConfigType = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "Config", nil), types.NewStruct(nil, nil), nil)
@@ -170,6 +168,13 @@ var (
 		Package:  testPackage,
 		Provides: loggerType,
 	}
+
+	// Infrastructure providers
+	weakHTTPServerProvider = createWeakInfraProvider("NewWeakHttpServer", "http.go",
+		types.NewPointer(createNamedType("net/http", "http", "Server")))
+
+	weakCronSchedulerProvider = createWeakInfraProvider("NewWeakCronScheduler", "cron.go",
+		types.NewPointer(createNamedType("github.com/alecthomas/zero/providers/cron", "cron", "Scheduler")))
 )
 
 // Sample API nodes
@@ -330,6 +335,31 @@ var (
 	}()
 )
 
+// Helper functions for creating test providers
+func createWeakInfraProvider(funcName, filename string, providesType types.Type) *Provider {
+	return &Provider{
+		Position: token.Position{Filename: filename, Line: 10},
+		Directive: &directiveparser.DirectiveProvider{
+			Weak: true,
+		},
+		Function: types.NewFunc(token.NoPos, testPackage.Types, funcName,
+			types.NewSignatureType(nil, nil, nil,
+				types.NewTuple(),
+				types.NewTuple(types.NewVar(token.NoPos, nil, "", providesType)),
+				false)),
+		Package:  testPackage,
+		Provides: providesType,
+	}
+}
+
+func createNamedType(pkgPath, pkgName, typeName string) *types.Named {
+	return types.NewNamed(
+		types.NewTypeName(token.NoPos, types.NewPackage(pkgPath, pkgName), typeName, nil),
+		types.NewStruct(nil, nil),
+		nil,
+	)
+}
+
 // Sample collections for different test scenarios
 var (
 	// Simple linear dependency chain: config -> logger -> db -> service
@@ -364,6 +394,8 @@ var (
 		reportCronJob,
 		userEventSubscription,
 		newTopicProvider,
+		weakHTTPServerProvider,
+		weakCronSchedulerProvider,
 	}
 
 	// Nodes with weak and strong providers for the same type
@@ -397,6 +429,8 @@ var (
 		reportCronJob,
 		userEventSubscription,
 		newTopicProvider,
+		weakHTTPServerProvider,
+		weakCronSchedulerProvider,
 	}
 
 	// Nodes with ambiguous providers for the same type
@@ -412,6 +446,7 @@ var (
 )
 
 func TestIR(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		nodes   []Node
@@ -447,7 +482,7 @@ func TestIR(t *testing.T) {
 			name:  "AmbiguousNodes",
 			nodes: ambiguousNodes,
 			options: []Option{
-				WithProviders(string(weakLoggerProviderA.NodeKey().String())),
+				WithProviders(weakLoggerProviderA.NodeKey().String()),
 			},
 		},
 		{
@@ -466,6 +501,7 @@ func TestIR(t *testing.T) {
 				weakDatabaseProvider,
 				appConfig,
 				weakLoggerProviderA,
+				weakCronSchedulerProvider,
 			},
 			graph: map[Key][]Key{
 				serviceProvider.NodeKey(): {
@@ -479,7 +515,6 @@ func TestIR(t *testing.T) {
 				},
 				weakDatabaseProvider.NodeKey(): {
 					TypeKey(dbConfigType.String()),
-					TypeKey(dbType.String()),
 				},
 				TypeKey(dbType.String()): {
 					weakDatabaseProvider.NodeKey(),
@@ -489,12 +524,17 @@ func TestIR(t *testing.T) {
 				},
 				TypeKey(serviceType.String()): {
 					serviceProvider.NodeKey(),
+					reportCronJob.NodeKey(),
+				},
+				TypeKey("*github.com/alecthomas/zero/providers/cron.Scheduler"): {
+					weakCronSchedulerProvider.NodeKey(),
 				},
 			},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			ir, err := NewIR(test.nodes, test.options...)
 			if test.err != "" {
 				assert.Error(t, err)
@@ -502,6 +542,7 @@ func TestIR(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				if test.graph != nil {
+
 					assert.Equal(t, test.graph, ir.Graph())
 				}
 			}

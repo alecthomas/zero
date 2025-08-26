@@ -28,5 +28,6 @@ func (s *Subscription) NodeRequiredBy() []Key        { return []Key{TypeKeyForRe
 func (s *Subscription) NodeRequires() []Key {
 	return []Key{
 		TypeKey(fmt.Sprintf("github.com/alecthomas/zero/providers/pubsub.Topic[%s]", s.TopicType.String())),
+		TypeKeyForReceiver(s.Function),
 	}
 }
