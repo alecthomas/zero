@@ -215,8 +215,13 @@ func (i *IR) AddNode(node Node) error {
 			case i.required[old.NodeKey()] || (!old.Directive.Weak && node.Directive.Weak):
 				i.provides[key] = old
 			default:
-				return errors.Errorf("%s: conflicting providers for %s, use --resolve=%s or --resolve=%s to disambiguate or remove \"weak\" from a provider", node.NodePosition(), key, old.NodeKey(), node.NodeKey())
+				// Create an Ambiguous node instead of erroring
+				i.provides[key] = Ambiguous{old, node}
 			}
+
+		case Ambiguous:
+			// Add to existing ambiguous node
+			i.provides[key] = append(old, node)
 
 		case nil: // No old node.
 			if node.Directive.Multi {
@@ -229,11 +234,28 @@ func (i *IR) AddNode(node Node) error {
 			}
 
 		default:
-			return errors.Errorf("%s: conflicting providers for %s: %s and %s", node.NodePosition(), key, old.NodeKey(), node.NodeKey())
+			// This shouldn't happen with current node types, but handle it gracefully
+			return errors.Errorf("%s: unexpected node type conflict for %s", node.NodePosition(), key)
 		}
 
 	case *Config:
 		i.provides[normaliseTypeToTypeKey(node.Type)] = node
+	}
+	return nil
+}
+
+// validateAmbiguity checks for unresolved ambiguous nodes in the required graph
+func (i *IR) validateAmbiguity() error {
+	for node := range i.RequiredNodes() {
+		if ambiguous, ok := node.(Ambiguous); ok {
+			providers := make([]string, len(ambiguous))
+			for j, p := range ambiguous {
+				providers[j] = p.NodeKey().String()
+			}
+			key := normaliseTypeToTypeKey(ambiguous[0].Provides)
+			return errors.Errorf("%s: conflicting providers for %s, use --resolve=%s to disambiguate",
+				ambiguous[0].NodePosition(), key, strings.Join(providers, " or --resolve="))
+		}
 	}
 	return nil
 }
@@ -254,12 +276,17 @@ func (i *IR) validate() error {
 	// Validate that all required types exist.
 	for _, node := range i.nodes {
 		for _, require := range i.dependenciesForNode(node) {
+			if t, ok := require.(TypeKey); ok && t == "context.Context" {
+				continue
+			}
 			if i.lookup(require) == nil {
 				return errors.Errorf("there is no provider for %s %s, required by %s", require.Kind(), require, node.NodeKey())
 			}
 		}
 	}
-
+	if err := i.validateAmbiguity(); err != nil {
+		return errors.WithStack(err)
+	}
 	return nil
 }
 

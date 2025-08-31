@@ -531,6 +531,21 @@ func TestIR(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "AmbiguousProvidersWithoutResolution",
+			nodes: []Node{
+				appConfig,
+				dbConfig,
+				weakLoggerProviderA, // weak
+				weakLoggerProviderB, // weak - creates ambiguity
+				dbProvider,          // provide database dependency
+				serviceProvider,     // requires logger, making ambiguous node required
+			},
+			options: []Option{
+				WithRoots("github.com/example/app.UserService"),
+			},
+			err: "conflicting providers for github.com/example/app.Logger, use --resolve=",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -548,4 +563,23 @@ func TestIR(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAmbiguousNode(t *testing.T) {
+	t.Parallel()
+
+	// Test that Ambiguous node methods work correctly
+	ambiguous := Ambiguous{weakLoggerProviderA, weakLoggerProviderB}
+
+	// Test NodeKey returns first provider's key
+	assert.Equal(t, weakLoggerProviderA.NodeKey(), ambiguous.NodeKey())
+
+	// Test NodePosition returns first provider's position
+	assert.Equal(t, weakLoggerProviderA.NodePosition(), ambiguous.NodePosition())
+
+	// Test NodeRequires is consistent with individual providers
+	assert.Equal(t, len(weakLoggerProviderA.NodeRequires())+len(weakLoggerProviderB.NodeRequires()), len(ambiguous.NodeRequires()))
+
+	// Test NodeRequiredBy combines all providers' required-by relationships
+	assert.Equal(t, len(weakLoggerProviderA.NodeRequiredBy())+len(weakLoggerProviderB.NodeRequiredBy()), len(ambiguous.NodeRequiredBy()))
 }
