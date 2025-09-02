@@ -49,8 +49,7 @@ func (NodeKey) key()             {}
 
 // TypeKeyForReceiver returns the [TypeKey] for the receiver of a method.
 func TypeKeyForReceiver(f *types.Func) TypeKey {
-	rcv := f.Signature().Recv()
-	return TypeKey(rcv.Pkg().Path() + "." + rcv.Name())
+	return TypeKey(f.Signature().Recv().Type().String())
 }
 
 // TypeKey represents a unique identifier for a type in the dependency graph.
@@ -88,7 +87,10 @@ func NewIR(nodes []Node, options ...Option) (*IR, error) {
 	for _, pick := range opts.pick {
 		i.Require(NodeKey(pick))
 	}
-
+	err := i.AddNode(&Intrinsic{Key: "context.Context"})
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
 	for _, node := range nodes {
 		if err := i.AddNode(node); err != nil {
 			return nil, errors.WithStack(err)
@@ -190,6 +192,9 @@ func (i *IR) AddNode(node Node) error {
 	}
 	// If the Node provides a type we add it to the provides map.
 	switch node := node.(type) {
+	case *Intrinsic:
+		i.provides[node.Key] = node
+
 	// If there are multi-providers we try to merge them.
 	case *Provider:
 		key := normaliseTypeToTypeKey(node.Provides)
@@ -275,10 +280,9 @@ func (i *IR) validate() error {
 
 	// Validate that all required types exist.
 	for _, node := range i.nodes {
-		for _, require := range i.dependenciesForNode(node) {
-			if t, ok := require.(TypeKey); ok && t == "context.Context" {
-				continue
-			}
+		keys := i.dependenciesForNode(node)
+		slices.SortStableFunc(keys, func(a, b Key) int { return strings.Compare(a.String(), b.String()) })
+		for _, require := range keys {
 			if i.lookup(require) == nil {
 				return errors.Errorf("there is no provider for %s %s, required by %s", require.Kind(), require, node.NodeKey())
 			}
@@ -297,7 +301,7 @@ func (i *IR) propagate() error {
 
 	for len(queue) > 0 {
 		count++
-		if count > 10000 {
+		if count > 500 {
 			return errors.Errorf("dependency graph is too large")
 		}
 		// Mark key as required.
@@ -350,6 +354,9 @@ func (i *IR) lookup(key Key) Node {
 }
 
 func (i *IR) dependenciesForNode(node Node) []Key {
+	if node == nil {
+		panic("node is nil")
+	}
 	extra := i.extraDependencies[node.NodeKey()]
 	return append(node.NodeRequires(), extra...)
 }

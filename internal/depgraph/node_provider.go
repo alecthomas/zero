@@ -62,7 +62,7 @@ func (p *Provider) NodeRequires() []Key {
 		out = append(out, TypeKey(req.String()))
 	}
 	for _, req := range p.Directive.Require {
-		if strings.Contains(req, ".") {
+		if !strings.Contains(req, ".") {
 			req = p.Package.PkgPath + "." + req
 		}
 		out = append(out, NodeKey(req))

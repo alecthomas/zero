@@ -36,10 +36,8 @@ func (a *API) node() {}
 
 func (a *API) NodePosition() token.Position { return a.Position }
 func (a *API) NodeKey() Key                 { return NodeKey(a.Function.FullName()) }
-func (a *API) NodeRequires() []Key {
-	return []Key{TypeKeyForReceiver(a.Function)}
-}
-func (a *API) NodeRequiredBy() []Key { return []Key{TypeKeyForReceiver(a.Function)} }
+func (a *API) NodeRequires() []Key          { return []Key{TypeKeyForReceiver(a.Function)} }
+func (a *API) NodeRequiredBy() []Key        { return []Key{TypeKeyForReceiver(a.Function)} }
 
 func (a *API) APILabel(name string) string {
 	for _, label := range a.Pattern.Labels {
