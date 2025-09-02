@@ -44,10 +44,7 @@ func (r Ref) String() string {
 }
 
 type graphOptions struct {
-	// Roots of the graph, defaulting to service endpoint receivers if nil.
-	roots []string
-	// Providers to pick to resolve duplicate providers.
-	pick []string
+	require []Key
 	// Additional package patterns to search for annotations.
 	patterns   []string
 	debug      bool
@@ -56,18 +53,20 @@ type graphOptions struct {
 
 type Option func(*graphOptions) error
 
-// WithRoots selects a set of root types that will always be included in the graph.
-func WithRoots(roots ...string) Option {
+func WithTypes(key ...TypeKey) Option {
 	return func(o *graphOptions) error {
-		o.roots = roots
+		for _, k := range key {
+			o.require = append(o.require, k)
+		}
 		return nil
 	}
 }
 
-// WithProviders selects a provider for a type if multiple are available.
-func WithProviders(pick ...string) Option {
+func WithNodes(key ...NodeKey) Option {
 	return func(o *graphOptions) error {
-		o.pick = pick
+		for _, k := range key {
+			o.require = append(o.require, k)
+		}
 		return nil
 	}
 }

@@ -65,6 +65,7 @@ type IR struct {
 	provides          map[TypeKey]Node // The Node providing the given type.
 	required          map[Key]bool     // Types and Nodes required by the user or other providers.
 	extraDependencies map[Key][]Key    // Where the key dependes on the values.
+	defeated          map[Key]bool     // Defeated weak providers that should not appear in final graph.
 }
 
 func NewIR(nodes []Node, options ...Option) (*IR, error) {
@@ -73,6 +74,7 @@ func NewIR(nodes []Node, options ...Option) (*IR, error) {
 		provides:          make(map[TypeKey]Node),
 		required:          make(map[Key]bool),
 		extraDependencies: make(map[Key][]Key),
+		defeated:          make(map[Key]bool),
 	}
 	opts := &graphOptions{}
 	for _, option := range options {
@@ -80,12 +82,8 @@ func NewIR(nodes []Node, options ...Option) (*IR, error) {
 			return nil, errors.WithStack(err)
 		}
 	}
-	// TODO: Migrate these
-	for _, root := range opts.roots {
-		i.Require(TypeKey(root))
-	}
-	for _, pick := range opts.pick {
-		i.Require(NodeKey(pick))
+	for _, key := range opts.require {
+		i.Require(key)
 	}
 	err := i.AddNode(&Intrinsic{Key: "context.Context"})
 	if err != nil {
@@ -152,14 +150,27 @@ func (i *IR) Nodes() iter.Seq[Node] {
 
 // RequiredNodes returns all required [Node]s in the graph.
 func (i *IR) RequiredNodes() iter.Seq[Node] {
-	return func(yield func(Node) bool) {
-		for key := range i.required {
-			node := i.lookup(key)
-			if !yield(node) {
-				return
+	nodes := map[Key]Node{}
+	for key := range i.required {
+		if i.defeated[key] {
+			continue // Skip defeated weak providers
+		}
+		node := i.lookup(key)
+		nodeKey := node.NodeKey()
+
+		// Handle conflicts between ambiguous nodes and individual providers
+		if _, exists := nodes[nodeKey]; exists {
+			// Prefer ambiguous nodes over individual providers for validation
+			if _, isNewAmbiguous := node.(Ambiguous); isNewAmbiguous {
+				nodes[nodeKey] = node
 			}
+			// If existing is ambiguous and new is individual, keep the ambiguous
+			// If both are individual providers, keep the existing one
+		} else {
+			nodes[nodeKey] = node
 		}
 	}
+	return maps.Values(nodes)
 }
 
 // IsRequired returns true if the node is required in the dependency graph.
@@ -186,10 +197,10 @@ func (i *IR) AddNode(node Node) error {
 	if _, ok := i.nodes[node.NodeKey()]; ok {
 		return errors.Errorf("%s: %s %s already exists in the graph", node.NodePosition(), node.NodeKey().Kind(), node.NodeKey())
 	}
-	i.nodes[node.NodeKey()] = node
-	for _, key := range node.NodeRequiredBy() {
-		i.extraDependencies[key] = append(i.extraDependencies[key], node.NodeKey())
-	}
+
+	// Track whether to add this node to the graph
+	shouldAddToGraph := true
+
 	// If the Node provides a type we add it to the provides map.
 	switch node := node.(type) {
 	case *Intrinsic:
@@ -211,14 +222,36 @@ func (i *IR) AddNode(node Node) error {
 		case *Provider:
 			// Check which, if any, of the new and old nodes are in i.selected and use them if they are.
 			switch {
-			case i.required[node.NodeKey()] || (old.Directive.Weak && !node.Directive.Weak):
-				delete(i.required, node.NodeKey())
+			case i.required[node.NodeKey()]:
+				// Explicitly required provider wins
+				delete(i.required, old.NodeKey())
+				if old.Directive.Weak && !node.Directive.Weak {
+					i.defeated[old.NodeKey()] = true
+				}
 				i.provides[key] = node
 				if !node.Directive.Weak {
 					i.Require(node.NodeKey())
 				}
-			case i.required[old.NodeKey()] || (!old.Directive.Weak && node.Directive.Weak):
+			case i.required[old.NodeKey()]:
+				// Explicitly required provider wins
 				i.provides[key] = old
+				if !old.Directive.Weak && node.Directive.Weak {
+					i.defeated[node.NodeKey()] = true
+				}
+				shouldAddToGraph = false
+			case old.Directive.Weak && !node.Directive.Weak:
+				// Strong provider defeats weak provider
+				delete(i.required, old.NodeKey())
+				i.defeated[old.NodeKey()] = true
+				i.provides[key] = node
+				if !node.Directive.Weak {
+					i.Require(node.NodeKey())
+				}
+			case !old.Directive.Weak && node.Directive.Weak:
+				// Keep strong provider, defeat weak provider
+				i.provides[key] = old
+				i.defeated[node.NodeKey()] = true
+				shouldAddToGraph = false
 			default:
 				// Create an Ambiguous node instead of erroring
 				i.provides[key] = Ambiguous{old, node}
@@ -246,6 +279,15 @@ func (i *IR) AddNode(node Node) error {
 	case *Config:
 		i.provides[normaliseTypeToTypeKey(node.Type)] = node
 	}
+
+	// Only add to graph if not defeated by a strong provider
+	if shouldAddToGraph {
+		i.nodes[node.NodeKey()] = node
+		for _, key := range node.NodeRequiredBy() {
+			i.extraDependencies[key] = append(i.extraDependencies[key], node.NodeKey())
+		}
+	}
+
 	return nil
 }
 
@@ -309,7 +351,12 @@ func (i *IR) propagate() error {
 		i.Require(key)
 		queue = queue[1:]
 
-		deps := i.dependenciesForNode(i.lookup(key))
+		if i.defeated[key] {
+			// Skip defeated weak providers
+			continue
+		}
+		node := i.lookup(key)
+		deps := i.dependenciesForNode(node)
 		for _, require := range deps {
 			if i.required[require] {
 				continue

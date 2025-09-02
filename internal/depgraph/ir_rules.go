@@ -27,6 +27,8 @@ func APIRule(ir *IR) error {
 	for node := range ir.RequiredNodes() {
 		if _, ok := node.(*API); ok {
 			ir.Require(TypeKey("*net/http.Server"))
+			ir.Require(TypeKey("github.com/alecthomas/zero.ErrorEncoder"))
+			ir.Require(TypeKey("github.com/alecthomas/zero.ResponseEncoder"))
 			break
 		}
 	}

@@ -482,7 +482,7 @@ func TestIR(t *testing.T) {
 			name:  "AmbiguousNodes",
 			nodes: ambiguousNodes,
 			options: []Option{
-				WithProviders(weakLoggerProviderA.NodeKey().String()),
+				WithNodes(weakLoggerProviderA.NodeKey().(NodeKey)),
 			},
 		},
 		{
@@ -542,9 +542,36 @@ func TestIR(t *testing.T) {
 				serviceProvider,     // requires logger, making ambiguous node required
 			},
 			options: []Option{
-				WithRoots("github.com/example/app.UserService"),
+				WithTypes("github.com/example/app.UserService"),
 			},
 			err: "conflicting providers for github.com/example/app.Logger, use --resolve=",
+		},
+		{
+			name: "WeakAndstrong",
+			nodes: []Node{
+				dbProvider,
+				appConfig,
+				dbConfig,
+				loggerProvider,
+				weakDatabaseProvider,
+			},
+			graph: map[Key][]Key{
+				TypeKey("github.com/example/app.Database"): {
+					NodeKey("github.com/example/app.NewDatabase"),
+				},
+				TypeKey("github.com/example/app.Logger"): {
+					NodeKey("github.com/example/app.NewLogger"),
+				},
+				NodeKey("github.com/example/app.NewDatabase"): {
+					TypeKey("github.com/example/app.Config"),
+					TypeKey("github.com/example/app.Logger"),
+					TypeKey("github.com/example/app.Database"),
+				},
+				NodeKey("github.com/example/app.NewLogger"): {
+					TypeKey("github.com/example/app.Config"),
+					TypeKey("github.com/example/app.Logger"),
+				},
+			},
 		},
 	}
 	for _, test := range tests {
