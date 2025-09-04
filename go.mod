@@ -2,7 +2,7 @@ module github.com/alecthomas/zero
 
 go 1.24.0
 
-toolchain go1.24.5
+toolchain go1.25.1
 
 require (
 	github.com/alecthomas/assert/v2 v2.11.0
@@ -15,8 +15,8 @@ require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/thnxdev/happy v0.1.6
 	go.jetify.com/typeid/v2 v2.0.0-alpha.3
-	golang.org/x/mod v0.26.0
-	golang.org/x/sys v0.34.0
+	golang.org/x/mod v0.27.0
+	golang.org/x/sys v0.35.0
 	modernc.org/sqlite v1.38.2
 )
 
@@ -56,5 +56,5 @@ require (
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/lmittmann/tint v1.1.2
 	github.com/psanford/memfs v0.0.0-20241019191636-4ef911798f9b
-	golang.org/x/tools v0.35.0
+	golang.org/x/tools v0.36.0
 )
