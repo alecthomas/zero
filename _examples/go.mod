@@ -8,7 +8,7 @@ require (
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.12.1
 	github.com/alecthomas/kong-toml v0.4.0
-	github.com/alecthomas/zero v0.0.0-00010101000000-000000000000
+	github.com/alecthomas/zero v0.24.0
 	golang.org/x/sync v0.16.0
 )
 
