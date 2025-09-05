@@ -156,6 +156,17 @@ func (i *IR) RequiredNodes() iter.Seq[Node] {
 			continue // Skip defeated weak providers
 		}
 		node := i.lookup(key)
+
+		// Handle Multi nodes specially - include all individual providers
+		if multi, isMulti := node.(Multi); isMulti {
+			for _, provider := range multi {
+				if !i.defeated[provider.NodeKey()] {
+					nodes[provider.NodeKey()] = provider
+				}
+			}
+			continue
+		}
+
 		nodeKey := node.NodeKey()
 
 		// Handle conflicts between ambiguous nodes and individual providers
@@ -264,11 +275,12 @@ func (i *IR) AddNode(node Node) error {
 		case nil: // No old node.
 			if node.Directive.Multi {
 				i.provides[key] = Multi{node}
+				// Don't auto-require multi-providers - they'll be required when their type is needed
 			} else {
 				i.provides[key] = node
-			}
-			if !node.Directive.Weak {
-				i.Require(node.NodeKey())
+				if !node.Directive.Weak {
+					i.Require(node.NodeKey())
+				}
 			}
 
 		default:
@@ -356,6 +368,24 @@ func (i *IR) propagate() error {
 			continue
 		}
 		node := i.lookup(key)
+
+		// When processing a TypeKey, also require the provider node that provides that type
+		if _, isTypeKey := key.(TypeKey); isTypeKey && node != nil {
+			// For Multi providers, require all individual providers in the Multi
+			if multi, isMulti := node.(Multi); isMulti {
+				for _, provider := range multi {
+					if !i.required[provider.NodeKey()] {
+						queue = append(queue, provider.NodeKey())
+					}
+				}
+			} else {
+				nodeKey := node.NodeKey()
+				if !i.required[nodeKey] {
+					queue = append(queue, nodeKey)
+				}
+			}
+		}
+
 		deps := i.dependenciesForNode(node)
 		for _, require := range deps {
 			if i.required[require] {
@@ -391,9 +421,13 @@ func (i *IR) lookup(key Key) Node {
 		// 	github.com/alecthomas/zero/providers/pubsub.Event[?]
 		// Where all type params are replaced by ?
 		// This is a little bit janky, but I think it's okay.
+		// Only apply generic substitution for actual generic types, not built-in Go types
 		if typeParamStart := strings.Index(keyStr, "["); typeParamStart != -1 {
-			count := strings.Count(keyStr[typeParamStart+1:], ",")
-			keyStr = keyStr[:typeParamStart] + "[?" + strings.Repeat(", ?", count) + "]"
+			// Don't apply generic substitution to built-in Go types like []T, map[K]V, chan T
+			if !strings.HasPrefix(keyStr, "[]") && !strings.HasPrefix(keyStr, "map[") && !strings.HasPrefix(keyStr, "chan ") {
+				count := strings.Count(keyStr[typeParamStart+1:], ",")
+				keyStr = keyStr[:typeParamStart] + "[?" + strings.Repeat(", ?", count) + "]"
+			}
 		}
 		return i.provides[TypeKey(keyStr)]
 	}

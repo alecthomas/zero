@@ -67,9 +67,8 @@ func (p *Provider) NodeRequires() []Key {
 		}
 		out = append(out, NodeKey(req))
 	}
-	// Only non-weak providers require the type they provide to activate method nodes
-	if !p.Directive.Weak {
-		out = append(out, normaliseTypeToTypeKey(p.Provides))
-	}
+	// Note: Previously we required the type we provide to "activate method nodes",
+	// but this created circular dependencies for multi-providers. Method node
+	// activation is now handled during propagation in IR.propagate().
 	return out
 }
