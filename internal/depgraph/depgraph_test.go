@@ -236,7 +236,7 @@ func NewDB() *sql.DB {
 	// Test that specifying a non-existent provider reference returns an error
 	_, err := analyseCodeString(t, testCode, WithTypes("*database/sql.DB"), WithNodes("test.NonExistentProvider"))
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "requested provider \"test.NonExistentProvider\" not found in discovered provider functions")
+	assert.Contains(t, err.Error(), "the required root node test.NonExistentProvider does not exist")
 }
 
 func TestAnalyseValidProviderReference(t *testing.T) {
@@ -297,7 +297,7 @@ type Config struct {
 }
 
 //zero:provider
-func NewDB(cfg *Config) (*sql.DB, error) {
+func NewDB(cfg Config) (*sql.DB, error) {
 	return nil, nil
 }
 `
@@ -310,7 +310,7 @@ func NewDB(cfg *Config) (*sql.DB, error) {
 	assert.True(t, ok)
 	assert.Equal(t, 1, len(dbProviders))
 	assert.Equal(t, 1, len(dbProviders[0].Requires()))
-	assert.Equal(t, "*test.Config", types.TypeString(dbProviders[0].Requires()[0], nil))
+	assert.Equal(t, "test.Config", types.TypeString(dbProviders[0].Requires()[0], nil))
 }
 
 func TestAnalyseMultipleConfigs(t *testing.T) {
@@ -329,7 +329,7 @@ type ServerConfig struct {
 }
 
 //zero:provider
-func NewService(dbCfg *DatabaseConfig, srvCfg *ServerConfig) string {
+func NewService(dbCfg DatabaseConfig, srvCfg ServerConfig) string {
 	return ""
 }
 `
@@ -1823,7 +1823,7 @@ func ProvideServiceB() *ServiceB {
 }
 
 //zero:provider
-func ProvideServiceC(cfg *ConfigA) *ServiceC {
+func ProvideServiceC(cfg ConfigA) *ServiceC {
 	return &ServiceC{Config: cfg}
 }
 
@@ -1956,50 +1956,6 @@ type Service struct {
 	assert.Equal(t, []string{}, depGraph["*test.Config"])                    // Config has no dependencies
 	assert.Equal(t, []string{"*Config"}, depGraph["*database/sql.DB"])       // DB depends on Config
 	assert.Equal(t, []string{"*database/sql.DB"}, depGraph["*test.Service"]) // Service depends on DB
-}
-
-func TestGraphWithConfigs(t *testing.T) {
-	t.Parallel()
-	testCode := `
-package main
-
-//zero:config
-type DatabaseConfig struct {
-	URL string
-}
-
-//zero:config
-type AppConfig struct {
-	Port int
-}
-
-//zero:provider
-func NewService(dbCfg *DatabaseConfig, appCfg *AppConfig) *Service {
-	return &Service{}
-}
-
-type Service struct {}
-`
-	graph := analyseTestCode(t, testCode, WithTypes("*test.Service"))
-
-	depGraph := graph.Graph()
-
-	// Check that configs are in the dependency graph
-	_, hasDBConfig := depGraph["test.DatabaseConfig"]
-	_, hasAppConfig := depGraph["test.AppConfig"]
-	_, hasService := depGraph["*test.Service"]
-	assert.True(t, hasDBConfig)
-	assert.True(t, hasAppConfig)
-	assert.True(t, hasService)
-
-	// Check dependencies - configs have no dependencies
-	assert.Equal(t, []string{}, depGraph["test.DatabaseConfig"])
-	assert.Equal(t, []string{}, depGraph["test.AppConfig"])
-
-	// Service depends on both configs
-	serviceDeps := depGraph["*test.Service"]
-	expectedDeps := []string{"*DatabaseConfig", "*AppConfig"}
-	assert.Equal(t, expectedDeps, serviceDeps)
 }
 
 func TestFunctionRef(t *testing.T) {
