@@ -2052,15 +2052,24 @@ func NewService() *Service { return &Service{} }
 
 type Service struct { }
 
-//zero:api POST /handle
-func (s *Service) Handler(ctx context.Context) error {
+//zero:api POST /base
+func (s *Service) BaseHandler(ctx context.Context) error { return nil }
+
+//zero:api POST /auth auth
+func (s *Service) AuthHandler(ctx context.Context) error { return nil }
+
+//zero:api POST /cors cors ratelimit=10
+func (s *Service) CORSHandler(ctx context.Context) error { return nil }
+
+//zero:api POST /logging authenticated
+func (s *Service) LoggingHandler(ctx context.Context) error {
 	return nil
 }
 `
 	graph := analyseTestCode(t, testCode)
 	repr.Println(graph.Graph())
-	assert.Equal(t, 1, len(graph.APIs), "No APIs found")
-	assert.Equal(t, 1, len(graph.Middleware), "No middleware found")
+	assert.Equal(t, 4, len(graph.APIs), "No APIs found")
+	assert.Equal(t, 4, len(graph.Middleware), "No middleware found")
 
 	// Test global middleware (no labels)
 	var globalMiddleware *Middleware

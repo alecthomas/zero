@@ -209,7 +209,7 @@ func (i *IR) Dependencies(node Node) []Node {
 // AddNode to the dependency graph.
 func (i *IR) AddNode(node Node) error {
 	if _, ok := i.nodes[node.NodeKey()]; ok {
-		return errors.Errorf("%s: %s %s already exists in the graph", node.NodePosition(), node.NodeKey().Kind(), node.NodeKey())
+		return nil
 	}
 
 	// Track whether to add this node to the graph
