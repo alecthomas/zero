@@ -584,7 +584,6 @@ func TestIR(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				if test.graph != nil {
-
 					assert.Equal(t, test.graph, ir.Graph())
 				}
 			}

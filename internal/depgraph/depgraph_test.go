@@ -3286,11 +3286,11 @@ type Config[T any] struct {
 }
 
 //zero:provider
-func New[T any](config Config[T]) *Service[T] {
+func New(config Config[User]) *Service {
 	return &Service[T]{}
 }
 
-type Service[T any] struct {}
+type Service struct {}
 
 type User struct {
 	Name string
@@ -3301,13 +3301,15 @@ type Product struct {
 }
 `
 
-	graph := analyseTestCode(t, testCode, WithTypes("*test.Service[T]"))
+	graph := analyseTestCode(t, testCode, WithTypes("*test.Service"))
 
+	_, ok := graph.Configs["test.Config[T any]"]
+	assert.False(t, ok, "Config[T any] should not exist")
 	// Check that Config is a generic config
-	configProviders := graph.GenericConfigs["test.Config"]
-	assert.Equal(t, 1, len(configProviders))
-	assert.True(t, configProviders[0].IsGeneric)
-	assert.Equal(t, "conf-${type}-", configProviders[0].Directive.Prefix)
+	config, ok := graph.Configs["test.Config[User]"]
+	assert.True(t, ok, "Config[User] was not found")
+	assert.False(t, config.IsGeneric)
+	assert.Equal(t, "conf-${type}-", config.Directive.Prefix)
 
 	// Check that New is a generic provider
 	serviceProviders := graph.Providers["*test.Service"]

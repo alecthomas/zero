@@ -37,15 +37,17 @@ type Node interface {
 type Key interface {
 	Kind() string
 	String() string
+	IsGeneric() bool
 	key()
 }
 
 // NodeKey represents a unique identifier for a [Node] in the dependency graph.
 type NodeKey string
 
-func (NodeKey) Kind() string     { return "node" }
-func (n NodeKey) String() string { return string(n) }
-func (NodeKey) key()             {}
+func (NodeKey) Kind() string      { return "node" }
+func (n NodeKey) String() string  { return string(n) }
+func (n NodeKey) IsGeneric() bool { return strings.Contains(string(n), "?") }
+func (NodeKey) key()              {}
 
 // TypeKeyForReceiver returns the [TypeKey] for the receiver of a method.
 func TypeKeyForReceiver(f *types.Func) TypeKey {
@@ -55,9 +57,10 @@ func TypeKeyForReceiver(f *types.Func) TypeKey {
 // TypeKey represents a unique identifier for a type in the dependency graph.
 type TypeKey string
 
-func (TypeKey) Kind() string     { return "type" }
-func (t TypeKey) String() string { return string(t) }
-func (TypeKey) key()             {}
+func (TypeKey) Kind() string      { return "type" }
+func (t TypeKey) IsGeneric() bool { return strings.Contains(string(t), "?") }
+func (t TypeKey) String() string  { return string(t) }
+func (TypeKey) key()              {}
 
 // IR is the intermediate representation of the dependency graph
 type IR struct {
@@ -360,8 +363,8 @@ func (i *IR) propagate() error {
 		}
 		// Mark key as required.
 		key := queue[0]
-		i.Require(key)
 		queue = queue[1:]
+		i.Require(key)
 
 		if i.defeated[key] {
 			// Skip defeated weak providers
@@ -378,7 +381,7 @@ func (i *IR) propagate() error {
 						queue = append(queue, provider.NodeKey())
 					}
 				}
-			} else {
+			} else if !node.NodeKey().IsGeneric() {
 				nodeKey := node.NodeKey()
 				if !i.required[nodeKey] {
 					queue = append(queue, nodeKey)
@@ -395,11 +398,9 @@ func (i *IR) propagate() error {
 		}
 
 		// Also mark any nodes that depend on this key as required
-		if extraDeps := i.extraDependencies[key]; len(extraDeps) > 0 {
-			for _, dep := range extraDeps {
-				if !i.required[dep] {
-					queue = append(queue, dep)
-				}
+		for _, dep := range i.extraDependencies[key] {
+			if !i.required[dep] {
+				queue = append(queue, dep)
 			}
 		}
 	}
