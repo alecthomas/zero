@@ -9,7 +9,6 @@ import (
 )
 
 func TestAnalyseMiddlewareExactUserCase(t *testing.T) {
-	t.SkipNow()
 	testCode := `
 package main
 
@@ -50,7 +49,6 @@ func Auth(authenticated string, dal *DAL) func(http.Handler) http.Handler {
 }
 
 func TestAnalyseMiddlewareWithMultipleLabelsAndDependencies(t *testing.T) {
-	t.SkipNow()
 	testCode := `
 package main
 
