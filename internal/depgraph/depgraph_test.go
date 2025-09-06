@@ -357,13 +357,9 @@ func NewService(cfg *Config) string {
 	return ""
 }
 `
-	graph := analyseTestCode(t, testCode, WithTypes("string"))
-	assert.Equal(t, 1, len(graph.Providers))
-	assert.Equal(t, 0, len(graph.Configs))
-	assert.Equal(t, 1, len(graph.Missing))
-	for _, missing := range graph.Missing {
-		assert.Equal(t, "*test.Config", types.TypeString(missing[0], nil))
-	}
+	_, err := analyseTestCodeWithError(t, testCode, WithTypes("string"))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "there is no provider for type *test.Config, required by test.NewService")
 }
 
 func TestAnalyseAPIFunctions(t *testing.T) {
@@ -687,24 +683,9 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*s
 	return &req.Name, nil
 }
 `
-	graph := analyseTestCode(t, testCode, WithTypes("*net/http.Server"))
-	assert.Equal(t, []string{
-		"*log/slog.Logger",
-		"*net/http.ServeMux",
-		"*net/http.Server",
-		"github.com/alecthomas/zero.ErrorEncoder",
-		"github.com/alecthomas/zero.ResponseEncoder",
-	}, stableKeys(graph.Providers))
-	assert.Equal(t, 2, len(graph.APIs))
-	assert.Equal(t, 2, len(graph.Missing))
-
-	// Check that UserService is missing for both API methods
-	for funcName, missingTypes := range graph.Missing {
-		assert.Equal(t, 1, len(missingTypes))
-		assert.Equal(t, "*test.UserService", types.TypeString(missingTypes[0], nil))
-		// Verify these are API functions
-		assert.True(t, funcName.Name() == "GetUsers" || funcName.Name() == "CreateUser")
-	}
+	_, err := analyseTestCodeWithError(t, testCode, WithTypes("*net/http.Server"))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "there is no provider for type *test.UserService, required by (*test.UserService).GetUsers")
 }
 
 func TestAnalyseAPIReceiverWithProvider(t *testing.T) {
@@ -1570,24 +1551,9 @@ func GetServiceName(s Service) string {
 	return s.Name
 }
 `
-	// Test that weak multi-providers are not included unless explicitly needed
-	graph := analyseTestCode(t, testCode, WithTypes("string"))
-
-	// GetServiceName should be included as it provides the root type "string"
-	serviceNameProviders, ok := graph.Providers["string"]
-	assert.True(t, ok, "GetServiceName provider should be included")
-	assert.Equal(t, 1, len(serviceNameProviders))
-	assert.Equal(t, "GetServiceName", serviceNameProviders[0].Function.Name())
-
-	// Service should be a multi-provider but only contain RegularService, not WeakService
-	multiProviders := graph.Providers["test.Service"]
-	assert.Equal(t, 1, len(multiProviders), "Should only contain the non-weak provider")
-	assert.Equal(t, "RegularService", multiProviders[0].Function.Name())
-
-	// WeakService should NOT be included since it's weak and not explicitly needed
-	for _, provider := range multiProviders {
-		assert.NotEqual(t, "WeakService", provider.Function.Name(), "WeakService should not be included")
-	}
+	_, err := analyseTestCodeWithError(t, testCode, WithTypes("string"))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot mix weak and non-weak providers for test.Service")
 }
 
 func TestAnalyseWeakMultiProviderIncludedWhenRequired(t *testing.T) {
@@ -1653,7 +1619,7 @@ func WeakProvider() int {
 	// Test that requiring a non-provider function returns an error
 	_, err := analyseTestCodeWithError(t, testCode, WithTypes("int"))
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "provider test.WeakProvider requires RegularFunction, but it is not a valid provider function")
+	assert.Contains(t, err.Error(), "there is no provider for node test.RegularFunction, required by test.WeakProvider")
 }
 
 func TestAnalyseAPIValidParameterTypes(t *testing.T) {
@@ -2819,15 +2785,9 @@ func (s *SubscriptionService) HandleEvent(ctx context.Context, event pubsub.Even
 	return nil
 }
 `
-	graph := analyseTestCode(t, testCode, WithTypes("github.com/alecthomas/zero/providers/pubsub.Topic"), WithNodes("github.com/alecthomas/zero/providers/pubsub.NewMemoryTopic"))
-	assert.Equal(t, 1, len(graph.Subscriptions))
-	assert.Equal(t, 2, len(graph.Missing)) // Now includes both subscription and concrete topic provider
-
-	// The subscription receiver should be marked as missing
-	subscription := graph.Subscriptions[0]
-	missing := graph.Missing[subscription.Function]
-	assert.Equal(t, 1, len(missing))
-	assert.Equal(t, "*test.SubscriptionService", types.TypeString(missing[0], nil))
+	_, err := analyseTestCodeWithError(t, testCode, WithTypes("github.com/alecthomas/zero/providers/pubsub.Topic[?]"), WithNodes("github.com/alecthomas/zero/providers/pubsub.NewMemoryTopic"))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "there is no provider for type *test.SubscriptionService, required by (*test.SubscriptionService).HandleEvent")
 }
 
 func TestAnalyseMixedProvidersAPIsSubscriptions(t *testing.T) {
@@ -3341,7 +3301,7 @@ type Product struct {
 }
 `
 
-	graph := analyseTestCode(t, testCode, WithTypes("*test.Service"))
+	graph := analyseTestCode(t, testCode, WithTypes("*test.Service[T]"))
 
 	// Check that Config is a generic config
 	configProviders := graph.GenericConfigs["test.Config"]

@@ -91,6 +91,9 @@ import (
 
 type DAL struct{}
 
+//zero:provider
+func NewDAL() *DAL { return &DAL{} }
+
 //zero:middleware authenticated
 func Auth(wrongName string, dal *DAL) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
