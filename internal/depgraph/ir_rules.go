@@ -4,6 +4,8 @@ package depgraph
 var Rules = []Rule{
 	CronRule,
 	APIRule,
+	SubscriptionRule,
+	MiddlewareRule,
 }
 
 // A Rule applies additional Node-specific logic to the IR.
@@ -40,6 +42,37 @@ func SubscriptionRule(ir *IR) error {
 	for node := range ir.RequiredNodes() {
 		if _, ok := node.(*Subscription); ok {
 			ir.Require(TypeKey("github.com/alecthomas/zero/providers/pubsub.Topic[?]"))
+		}
+	}
+	return nil
+}
+
+// MiddlewareRule adds middleware functions to the dependency graph.
+//
+// Middleware is required iff it has no label OR any label matches an API endpoint with the same label.
+func MiddlewareRule(ir *IR) error {
+	// Collect all required labels from API endpoints
+	requiredLabels := map[string]bool{}
+	for node := range ir.RequiredNodes() {
+		if node, ok := node.(*API); ok {
+			for _, label := range node.Directive.Labels {
+				requiredLabels[label.Name] = true
+			}
+		}
+	}
+	// Next, mark all middleware with matching labels or no labels as required
+	for node := range ir.Nodes() {
+		if node, ok := node.(*Middleware); ok {
+			if len(node.Directive.Labels) == 0 {
+				ir.Require(node.NodeKey())
+			} else {
+				for _, label := range node.Directive.Labels {
+					if requiredLabels[label] {
+						ir.Require(node.NodeKey())
+						break
+					}
+				}
+			}
 		}
 	}
 	return nil

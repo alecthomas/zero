@@ -436,7 +436,7 @@ func (s *UserService) InternalHelper() string {
 		Segments: []directiveparser.Segment{
 			directiveparser.LiteralSegment{Literal: "users"},
 		},
-	}, getUsersAPI.Pattern)
+	}, getUsersAPI.Directive)
 
 	// Find POST /users endpoint with options
 	createUserAPI := findAPI(t, apis, "POST", "", "/users")
@@ -448,7 +448,7 @@ func (s *UserService) InternalHelper() string {
 		Labels: []*directiveparser.Label{
 			{Name: "authenticated"},
 		},
-	}, createUserAPI.Pattern)
+	}, createUserAPI.Directive)
 
 	// Find GET /users/{id} endpoint with multiple options
 	getUserAPI := findAPI(t, apis, "GET", "", "/users/{id}")
@@ -462,7 +462,7 @@ func (s *UserService) InternalHelper() string {
 			{Name: "authenticated"},
 			{Name: "cache", Value: "300"},
 		},
-	}, getUserAPI.Pattern)
+	}, getUserAPI.Directive)
 
 	// Find DELETE endpoint with multiple options
 	deleteUserAPI := findAPI(t, apis, "DELETE", "", "/users/{id}")
@@ -477,7 +477,7 @@ func (s *UserService) InternalHelper() string {
 			{Name: "admin"},
 			{Name: "audit"},
 		},
-	}, deleteUserAPI.Pattern)
+	}, deleteUserAPI.Directive)
 }
 
 func TestAnalyseInvalidAPIAnnotation(t *testing.T) {
@@ -525,7 +525,7 @@ func (s *UserService) HealthCheck(w http.ResponseWriter, r *http.Request) {
 		Segments: []directiveparser.Segment{
 			directiveparser.LiteralSegment{Literal: "health"},
 		},
-	}, api.Pattern)
+	}, api.Directive)
 }
 
 func TestAnalyseNonAPIFunction(t *testing.T) {
@@ -558,7 +558,7 @@ func (s *Service) APIMethod() string {
 		Segments: []directiveparser.Segment{
 			directiveparser.LiteralSegment{Literal: "test"},
 		},
-	}, api.Pattern)
+	}, api.Directive)
 }
 
 func TestAnalyseMixedProvidersAndAPIs(t *testing.T) {
@@ -621,7 +621,7 @@ func (s *UserService) CreateUser(req CreateUserRequest) string {
 
 	var getAPI, postAPI *API
 	for _, api := range graph.APIs {
-		switch api.Pattern.Method {
+		switch api.Directive.Method {
 		case http.MethodGet:
 			getAPI = api
 		case http.MethodPost:
@@ -635,7 +635,7 @@ func (s *UserService) CreateUser(req CreateUserRequest) string {
 		Segments: []directiveparser.Segment{
 			directiveparser.LiteralSegment{Literal: "users"},
 		},
-	}, getAPI.Pattern)
+	}, getAPI.Directive)
 
 	assert.True(t, postAPI != nil)
 	assert.Equal(t, &directiveparser.DirectiveAPI{
@@ -644,7 +644,7 @@ func (s *UserService) CreateUser(req CreateUserRequest) string {
 			directiveparser.LiteralSegment{Literal: "users"},
 		},
 		Labels: []*directiveparser.Label{{Name: "authenticated"}},
-	}, postAPI.Pattern)
+	}, postAPI.Directive)
 }
 
 func TestAnalyseAPIAnnotationOnFunction(t *testing.T) {
@@ -791,7 +791,7 @@ func (s *APIService) GetUser(ctx context.Context, id int) (*string, error) {
 		Segments: []directiveparser.Segment{
 			directiveparser.LiteralSegment{Literal: "users"},
 		},
-	}, getUsersAPI.Pattern)
+	}, getUsersAPI.Directive)
 }
 
 func TestAnalyseAPINoDuplicateMissingReceivers(t *testing.T) {
@@ -864,7 +864,7 @@ func (s *APIService) GetUser(ctx context.Context, id int) (*string, error) {
 		Segments: []directiveparser.Segment{
 			directiveparser.LiteralSegment{Literal: "users"},
 		},
-	}, getUsersAPI.Pattern)
+	}, getUsersAPI.Directive)
 
 	// Check GET api.example.com/users/{id} with wildcards
 	getUserAPI := findAPI(t, graph.APIs, "GET", "api.example.com", "/users/{id}")
@@ -879,7 +879,7 @@ func (s *APIService) GetUser(ctx context.Context, id int) (*string, error) {
 			{Name: "authenticated"},
 			{Name: "cache", Value: "300"},
 		},
-	}, getUserAPI.Pattern)
+	}, getUserAPI.Directive)
 }
 
 func TestAnalyseAPIWithWildcards(t *testing.T) {
@@ -924,7 +924,7 @@ func (s *FileService) DeleteStatic(ctx context.Context, path string) error {
 			directiveparser.LiteralSegment{Literal: "files"},
 			directiveparser.WildcardSegment{Name: "path", Remainder: true},
 		},
-	}, serveFileAPI.Pattern)
+	}, serveFileAPI.Directive)
 
 	// Check multiple wildcards
 	updatePostAPI := findAPI(t, graph.APIs, "POST", "", "/api/v1/users/{userId}/posts/{postId}")
@@ -938,7 +938,7 @@ func (s *FileService) DeleteStatic(ctx context.Context, path string) error {
 			directiveparser.LiteralSegment{Literal: "posts"},
 			directiveparser.WildcardSegment{Name: "postId"},
 		},
-	}, updatePostAPI.Pattern)
+	}, updatePostAPI.Directive)
 
 	// Check catch-all with options
 	deleteStaticAPI := findAPI(t, graph.APIs, "DELETE", "", "/static/{path...}")
@@ -949,7 +949,7 @@ func (s *FileService) DeleteStatic(ctx context.Context, path string) error {
 			directiveparser.WildcardSegment{Name: "path", Remainder: true},
 		},
 		Labels: []*directiveparser.Label{{Name: "authenticated"}, {Name: "admin"}},
-	}, deleteStaticAPI.Pattern)
+	}, deleteStaticAPI.Directive)
 }
 
 func TestAnalyseAPIWithoutMethod(t *testing.T) {
@@ -988,7 +988,7 @@ func (s *Service) Status(ctx context.Context) error {
 		Segments: []directiveparser.Segment{
 			directiveparser.LiteralSegment{Literal: "health"},
 		},
-	}, healthAPI.Pattern)
+	}, healthAPI.Directive)
 
 	// Check host with no method
 	statusAPI := findAPI(t, graph.APIs, "", "api.example.com", "/status")
@@ -999,7 +999,7 @@ func (s *Service) Status(ctx context.Context) error {
 			directiveparser.LiteralSegment{Literal: "status"},
 		},
 		Labels: []*directiveparser.Label{{Name: "authenticated"}},
-	}, statusAPI.Pattern)
+	}, statusAPI.Directive)
 }
 
 func TestAnalyseAPIInvalidPatterns(t *testing.T) {
@@ -1112,7 +1112,7 @@ func (s *APIService) AdminAction(ctx context.Context, path string) error {
 		Segments: []directiveparser.Segment{
 			directiveparser.TrailingSegment{},
 		},
-	}, rootAPI.Pattern)
+	}, rootAPI.Directive)
 
 	// Check complex pattern with multiple options
 	createCommentAPI := findAPI(t, graph.APIs, "", "api.v1.example.com", "/users/{id}/posts/{postId}/comments")
@@ -1132,7 +1132,7 @@ func (s *APIService) AdminAction(ctx context.Context, path string) error {
 			{Name: "cache", Value: "300"},
 			{Name: "audit"},
 		},
-	}, createCommentAPI.Pattern)
+	}, createCommentAPI.Directive)
 
 	// Check localhost with port and catch-all
 	adminAPI := findAPI(t, graph.APIs, "", "localhost:8080", "/admin/{path...}")
@@ -1147,7 +1147,7 @@ func (s *APIService) AdminAction(ctx context.Context, path string) error {
 			{Name: "authenticated"},
 			{Name: "admin"},
 		},
-	}, adminAPI.Pattern)
+	}, adminAPI.Directive)
 }
 
 func TestAnalyseAPIParameterValidation(t *testing.T) {
@@ -1702,9 +1702,9 @@ func (s *UserService) GetUserPost(ctx context.Context, userID UserID, postID str
 
 	api := graph.APIs[0]
 	assert.Equal(t, "GetUserPost", api.Function.Name())
-	hasUserID := api.Pattern.Wildcard("userID")
+	hasUserID := api.Directive.Wildcard("userID")
 	assert.True(t, hasUserID)
-	hasPostID := api.Pattern.Wildcard("postID")
+	hasPostID := api.Directive.Wildcard("postID")
 	assert.True(t, hasPostID)
 }
 
@@ -1736,9 +1736,9 @@ func analyseCodeString(t *testing.T, code string, options ...Option) (*Graph, er
 func findAPI(t *testing.T, apis []*API, method, host, path string) *API {
 	t.Helper()
 	for _, api := range apis {
-		if (method == "" || api.Pattern.Method == method) &&
-			(host == "" || api.Pattern.Host == host) &&
-			api.Pattern.Path() == path {
+		if (method == "" || api.Directive.Method == method) &&
+			(host == "" || api.Directive.Host == host) &&
+			api.Directive.Path() == path {
 			return api
 		}
 	}

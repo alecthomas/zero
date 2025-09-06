@@ -134,7 +134,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 				}
 				closing += ")"
 			}
-			w.L("mux.Handle(%q, %s", api.Pattern.Pattern(), handler)
+			w.L("mux.Handle(%q, %s", api.Directive.Pattern(), handler)
 			w.In(func(w *codewriter.Writer) {
 				signature := api.Function.Signature()
 
@@ -149,7 +149,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 					typeName := types.TypeString(paramType, nil)
 					// Skip builtin types that are handled in the call site
 					if typeName != "*net/http.Request" && typeName != "net/http.ResponseWriter" && typeName != "context.Context" {
-						writeParameterConstruction(w, graph, paramType, paramName, "p", i, false, api.Pattern.Method)
+						writeParameterConstruction(w, graph, paramType, paramName, "p", i, false, api.Directive.Method)
 					}
 				}
 

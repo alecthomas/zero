@@ -511,7 +511,7 @@ func TestAPIIsPathParameter(t *testing.T) {
 				}
 			}
 			api := &API{
-				Pattern: &directiveparser.DirectiveAPI{
+				Directive: &directiveparser.DirectiveAPI{
 					Segments: segments,
 				},
 			}
@@ -651,7 +651,7 @@ func createMockAPI(t *testing.T, funcSig string, pattern *directiveparser.Direct
 	}
 
 	return &API{
-		Pattern:  pattern,
+		Directive:  pattern,
 		Function: funcType,
 		Package:  pkg,
 		Position: token.Position{Filename: "test.go", Line: 1},

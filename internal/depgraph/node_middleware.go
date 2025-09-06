@@ -9,7 +9,7 @@ import (
 	"github.com/alecthomas/zero/internal/directiveparser"
 )
 
-// Middleware represents a function that is an HTTP middleware. Middleware functions are annotated like so:
+// Middleware represents a function that is HTTP middleware. Middleware functions are annotated like so:
 //
 //	//zero:middleware [<label>]
 type Middleware struct {
@@ -46,7 +46,7 @@ func (m *Middleware) Match(api *API) bool {
 		return true
 	}
 	for _, label := range m.Directive.Labels {
-		for _, apiLabel := range api.Pattern.Labels {
+		for _, apiLabel := range api.Directive.Labels {
 			if label == apiLabel.Name {
 				return true
 			}

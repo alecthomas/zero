@@ -18,8 +18,8 @@ import (
 type API struct {
 	// Position is the position of the function declaration.
 	Position token.Position
-	// Pattern is the parsed HTTP mux pattern
-	Pattern *directiveparser.DirectiveAPI
+	// Directive is the parsed HTTP mux pattern
+	Directive *directiveparser.DirectiveAPI
 	// Function is the function that handles the API
 	Function *types.Func
 	// Documentation is the extracted function comments
@@ -40,7 +40,7 @@ func (a *API) NodeRequires() []Key          { return []Key{TypeKeyForReceiver(a.
 func (a *API) NodeRequiredBy() []Key        { return []Key{TypeKeyForReceiver(a.Function)} }
 
 func (a *API) APILabel(name string) string {
-	for _, label := range a.Pattern.Labels {
+	for _, label := range a.Directive.Labels {
 		if label.Name == name {
 			return label.Value
 		}
@@ -191,7 +191,7 @@ func (a *API) generateResponses(definitions spec.Definitions) *spec.Responses {
 
 func (a *API) isPathParameter(paramName string) bool {
 	// Check if the parameter name is a wildcard in the parsed path structure
-	return a.Pattern.Wildcard(paramName)
+	return a.Directive.Wildcard(paramName)
 }
 
 func (a *API) generateSchemaFromType(t types.Type, definitions spec.Definitions) *spec.Schema {

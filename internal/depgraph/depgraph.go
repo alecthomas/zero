@@ -468,12 +468,12 @@ func (g *Graph) GenerateOpenAPISpec(title, version string) *spec.Swagger {
 	pathOperations := make(map[string]map[string]*spec.Operation)
 
 	for _, api := range g.APIs {
-		if api.Pattern == nil {
+		if api.Directive == nil {
 			continue
 		}
 
-		path := api.Pattern.Path()
-		method := strings.ToLower(api.Pattern.Method)
+		path := api.Directive.Path()
+		method := strings.ToLower(api.Directive.Method)
 		if method == "" {
 			method = "get"
 		}
@@ -744,7 +744,7 @@ func createAPI(fn *ast.FuncDecl, pkg *packages.Package, directive *directivepars
 	}
 
 	api := &API{
-		Pattern:       directive,
+		Directive:     directive,
 		Function:      funcObj,
 		Documentation: documentation,
 		Package:       pkg,
