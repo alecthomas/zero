@@ -336,7 +336,13 @@ func (i *IR) validate() error {
 	}
 
 	// Validate that all required types exist.
-	for _, node := range i.nodes {
+	var nodeKeys []Key
+	for nodeKey := range i.nodes {
+		nodeKeys = append(nodeKeys, nodeKey)
+	}
+	slices.SortStableFunc(nodeKeys, func(a, b Key) int { return strings.Compare(a.String(), b.String()) })
+	for _, nodeKey := range nodeKeys {
+		node := i.nodes[nodeKey]
 		keys := i.dependenciesForNode(node)
 		slices.SortStableFunc(keys, func(a, b Key) int { return strings.Compare(a.String(), b.String()) })
 		for _, require := range keys {

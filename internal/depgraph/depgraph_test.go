@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
+	"github.com/alecthomas/repr"
 	"github.com/alecthomas/zero/internal/buildtesting"
 	"github.com/alecthomas/zero/internal/directiveparser"
 )
@@ -822,7 +823,7 @@ func (s *UserService) DeleteUser(ctx context.Context, id int) error {
 }
 `
 	_, err := analyseTestCodeWithError(t, testCode, WithTypes("*net/http.Server"))
-	assert.EqualError(t, err, "there is no provider for type *test.UserService, required by (*test.UserService).DeleteUser")
+	assert.EqualError(t, err, "there is no provider for type *test.UserService, required by (*test.UserService).CreateUser")
 }
 
 func TestAnalyseAPIWithHosts(t *testing.T) {
@@ -2240,7 +2241,7 @@ type Service struct {
 `
 	_, err := analyseTestCodeWithError(t, testCode, WithTypes("*test.Service"))
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "type []string has mixed multi and non-multi providers")
+	assert.Contains(t, err.Error(), "there is an existing multi-provider for []string, cannot replace it with non-multi provider test.NewSliceB")
 }
 
 func TestAnalyseMultiProvidersOnly(t *testing.T) {
@@ -3338,17 +3339,18 @@ type User struct {
 }
 `
 
-	graph := analyseTestCode(t, testCode, WithTypes("*test.Service"))
+	graph := analyseTestCode(t, testCode, WithTypes("*test.Service[User]"))
 
 	depGraph := graph.Graph()
+	depGraphStr := repr.String(depGraph, repr.Indent("  "))
 
 	// Should have generic config in output
-	_, hasGenericConfig := depGraph["test.Config[T]"]
-	assert.True(t, hasGenericConfig)
+	_, hasGenericConfig := depGraph["test.Config[User]"]
+	assert.True(t, hasGenericConfig, "%s", depGraphStr)
 
 	// Should have generic provider in output (stored under base type)
-	_, hasGenericService := depGraph["*test.Service"]
-	assert.True(t, hasGenericService)
+	_, hasGenericService := depGraph["*test.Service[User]"]
+	assert.True(t, hasGenericService, "%s", depGraphStr)
 }
 
 func TestGenericConfigPrefixSubstitution(t *testing.T) {
