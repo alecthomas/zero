@@ -13,22 +13,30 @@ import (
 
 // Sample types for testing
 var (
+	// string
 	stringType = types.Typ[types.String]
 
 	// Named types
+	// type Config struct {}
 	appConfigType = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "Config", nil), types.NewStruct(nil, nil), nil)
-	dbConfigType  = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "DatabaseConfig", nil), types.NewStruct(nil, nil), nil)
-	loggerType    = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "Logger", nil), types.NewStruct(nil, nil), nil)
-	dbType        = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "Database", nil), types.NewStruct(nil, nil), nil)
-	serviceType   = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "UserService", nil), types.NewStruct(nil, nil), nil)
-	eventType     = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "UserEvent", nil), types.NewStruct(nil, nil), nil)
+	// type DatabaseConfig struct {}
+	dbConfigType = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "DatabaseConfig", nil), types.NewStruct(nil, nil), nil)
+	// type Logger struct {}
+	loggerType = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "Logger", nil), types.NewStruct(nil, nil), nil)
+	// type Database struct {}
+	dbType = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "Database", nil), types.NewStruct(nil, nil), nil)
+	// type UserService struct {}
+	serviceType = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "UserService", nil), types.NewStruct(nil, nil), nil)
+	// type UserEvent struct {}
+	eventType = types.NewNamed(types.NewTypeName(token.NoPos, testPackage.Types, "UserEvent", nil), types.NewStruct(nil, nil), nil)
 )
 
 // Sample package for testing
 var testPackage = &packages.Package{
 	PkgPath: "github.com/example/app",
 	Name:    "app",
-	Types:   types.NewPackage("github.com/example/app", "app"),
+	// package app ("github.com/example/app")
+	Types: types.NewPackage("github.com/example/app", "app"),
 }
 
 // Sample Config nodes
@@ -57,6 +65,7 @@ var (
 	loggerProvider = &Provider{
 		Position:  token.Position{Filename: "logger.go", Line: 15},
 		Directive: &directiveparser.DirectiveProvider{},
+		// func NewLogger(cfg Config) Logger
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "NewLogger",
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(types.NewVar(token.NoPos, testPackage.Types, "cfg", appConfigType)),
@@ -69,6 +78,7 @@ var (
 	dbProvider = &Provider{
 		Position:  token.Position{Filename: "database.go", Line: 25},
 		Directive: &directiveparser.DirectiveProvider{},
+		// func NewDatabase(cfg Config, logger Logger) Database
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "NewDatabase",
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(
@@ -84,6 +94,7 @@ var (
 	serviceProvider = &Provider{
 		Position:  token.Position{Filename: "service.go", Line: 30},
 		Directive: &directiveparser.DirectiveProvider{},
+		// func NewUserService(config Config, db Database, logger Logger) UserService
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "NewUserService",
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(
@@ -103,6 +114,7 @@ var (
 		Directive: &directiveparser.DirectiveProvider{
 			Multi: true,
 		},
+		// func NewConsoleLogger(cfg Config) Logger
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "NewConsoleLogger",
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(types.NewVar(token.NoPos, testPackage.Types, "cfg", appConfigType)),
@@ -117,6 +129,7 @@ var (
 		Directive: &directiveparser.DirectiveProvider{
 			Multi: true,
 		},
+		// func NewFileLogger() Logger
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "NewFileLogger",
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(),
@@ -132,6 +145,7 @@ var (
 		Directive: &directiveparser.DirectiveProvider{
 			Weak: true,
 		},
+		// func NewWeakDatabase(cfg DatabaseConfig) Database
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "NewWeakDatabase",
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(types.NewVar(token.NoPos, testPackage.Types, "cfg", dbConfigType)),
@@ -146,6 +160,7 @@ var (
 		Directive: &directiveparser.DirectiveProvider{
 			Weak: true,
 		},
+		// func NewWeakLoggerA() Logger
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "NewWeakLoggerA",
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(),
@@ -160,6 +175,7 @@ var (
 		Directive: &directiveparser.DirectiveProvider{
 			Weak: true,
 		},
+		// func NewWeakLoggerB() Logger
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "NewWeakLoggerB",
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(),
@@ -170,9 +186,11 @@ var (
 	}
 
 	// Infrastructure providers
+	// func NewWeakHttpServer() *net/http.Server
 	weakHTTPServerProvider = createWeakInfraProvider("NewWeakHttpServer", "http.go",
 		types.NewPointer(createNamedType("net/http", "http", "Server")))
 
+	// func NewWeakCronScheduler() *github.com/alecthomas/zero/providers/cron.Scheduler
 	weakCronSchedulerProvider = createWeakInfraProvider("NewWeakCronScheduler", "cron.go",
 		types.NewPointer(createNamedType("github.com/alecthomas/zero/providers/cron", "cron", "Scheduler")))
 )
@@ -186,6 +204,7 @@ var (
 			Host:     "",
 			Segments: nil,
 		},
+		// func (UserService) GetUser(id string) UserService
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "GetUser",
 			types.NewSignatureType(
 				types.NewVar(token.NoPos, testPackage.Types, "UserService", serviceType), // receiver
@@ -206,6 +225,7 @@ var (
 				{Name: "auth", Value: "required"},
 			},
 		},
+		// func (UserService) CreateUser(user UserService) UserService
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "CreateUser",
 			types.NewSignatureType(
 				types.NewVar(token.NoPos, testPackage.Types, "UserService", serviceType), // receiver
@@ -224,6 +244,7 @@ var (
 		Directive: &directiveparser.DirectiveMiddleware{
 			Labels: []string{"auth"},
 		},
+		// func AuthMiddleware(logger Logger)
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "AuthMiddleware",
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(types.NewVar(token.NoPos, testPackage.Types, "logger", loggerType)),
@@ -239,6 +260,7 @@ var (
 		Directive: &directiveparser.DirectiveMiddleware{
 			Labels: []string{},
 		},
+		// func LoggingMiddleware(logger Logger)
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "LoggingMiddleware",
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(types.NewVar(token.NoPos, testPackage.Types, "logger", loggerType)),
@@ -257,6 +279,7 @@ var (
 		Schedule: &directiveparser.DirectiveCron{
 			Schedule: "5m",
 		},
+		// func (UserService) CleanupOldData()
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "CleanupOldData",
 			types.NewSignatureType(
 				types.NewVar(token.NoPos, testPackage.Types, "UserService", serviceType), // receiver
@@ -272,6 +295,7 @@ var (
 		Schedule: &directiveparser.DirectiveCron{
 			Schedule: "1w",
 		},
+		// func (UserService) GenerateWeeklyReport()
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "GenerateWeeklyReport",
 			types.NewSignatureType(
 				types.NewVar(token.NoPos, testPackage.Types, "UserService", serviceType), // receiver
@@ -287,6 +311,7 @@ var (
 var (
 	userEventSubscription = &Subscription{
 		Position: token.Position{Filename: "events.go", Line: 30},
+		// func (UserService) HandleUserEvent(event UserEvent)
 		Function: types.NewFunc(token.NoPos, testPackage.Types, "HandleUserEvent",
 			types.NewSignatureType(
 				types.NewVar(token.NoPos, testPackage.Types, "UserService", serviceType), // receiver
@@ -302,6 +327,7 @@ var (
 // Sample pubsub provider
 var (
 	newTopicProvider = func() *Provider {
+		// package pubsub ("github.com/alecthomas/zero/providers/pubsub")
 		pubsubPackage := &packages.Package{
 			PkgPath: "github.com/alecthomas/zero/providers/pubsub",
 			Name:    "pubsub",
@@ -309,17 +335,21 @@ var (
 		}
 
 		// Generic Topic[T] type with type parameter
+		// type T any
 		topicTypeParam := types.NewTypeParam(types.NewTypeName(token.NoPos, nil, "T", nil), types.Universe.Lookup("any").Type())
+		// type Topic[T any] struct {}
 		topicTypeName := types.NewTypeName(token.NoPos, pubsubPackage.Types, "Topic", nil)
 		topicType := types.NewNamed(topicTypeName, types.NewStruct(nil, nil), nil)
 		topicType.SetTypeParams([]*types.TypeParam{topicTypeParam})
 
 		// Separate type parameter for the function signature
+		// type T any
 		funcTypeParam := types.NewTypeParam(types.NewTypeName(token.NoPos, nil, "T", nil), types.Universe.Lookup("any").Type())
 
 		return &Provider{
 			Position:  token.Position{Filename: "pubsub.go", Line: 10},
 			Directive: &directiveparser.DirectiveProvider{},
+			// func NewTopic[T any]() Topic[T]
 			Function: types.NewFunc(token.NoPos, pubsubPackage.Types, "NewTopic",
 				types.NewSignatureType(nil,
 					nil,                               // no receiver type parameters
@@ -342,6 +372,7 @@ func createWeakInfraProvider(funcName, filename string, providesType types.Type)
 		Directive: &directiveparser.DirectiveProvider{
 			Weak: true,
 		},
+		// func <funcName>() <providesType>
 		Function: types.NewFunc(token.NoPos, testPackage.Types, funcName,
 			types.NewSignatureType(nil, nil, nil,
 				types.NewTuple(),
@@ -353,97 +384,13 @@ func createWeakInfraProvider(funcName, filename string, providesType types.Type)
 }
 
 func createNamedType(pkgPath, pkgName, typeName string) *types.Named {
+	// type <typeName> struct {}
 	return types.NewNamed(
 		types.NewTypeName(token.NoPos, types.NewPackage(pkgPath, pkgName), typeName, nil),
 		types.NewStruct(nil, nil),
 		nil,
 	)
 }
-
-// Sample collections for different test scenarios
-var (
-	// Simple linear dependency chain: config -> logger -> db -> service
-	linearDependencyNodes = []Node{
-		appConfig,
-		loggerProvider,
-		dbProvider,
-		serviceProvider,
-	}
-
-	// Multi-provider scenario
-	multiProviderNodes = []Node{
-		appConfig,
-		dbProvider,
-		consoleLoggerProvider,
-		fileLoggerProvider,
-		serviceProvider,
-	}
-
-	// Full application with APIs, middleware, cron jobs
-	fullApplicationNodes = []Node{
-		appConfig,
-		dbConfig,
-		loggerProvider,
-		dbProvider,
-		serviceProvider,
-		getUserAPI,
-		createUserAPI,
-		authMiddleware,
-		loggingMiddleware,
-		cleanupCronJob,
-		reportCronJob,
-		userEventSubscription,
-		newTopicProvider,
-		weakHTTPServerProvider,
-		weakCronSchedulerProvider,
-	}
-
-	// Nodes with weak and strong providers for the same type
-	strongAndWeakNodes = []Node{
-		appConfig,
-		dbConfig,
-		loggerProvider,      //strong
-		weakLoggerProviderA, // weak
-		weakLoggerProviderB, // weak
-		dbProvider,
-		weakDatabaseProvider,
-		serviceProvider,
-	}
-
-	// Nodes with no dependencies (roots)
-	rootNodes = []Node{
-		appConfig,
-		dbConfig,
-		newTopicProvider,
-	}
-
-	// Nodes with no return type (consumers)
-	consumerNodes = []Node{
-		dbProvider,
-		serviceProvider,
-		getUserAPI,
-		appConfig,
-		loggerProvider,
-		createUserAPI,
-		cleanupCronJob,
-		reportCronJob,
-		userEventSubscription,
-		newTopicProvider,
-		weakHTTPServerProvider,
-		weakCronSchedulerProvider,
-	}
-
-	// Nodes with ambiguous providers for the same type
-	ambiguousNodes = []Node{
-		appConfig,
-		weakLoggerProviderA, // weak
-		weakLoggerProviderB, // weak
-		dbConfig,
-		dbProvider,
-		weakDatabaseProvider,
-		serviceProvider,
-	}
-)
 
 func TestIR(t *testing.T) {
 	t.Parallel()
@@ -455,32 +402,100 @@ func TestIR(t *testing.T) {
 		graph   map[Key][]Key
 	}{
 		{
-			name:  "LinearDependencyNodes",
-			nodes: linearDependencyNodes,
+			name: "LinearDependencyNodes",
+			// Simple linear dependency chain: config -> logger -> db -> service
+			nodes: []Node{
+				appConfig,
+				loggerProvider,
+				dbProvider,
+				serviceProvider,
+			},
 		},
 		{
-			name:  "MultiProviderNodes",
-			nodes: multiProviderNodes,
+			name: "MultiProviderNodes",
+			// Multi-provider scenario
+			nodes: []Node{
+				appConfig,
+				dbProvider,
+				consoleLoggerProvider,
+				fileLoggerProvider,
+				serviceProvider,
+			},
 		},
 		{
-			name:  "FullApplicationNodes",
-			nodes: fullApplicationNodes,
+			name: "FullApplicationNodes",
+			// Full application with APIs, middleware, cron jobs
+			nodes: []Node{
+				appConfig,
+				dbConfig,
+				loggerProvider,
+				dbProvider,
+				serviceProvider,
+				getUserAPI,
+				createUserAPI,
+				authMiddleware,
+				loggingMiddleware,
+				cleanupCronJob,
+				reportCronJob,
+				userEventSubscription,
+				newTopicProvider,
+				weakHTTPServerProvider,
+				weakCronSchedulerProvider,
+			},
 		},
 		{
-			name:  "RootNodes",
-			nodes: rootNodes,
+			name: "RootNodes",
+			// Nodes with no dependencies (roots)
+			nodes: []Node{
+				appConfig,
+				dbConfig,
+				newTopicProvider,
+			},
 		},
 		{
-			name:  "ConsumerNodes",
-			nodes: consumerNodes,
+			name: "ConsumerNodes",
+			// Nodes with no return type (consumers)
+			nodes: []Node{
+				dbProvider,
+				serviceProvider,
+				getUserAPI,
+				appConfig,
+				loggerProvider,
+				createUserAPI,
+				cleanupCronJob,
+				reportCronJob,
+				userEventSubscription,
+				newTopicProvider,
+				weakHTTPServerProvider,
+				weakCronSchedulerProvider,
+			},
 		},
 		{
-			name:  "StrongAndWeakNodes",
-			nodes: strongAndWeakNodes,
+			name: "StrongAndWeakNodes",
+			// Nodes with weak and strong providers for the same type
+			nodes: []Node{
+				appConfig,
+				dbConfig,
+				loggerProvider,      //strong
+				weakLoggerProviderA, // weak
+				weakLoggerProviderB, // weak
+				dbProvider,
+				weakDatabaseProvider,
+				serviceProvider,
+			},
 		},
 		{
-			name:  "AmbiguousNodes",
-			nodes: ambiguousNodes,
+			name: "AmbiguousNodes",
+			// Nodes with ambiguous providers for the same type
+			nodes: []Node{
+				appConfig,
+				weakLoggerProviderA, // weak
+				weakLoggerProviderB, // weak
+				dbConfig,
+				dbProvider,
+				weakDatabaseProvider,
+				serviceProvider,
+			},
 			options: []Option{
 				WithNodes(weakLoggerProviderA.NodeKey().(NodeKey)),
 			},
