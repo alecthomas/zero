@@ -34,3 +34,13 @@ func APIRule(ir *IR) error {
 	}
 	return nil
 }
+
+// SubscriptionRule adds pubsub types to the dependency graph.
+func SubscriptionRule(ir *IR) error {
+	for node := range ir.RequiredNodes() {
+		if _, ok := node.(*Subscription); ok {
+			ir.Require(TypeKey("github.com/alecthomas/zero/providers/pubsub.Topic[?]"))
+		}
+	}
+	return nil
+}

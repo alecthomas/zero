@@ -2606,6 +2606,11 @@ import (
 
 type SubscriptionService struct{}
 
+//zero:provider
+func NewSubscriptionService() *SubscriptionService {
+	return &SubscriptionService{}
+}
+
 type UserCreatedEvent struct {
 	UserID string
 	Email  string
@@ -2621,7 +2626,7 @@ func (s *SubscriptionService) HandleUserUpdated(ctx context.Context, event pubsu
 	return nil
 }
 `
-	graph := analyseTestCode(t, testCode, WithTypes("github.com/alecthomas/zero/providers/pubsub.Topic"), WithNodes("github.com/alecthomas/zero/providers/pubsub.NewMemoryTopic"))
+	graph := analyseTestCode(t, testCode, WithNodes("github.com/alecthomas/zero/providers/pubsub.NewMemoryTopic"))
 	assert.Equal(t, 2, len(graph.Subscriptions))
 
 	// Check first subscription
