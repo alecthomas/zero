@@ -51,15 +51,23 @@ func SubscriptionRule(ir *IR) error {
 //
 // Middleware is required iff it has no label OR any label matches an API endpoint with the same label.
 func MiddlewareRule(ir *IR) error {
+	foundAPI := false
+
 	// Collect all required labels from API endpoints
 	requiredLabels := map[string]bool{}
 	for node := range ir.RequiredNodes() {
 		if node, ok := node.(*API); ok {
+			foundAPI = true
 			for _, label := range node.Directive.Labels {
 				requiredLabels[label.Name] = true
 			}
 		}
 	}
+
+	if !foundAPI {
+		return nil
+	}
+
 	// Next, mark all middleware with matching labels or no labels as required
 	for node := range ir.Nodes() {
 		if node, ok := node.(*Middleware); ok {

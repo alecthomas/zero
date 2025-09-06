@@ -24,18 +24,9 @@ type Provider struct {
 	IsGeneric bool
 	// TypeParams holds the type parameters for generic providers
 	TypeParams *types.TypeParamList
-	// resolvedRequires holds the resolved requirements for generic providers
-	// when they've been instantiated with concrete types
-	resolvedRequires []types.Type
 }
 
 func (p *Provider) Requires() []types.Type {
-	// For resolved generic providers, use the cached resolved requirements
-	if p.resolvedRequires != nil {
-		return p.resolvedRequires
-	}
-
-	// Otherwise, extract requirements from the function signature
 	sig := p.Function.Type().(*types.Signature)
 	params := sig.Params()
 	requiredTypes := make([]types.Type, params.Len())

@@ -686,7 +686,7 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*s
 `
 	_, err := analyseTestCodeWithError(t, testCode, WithTypes("*net/http.Server"))
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "there is no provider for type *test.UserService, required by (*test.UserService).GetUsers")
+	assert.Contains(t, err.Error(), "there is no provider for type *test.UserService, required by (*test.UserService).CreateUser")
 }
 
 func TestAnalyseAPIReceiverWithProvider(t *testing.T) {
@@ -2003,6 +2003,7 @@ func TestAnalyseMiddlewareFunctions(t *testing.T) {
 	testCode := `
 package test
 
+import "context"
 import "net/http"
 
 //zero:middleware
@@ -2045,11 +2046,21 @@ func AuthMiddlewareFactory(dal *DAL) func(http.Handler) http.Handler {
 func NewDAL() *DAL {
 	return &DAL{}
 }
-`
-	graph := analyseTestCode(t, testCode, WithTypes("*test.DAL"))
 
-	// Should find 4 middleware functions
-	assert.Equal(t, 4, len(graph.Middleware))
+//zero:provider
+func NewService() *Service { return &Service{} }
+
+type Service struct { }
+
+//zero:api POST /handle
+func (s *Service) Handler(ctx context.Context) error {
+	return nil
+}
+`
+	graph := analyseTestCode(t, testCode)
+	repr.Println(graph.Graph())
+	assert.Equal(t, 1, len(graph.APIs), "No APIs found")
+	assert.Equal(t, 1, len(graph.Middleware), "No middleware found")
 
 	// Test global middleware (no labels)
 	var globalMiddleware *Middleware

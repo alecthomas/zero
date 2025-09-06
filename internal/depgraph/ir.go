@@ -64,20 +64,20 @@ func (TypeKey) key()              {}
 
 // IR is the intermediate representation of the dependency graph
 type IR struct {
-	nodes             map[Key]Node     // All nodes by their NodeKey
-	provides          map[TypeKey]Node // The Node providing the given type.
-	required          map[Key]bool     // Types and Nodes required by the user or other providers.
-	extraDependencies map[Key][]Key    // Where the key dependes on the values.
-	defeated          map[Key]bool     // Defeated weak providers that should not appear in final graph.
+	nodes        map[Key]Node     // All nodes by their NodeKey
+	provides     map[TypeKey]Node // The Node providing the given type.
+	required     map[Key]bool     // Types and Nodes required by the user or other providers.
+	dependencies map[Key][]Key    // Where the key dependes on the values.
+	defeated     map[Key]bool     // Defeated weak providers that should not appear in final graph.
 }
 
 func NewIR(nodes []Node, options ...Option) (*IR, error) {
 	i := &IR{
-		nodes:             make(map[Key]Node),
-		provides:          make(map[TypeKey]Node),
-		required:          make(map[Key]bool),
-		extraDependencies: make(map[Key][]Key),
-		defeated:          make(map[Key]bool),
+		nodes:        make(map[Key]Node),
+		provides:     make(map[TypeKey]Node),
+		required:     make(map[Key]bool),
+		dependencies: make(map[Key][]Key),
+		defeated:     make(map[Key]bool),
 	}
 	opts := &graphOptions{}
 	for _, option := range options {
@@ -132,7 +132,7 @@ func (i *IR) Graph() map[Key][]Key {
 		}
 	}
 	// Also include types that have dependencies (from extraDependencies)
-	for key, deps := range i.extraDependencies {
+	for key, deps := range i.dependencies {
 		if len(deps) > 0 {
 			graph[key] = deps
 		}
@@ -293,13 +293,15 @@ func (i *IR) AddNode(node Node) error {
 
 	case *Config:
 		i.provides[normaliseTypeToTypeKey(node.Type)] = node
+
+	default:
 	}
 
 	// Only add to graph if not defeated by a strong provider
 	if shouldAddToGraph {
 		i.nodes[node.NodeKey()] = node
 		for _, key := range node.NodeRequiredBy() {
-			i.extraDependencies[key] = append(i.extraDependencies[key], node.NodeKey())
+			i.dependencies[key] = append(i.dependencies[key], node.NodeKey())
 		}
 	}
 
@@ -404,7 +406,7 @@ func (i *IR) propagate() error {
 		}
 
 		// Also mark any nodes that depend on this key as required
-		for _, dep := range i.extraDependencies[key] {
+		for _, dep := range i.dependencies[key] {
 			if !i.required[dep] {
 				queue = append(queue, dep)
 			}
@@ -445,7 +447,7 @@ func (i *IR) dependenciesForNode(node Node) []Key {
 	if node == nil {
 		panic("node is nil")
 	}
-	extra := i.extraDependencies[node.NodeKey()]
+	extra := i.dependencies[node.NodeKey()]
 	return append(node.NodeRequires(), extra...)
 }
 
