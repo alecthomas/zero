@@ -300,8 +300,10 @@ func (i *IR) AddNode(node Node) error {
 	// Only add to graph if not defeated by a strong provider
 	if shouldAddToGraph {
 		i.nodes[node.NodeKey()] = node
+		nodeKey := node.NodeKey()
+		i.dependencies[nodeKey] = append(i.dependencies[nodeKey], node.NodeRequires()...)
 		for _, key := range node.NodeRequiredBy() {
-			i.dependencies[key] = append(i.dependencies[key], node.NodeKey())
+			i.dependencies[key] = append(i.dependencies[key], nodeKey)
 		}
 	}
 
@@ -447,8 +449,7 @@ func (i *IR) dependenciesForNode(node Node) []Key {
 	if node == nil {
 		panic("node is nil")
 	}
-	extra := i.dependencies[node.NodeKey()]
-	return append(node.NodeRequires(), extra...)
+	return i.dependencies[node.NodeKey()]
 }
 
 func normaliseTypeToTypeKey(t types.Type) TypeKey {
