@@ -1747,7 +1747,6 @@ func findAPI(t *testing.T, apis []*API, method, host, path string) *API {
 }
 
 func TestRemoveUnusedConfigs(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	code := `
 package main
@@ -1768,7 +1767,7 @@ type PointerUsedConfig struct {
 }
 
 //zero:provider
-func ProvideService(cfg UsedConfig, ptrCfg *PointerUsedConfig) *Service {
+func ProvideService(cfg UsedConfig, ptrCfg PointerUsedConfig) *Service {
 	return &Service{}
 }
 
