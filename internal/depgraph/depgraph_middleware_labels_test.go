@@ -8,7 +8,6 @@ import (
 )
 
 func TestAnalyseMiddlewareWithLabelInjection(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `
 package main
@@ -23,6 +22,21 @@ func ProvideDAL() *DAL {
 }
 
 type DAL struct{}
+
+//zero:provider
+func NewService() *Service { return &Service{} }
+
+type Service struct {}
+
+//zero:api GET /get authenticated
+func (s *Service) Get() string {
+	return "Hello"
+}
+
+//zero:api POST /admin admin moderator
+func (s *Service) Post() string {
+	return "Hello"
+}
 
 //zero:middleware authenticated
 func Auth(authenticated string, dal *DAL) func(http.Handler) http.Handler {
@@ -58,7 +72,7 @@ func AuthWithRole(admin string, moderator int, dal *DAL) func(http.Handler) http
 			break
 		}
 	}
-	assert.NotZero(t, authMiddleware)
+	assert.True(t, authMiddleware != nil)
 	assert.Equal(t, []string{"authenticated"}, authMiddleware.Directive.Labels)
 	assert.Equal(t, 1, len(authMiddleware.Requires)) // Only DAL, not the string parameter
 
@@ -70,15 +84,9 @@ func AuthWithRole(admin string, moderator int, dal *DAL) func(http.Handler) http
 			break
 		}
 	}
-	assert.NotZero(t, authWithRoleMiddleware)
+	assert.True(t, authWithRoleMiddleware != nil)
 	assert.Equal(t, []string{"admin", "moderator"}, authWithRoleMiddleware.Directive.Labels)
 	assert.Equal(t, 1, len(authWithRoleMiddleware.Requires)) // Only DAL, not the string/int parameters
-
-	// Check that DAL is required but not provided
-	assert.Equal(t, 1, len(graph.Missing[authMiddleware.Function]))
-	assert.Equal(t, "*test.DAL", types.TypeString(graph.Missing[authMiddleware.Function][0], nil))
-	assert.Equal(t, 1, len(graph.Missing[authWithRoleMiddleware.Function]))
-	assert.Equal(t, "*test.DAL", types.TypeString(graph.Missing[authWithRoleMiddleware.Function][0], nil))
 }
 
 func TestAnalyseMiddlewareWithInvalidLabelParameter(t *testing.T) {

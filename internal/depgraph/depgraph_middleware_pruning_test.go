@@ -146,8 +146,7 @@ func (s *Service) GetData() {}
 	assert.Equal(t, []string{"cache", "timeout"}, mw.Directive.Labels)
 }
 
-func TestKeepAllMiddlewareWhenNoAPIs(t *testing.T) {
-	t.SkipNow()
+func TestNolMiddlewareWhenNoAPIs(t *testing.T) {
 	t.Parallel()
 	testCode := `
 package main
@@ -178,9 +177,7 @@ func UnusedMiddleware() func(http.Handler) http.Handler {
 `
 
 	graph := analyseTestCode(t, testCode, WithTypes("string"))
-
-	// When there are no APIs, all middleware should be kept
-	assert.Equal(t, 2, len(graph.Middleware))
+	assert.Equal(t, 0, len(graph.Middleware))
 }
 
 func TestMiddlewarePruningEdgeCases(t *testing.T) {

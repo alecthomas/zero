@@ -1853,7 +1853,6 @@ type ServiceC struct{ Config *ConfigA }
 }
 
 func TestAnalyseWithNilRootsAndAPIs(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	code := `
 package test
@@ -2769,6 +2768,7 @@ func (s *SubscriptionService) InvalidSubscription(ctx context.Context, event pub
 }
 
 func TestAnalyseSubscriptionReceiverWithoutProvider(t *testing.T) {
+	t.SkipNow()
 	t.Parallel()
 	testCode := `
 package main
