@@ -2755,6 +2755,11 @@ import (
 type SubscriptionService struct{}
 type Event struct{}
 
+//zero:provider
+func NewService() *SubscriptionService {
+	return &SubscriptionService{}
+}
+
 //zero:subscribe
 func (s *SubscriptionService) InvalidSubscription(ctx context.Context, event pubsub.Event[Event]) string {
 	return ""
