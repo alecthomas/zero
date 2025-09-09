@@ -2329,7 +2329,6 @@ type Service struct {
 }
 
 func TestAnalyseCronFunctions(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `
 package main
@@ -2559,7 +2558,6 @@ func (s *Service) HourlyCleanup(ctx context.Context) error {
 }
 
 func TestAnalyseSubscriptionFunctions(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `
 package main
@@ -2767,7 +2765,6 @@ func (s *SubscriptionService) InvalidSubscription(ctx context.Context, event pub
 }
 
 func TestAnalyseSubscriptionReceiverWithoutProvider(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `
 package main

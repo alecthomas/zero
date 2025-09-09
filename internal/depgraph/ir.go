@@ -184,7 +184,28 @@ func (i *IR) RequiredNodes() iter.Seq[Node] {
 			nodes[nodeKey] = node
 		}
 	}
-	return maps.Values(nodes)
+
+	// Convert to slice and sort for deterministic ordering
+	nodeSlice := make([]Node, 0, len(nodes))
+	for _, node := range nodes {
+		nodeSlice = append(nodeSlice, node)
+	}
+
+	// Sort by source position for deterministic ordering
+	slices.SortFunc(nodeSlice, func(a, b Node) int {
+		aPos := a.NodePosition()
+		bPos := b.NodePosition()
+
+		if aPos.Filename != bPos.Filename {
+			return strings.Compare(aPos.Filename, bPos.Filename)
+		}
+		if aPos.Line != bPos.Line {
+			return aPos.Line - bPos.Line
+		}
+		return aPos.Column - bPos.Column
+	})
+
+	return slices.Values(nodeSlice)
 }
 
 // IsRequired returns true if the node is required in the dependency graph.
