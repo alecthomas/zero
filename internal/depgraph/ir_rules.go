@@ -2,6 +2,7 @@ package depgraph
 
 // Rules applied to the IR.
 var Rules = []Rule{
+	ProviderActivationRule,
 	CronRule,
 	APIRule,
 	SubscriptionRule,
@@ -12,6 +13,19 @@ var Rules = []Rule{
 //
 // It is called after the first propagation pass of required nodes is applied.
 type Rule func(ir *IR) error
+
+// ProviderActivationRule ensures that when a provider is required, the type it provides is also required.
+// This activates method nodes (API, middleware, etc.) that depend on the provided type.
+func ProviderActivationRule(ir *IR) error {
+	for node := range ir.RequiredNodes() {
+		if provider, ok := node.(*Provider); ok {
+			providedType := normaliseTypeToTypeKey(provider.Provides)
+			ir.Require(providedType)
+		}
+	}
+	// Propagate the newly required types to activate dependent nodes
+	return ir.propagate()
+}
 
 // CronRule adds the Cron scheduler if any cron jobs are included.
 func CronRule(ir *IR) error {
@@ -55,9 +69,11 @@ func MiddlewareRule(ir *IR) error {
 
 	// Collect all required labels from API endpoints
 	requiredLabels := map[string]bool{}
+	apiCount := 0
 	for node := range ir.RequiredNodes() {
 		if node, ok := node.(*API); ok {
 			foundAPI = true
+			apiCount++
 			for _, label := range node.Directive.Labels {
 				requiredLabels[label.Name] = true
 			}

@@ -2067,9 +2067,8 @@ func (s *Service) CORSHandler(ctx context.Context) error { return nil }
 func (s *Service) LoggingHandler(ctx context.Context) error {
 	return nil
 }
-`
+	`
 	graph := analyseTestCode(t, testCode)
-	repr.Println(graph.Graph())
 	assert.Equal(t, 4, len(graph.APIs), "No APIs found")
 	assert.Equal(t, 4, len(graph.Middleware), "No middleware found")
 
@@ -2081,7 +2080,7 @@ func (s *Service) LoggingHandler(ctx context.Context) error {
 			break
 		}
 	}
-	assert.NotZero(t, globalMiddleware)
+	assert.True(t, globalMiddleware != nil, "Global middleware not found")
 	assert.Equal(t, "LoggingMiddleware", globalMiddleware.Function.Name())
 	assert.Equal(t, 0, len(globalMiddleware.Directive.Labels))
 
@@ -2093,7 +2092,7 @@ func (s *Service) LoggingHandler(ctx context.Context) error {
 			break
 		}
 	}
-	assert.NotZero(t, authMiddleware)
+	assert.True(t, nil != authMiddleware)
 	assert.Equal(t, "AuthMiddleware", authMiddleware.Function.Name())
 	assert.Equal(t, []string{"auth"}, authMiddleware.Directive.Labels)
 
@@ -2105,7 +2104,7 @@ func (s *Service) LoggingHandler(ctx context.Context) error {
 			break
 		}
 	}
-	assert.NotZero(t, corsRateLimitMiddleware)
+	assert.True(t, nil != corsRateLimitMiddleware)
 	assert.Equal(t, "CorsRateLimitMiddleware", corsRateLimitMiddleware.Function.Name())
 	assert.Equal(t, []string{"cors", "ratelimit"}, corsRateLimitMiddleware.Directive.Labels)
 
@@ -2117,7 +2116,7 @@ func (s *Service) LoggingHandler(ctx context.Context) error {
 			break
 		}
 	}
-	assert.NotZero(t, authFactoryMiddleware)
+	assert.True(t, nil != authFactoryMiddleware)
 	assert.Equal(t, "AuthMiddlewareFactory", authFactoryMiddleware.Function.Name())
 	assert.Equal(t, []string{"authenticated"}, authFactoryMiddleware.Directive.Labels)
 }
@@ -2142,6 +2141,25 @@ type Service struct{}
 	_, err := analyseTestCodeWithError(t, testCode, WithTypes("*test.Service"))
 	assert.Error(t, err)
 	assert.EqualError(t, err, "invalid middleware function signature for InvalidMiddleware: must be func(http.Handler) http.Handler or func(...deps) func(http.Handler) http.Handler")
+}
+
+func TestProviderRequiresType(t *testing.T) {
+	t.Parallel()
+	testCode := `
+package test
+
+import "context"
+
+//zero:provider
+func NewService() *Service { return &Service{} }
+
+type Service struct { }
+
+//zero:api POST /test
+func (s *Service) TestHandler(ctx context.Context) error { return nil }
+`
+	graph := analyseTestCode(t, testCode)
+	assert.Equal(t, 1, len(graph.APIs), "API should be found when provider is included")
 }
 
 func TestAnalyseMultiProviders(t *testing.T) {
