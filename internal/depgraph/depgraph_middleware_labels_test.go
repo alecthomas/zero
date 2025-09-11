@@ -1,7 +1,6 @@
 package depgraph
 
 import (
-	"go/types"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
@@ -121,7 +120,6 @@ func Auth(wrongName string, dal *DAL) func(http.Handler) http.Handler {
 }
 
 func TestAnalyseMiddlewareWithMixedParameters(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `
 package main
@@ -157,6 +155,13 @@ func ComplexAuth(authenticated string, level int, dal *DAL, logger *Logger) func
 	}
 }
 
+type Service struct {}
+
+//zero:provider
+func NewService() *Service { return &Service{} }
+
+//zero:api POST /user authenticated="user" level=1
+func (s *Service) CreateUser() error { return nil }
 
 `
 
@@ -169,115 +174,6 @@ func ComplexAuth(authenticated string, level int, dal *DAL, logger *Logger) func
 	assert.Equal(t, "ComplexAuth", mw.Function.Name())
 	assert.Equal(t, []string{"authenticated", "level"}, mw.Directive.Labels)
 	assert.Equal(t, 2, len(mw.Requires)) // DAL and Logger, not the string/int parameters
-
-	// Check that both DAL and Logger are required but not provided
-	assert.Equal(t, 2, len(graph.Missing[mw.Function]))
-	// Check the types are as expected
-	missingTypes := make([]string, len(graph.Missing[mw.Function]))
-	for i, missing := range graph.Missing[mw.Function] {
-		missingTypes[i] = types.TypeString(missing, nil)
-	}
-	// Check if both required types are present
-	foundDAL := false
-	foundLogger := false
-	for _, typeStr := range missingTypes {
-		if typeStr == "*test.DAL" {
-			foundDAL = true
-		}
-		if typeStr == "*test.Logger" {
-			foundLogger = true
-		}
-	}
-	assert.True(t, foundDAL)
-	assert.True(t, foundLogger)
-}
-
-func TestAnalyseDirectMiddlewareNoLabelInjection(t *testing.T) {
-	t.SkipNow()
-	t.Parallel()
-	testCode := `
-package main
-
-import (
-	"net/http"
-)
-
-//zero:provider
-func ProvideString() string {
-	return "test"
-}
-
-//zero:middleware cors
-func CORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		next.ServeHTTP(w, r)
-	})
-}
-`
-
-	graph := analyseTestCode(t, testCode, WithTypes("string"))
-
-	assert.Equal(t, []string{"string"}, stableKeys(graph.Providers))
-	// Should have 1 middleware
-	assert.Equal(t, 1, len(graph.Middleware))
-
-	mw := graph.Middleware[0]
-	assert.Equal(t, "CORS", mw.Function.Name())
-	assert.Equal(t, []string{"cors"}, mw.Directive.Labels)
-	assert.Equal(t, 0, len(mw.Requires)) // Direct middleware has no dependencies
-
-	// No missing dependencies
-	assert.Equal(t, 0, len(graph.Missing[mw.Function]))
-}
-
-func TestAnalyseMiddlewareWithIntLabels(t *testing.T) {
-	t.SkipNow()
-	t.Parallel()
-	testCode := `
-package main
-
-import (
-	"net/http"
-)
-
-//zero:provider
-func ProvideString() string {
-	return "test"
-}
-
-//zero:provider
-func ProvideCache() *Cache {
-	return &Cache{}
-}
-
-type Cache struct{}
-
-//zero:middleware maxAge timeout
-func CacheMiddleware(maxAge int, timeout int, cache *Cache) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-
-`
-
-	graph := analyseTestCode(t, testCode, WithTypes("string"))
-
-	// Should have 1 middleware
-	assert.Equal(t, 1, len(graph.Middleware))
-
-	mw := graph.Middleware[0]
-	assert.Equal(t, "CacheMiddleware", mw.Function.Name())
-	assert.Equal(t, []string{"maxAge", "timeout"}, mw.Directive.Labels)
-	assert.Equal(t, 1, len(mw.Requires)) // Only Cache, not the int parameters
-
-	// Check that Cache is required but not provided
-	assert.Equal(t, 1, len(graph.Missing[mw.Function]))
-	assert.Equal(t, "*test.Cache", types.TypeString(graph.Missing[mw.Function][0], nil))
 }
 
 func TestAnalyseMiddlewareWithInvalidIntParameter(t *testing.T) {

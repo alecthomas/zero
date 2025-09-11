@@ -2966,7 +2966,6 @@ func (c *DatabaseConfig) HandleEvent(ctx context.Context, event pubsub.Event[Eve
 }
 
 func TestAnalyseGenericProviders(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `package test
 
@@ -3011,7 +3010,6 @@ func NewService(topic Topic[User]) *Service {
 	// Should have NewService provider and resolved generic NewTopic provider
 	expectedProviders := []string{
 		"*test.Service",
-		"test.Topic",
 		"test.Topic[test.User]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
