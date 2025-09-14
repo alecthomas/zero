@@ -12,6 +12,7 @@ var _ Node = (Multi)(nil)
 func (m Multi) node()                        {}
 func (m Multi) NodePosition() token.Position { return m[0].NodePosition() }
 func (m Multi) NodeKey() Key                 { return m[0].NodeKey() }
+func (m Multi) NodeProvides() TypeKey        { return m[0].NodeProvides() }
 func (m Multi) NodeRequiredBy() []Key {
 	var combined []Key
 	for _, p := range m {

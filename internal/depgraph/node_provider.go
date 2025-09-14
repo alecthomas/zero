@@ -42,6 +42,7 @@ func (p *Provider) node()                        {}
 func (p *Provider) NodePosition() token.Position { return p.Position }
 func (p *Provider) NodeKey() Key                 { return NodeKey(p.Function.FullName()) }
 func (p *Provider) NodeRequiredBy() []Key        { return []Key{TypeKey(p.Provides.String())} }
+func (p *Provider) NodeProvides() TypeKey        { return normaliseTypeToTypeKey(p.Provides) }
 func (p *Provider) NodeRequires() []Key {
 	requires := p.Requires()
 	extraReqs := len(p.Directive.Require)

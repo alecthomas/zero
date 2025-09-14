@@ -12,4 +12,5 @@ func (a Ambiguous) NodeKey() Key                 { return a[0].NodeKey() }
 func (a Ambiguous) NodePosition() token.Position { return a[0].NodePosition() }
 func (a Ambiguous) NodeRequiredBy() []Key        { return nil }
 func (a Ambiguous) NodeRequires() []Key          { return nil }
+func (a Ambiguous) NodeProvides() TypeKey        { return a[0].NodeProvides() }
 func (a Ambiguous) node()                        {}

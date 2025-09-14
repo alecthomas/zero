@@ -30,3 +30,4 @@ func (c *CronJob) NodePosition() token.Position { return c.Position }
 func (c *CronJob) NodeKey() Key                 { return NodeKey(c.Function.FullName()) }
 func (c *CronJob) NodeRequires() []Key          { return nil }
 func (c *CronJob) NodeRequiredBy() []Key        { return []Key{TypeKeyForReceiver(c.Function)} }
+func (c *CronJob) NodeProvides() TypeKey        { return "" }

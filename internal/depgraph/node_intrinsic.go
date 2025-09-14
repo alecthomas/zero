@@ -13,4 +13,5 @@ func (i *Intrinsic) NodeKey() Key                 { return i.Key }
 func (i *Intrinsic) NodePosition() token.Position { return token.Position{} }
 func (i *Intrinsic) NodeRequiredBy() []Key        { return nil }
 func (i *Intrinsic) NodeRequires() []Key          { return nil }
+func (i *Intrinsic) NodeProvides() TypeKey        { return i.Key }
 func (i *Intrinsic) node()                        {}

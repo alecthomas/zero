@@ -27,6 +27,12 @@ type Node interface {
 	//
 	// For example a Provider will insert a dependency from the type to the provider.
 	NodeRequiredBy() []Key
+	// NodeProvides returns the type this node provides, if any.
+	//
+	// IsEmpty() will be true if the node does not provide a type.
+	//
+	// **Note**: this may or may not differ from NodeKey().
+	NodeProvides() TypeKey
 	// node is a sealed interface
 	node()
 }
@@ -38,16 +44,18 @@ type Key interface {
 	Kind() string
 	String() string
 	IsGeneric() bool
+	IsEmpty() bool
 	key()
 }
 
 // NodeKey represents a unique identifier for a [Node] in the dependency graph.
 type NodeKey string
 
-func (NodeKey) Kind() string      { return "node" }
-func (n NodeKey) String() string  { return string(n) }
-func (n NodeKey) IsGeneric() bool { return strings.Contains(string(n), "?") }
-func (NodeKey) key()              {}
+func (NodeKey) Kind() string         { return "node" }
+func (node NodeKey) String() string  { return string(node) }
+func (node NodeKey) IsEmpty() bool   { return node == "" }
+func (node NodeKey) IsGeneric() bool { return strings.Contains(string(node), "?") }
+func (NodeKey) key()                 {}
 
 // TypeKeyForReceiver returns the [TypeKey] for the receiver of a method.
 func TypeKeyForReceiver(f *types.Func) TypeKey {
@@ -59,6 +67,7 @@ type TypeKey string
 
 func (TypeKey) Kind() string      { return "type" }
 func (t TypeKey) IsGeneric() bool { return strings.Contains(string(t), "?") }
+func (t TypeKey) IsEmpty() bool   { return t == "" }
 func (t TypeKey) String() string  { return string(t) }
 func (TypeKey) key()              {}
 
@@ -237,85 +246,80 @@ func (i *IR) AddNode(node Node) error {
 	shouldAddToGraph := true
 
 	// If the Node provides a type we add it to the provides map.
-	switch node := node.(type) {
-	case *Intrinsic:
-		i.provides[node.Key] = node
+	providedType := node.NodeProvides()
+	if !providedType.IsEmpty() {
+		// Handle Provider nodes specially due to their complex multi/weak logic
+		if provider, isProvider := node.(*Provider); isProvider {
+			switch old := i.provides[providedType].(type) {
+			case Multi:
+				if !provider.Directive.Multi {
+					return errors.Errorf("%s: there is an existing multi-provider for %s, cannot replace it with non-multi provider %s", node.NodePosition(), providedType, node.NodeKey())
+				}
+				if old[0].Directive.Weak != provider.Directive.Weak {
+					return errors.Errorf("%s: cannot mix weak and non-weak providers for %s", node.NodePosition(), providedType)
+				}
+				i.provides[providedType] = append(old, provider)
 
-	// If there are multi-providers we try to merge them.
-	case *Provider:
-		key := normaliseTypeToTypeKey(node.Provides)
-		switch old := i.provides[key].(type) {
-		case Multi:
-			if !node.Directive.Multi {
-				return errors.Errorf("%s: there is an existing multi-provider for %s, cannot replace it with non-multi provider %s", node.NodePosition(), key, node.NodeKey())
-			}
-			if old[0].Directive.Weak != node.Directive.Weak {
-				return errors.Errorf("%s: cannot mix weak and non-weak providers for %s", node.NodePosition(), key)
-			}
-			i.provides[key] = append(old, node)
-
-		case *Provider:
-			// Check which, if any, of the new and old nodes are in i.selected and use them if they are.
-			switch {
-			case i.required[node.NodeKey()]:
-				// Explicitly required provider wins
-				delete(i.required, old.NodeKey())
-				if old.Directive.Weak && !node.Directive.Weak {
+			case *Provider:
+				switch {
+				case i.required[node.NodeKey()]:
+					// Explicitly required provider wins
+					delete(i.required, old.NodeKey())
+					if old.Directive.Weak && !provider.Directive.Weak {
+						i.defeated[old.NodeKey()] = true
+					}
+					i.provides[providedType] = provider
+					if !provider.Directive.Weak {
+						i.Require(node.NodeKey())
+					}
+				case i.required[old.NodeKey()]:
+					// Explicitly required provider wins
+					i.provides[providedType] = old
+					if !old.Directive.Weak && provider.Directive.Weak {
+						i.defeated[node.NodeKey()] = true
+					}
+					shouldAddToGraph = false
+				case old.Directive.Weak && !provider.Directive.Weak:
+					// Strong provider defeats weak provider
+					delete(i.required, old.NodeKey())
 					i.defeated[old.NodeKey()] = true
-				}
-				i.provides[key] = node
-				if !node.Directive.Weak {
-					i.Require(node.NodeKey())
-				}
-			case i.required[old.NodeKey()]:
-				// Explicitly required provider wins
-				i.provides[key] = old
-				if !old.Directive.Weak && node.Directive.Weak {
+					i.provides[providedType] = provider
+					if !provider.Directive.Weak {
+						i.Require(node.NodeKey())
+					}
+				case !old.Directive.Weak && provider.Directive.Weak:
+					// Keep strong provider, defeat weak provider
+					i.provides[providedType] = old
 					i.defeated[node.NodeKey()] = true
+					shouldAddToGraph = false
+				default:
+					// Create an Ambiguous node instead of erroring
+					i.provides[providedType] = Ambiguous{old, provider}
 				}
-				shouldAddToGraph = false
-			case old.Directive.Weak && !node.Directive.Weak:
-				// Strong provider defeats weak provider
-				delete(i.required, old.NodeKey())
-				i.defeated[old.NodeKey()] = true
-				i.provides[key] = node
-				if !node.Directive.Weak {
-					i.Require(node.NodeKey())
+
+			case Ambiguous:
+				// Add to existing ambiguous node
+				i.provides[providedType] = append(old, provider)
+
+			case nil: // No old node.
+				if provider.Directive.Multi {
+					i.provides[providedType] = Multi{provider}
+					// Don't auto-require multi-providers - they'll be required when their type is needed
+				} else {
+					i.provides[providedType] = provider
+					if !provider.Directive.Weak {
+						i.Require(node.NodeKey())
+					}
 				}
-			case !old.Directive.Weak && node.Directive.Weak:
-				// Keep strong provider, defeat weak provider
-				i.provides[key] = old
-				i.defeated[node.NodeKey()] = true
-				shouldAddToGraph = false
+
 			default:
-				// Create an Ambiguous node instead of erroring
-				i.provides[key] = Ambiguous{old, node}
+				// This shouldn't happen with current node types, but handle it gracefully
+				return errors.Errorf("%s: unexpected node type conflict for %s", node.NodePosition(), providedType)
 			}
-
-		case Ambiguous:
-			// Add to existing ambiguous node
-			i.provides[key] = append(old, node)
-
-		case nil: // No old node.
-			if node.Directive.Multi {
-				i.provides[key] = Multi{node}
-				// Don't auto-require multi-providers - they'll be required when their type is needed
-			} else {
-				i.provides[key] = node
-				if !node.Directive.Weak {
-					i.Require(node.NodeKey())
-				}
-			}
-
-		default:
-			// This shouldn't happen with current node types, but handle it gracefully
-			return errors.Errorf("%s: unexpected node type conflict for %s", node.NodePosition(), key)
+		} else {
+			// For all other node types (Intrinsic, Config, etc.), just set the provides mapping
+			i.provides[providedType] = node
 		}
-
-	case *Config:
-		i.provides[normaliseTypeToTypeKey(node.Type)] = node
-
-	default:
 	}
 
 	// Only add to graph if not defeated by a strong provider

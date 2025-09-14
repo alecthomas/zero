@@ -31,3 +31,4 @@ func (c *Config) NodePosition() token.Position { return c.Position }
 func (c *Config) NodeKey() Key                 { return normaliseTypeToTypeKey(c.Type) }
 func (c *Config) NodeRequiredBy() []Key        { return nil }
 func (c *Config) NodeRequires() []Key          { return nil }
+func (c *Config) NodeProvides() TypeKey        { return normaliseTypeToTypeKey(c.Type) }
