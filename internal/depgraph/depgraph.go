@@ -229,7 +229,7 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 	for node := range ir.RequiredNodes() {
 		switch n := node.(type) {
 		case *Provider:
-			key := types.TypeString(n.Provides, nil)
+			key := string(n.NodeProvides())
 			graph.Providers[key] = append(graph.Providers[key], n)
 		case *Config:
 			key := types.TypeString(n.Type, nil)

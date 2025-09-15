@@ -107,6 +107,7 @@ func NewIR(nodes []Node, options ...Option) (*IR, error) {
 		}
 	}
 
+	// First pass, validate + propagate
 	if err := i.validate(); err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -115,12 +116,14 @@ func NewIR(nodes []Node, options ...Option) (*IR, error) {
 		return nil, errors.WithStack(err)
 	}
 
+	// Second pass, apply rules
 	for _, rule := range Rules {
 		if err := rule(i); err != nil {
 			return nil, errors.WithStack(err)
 		}
 	}
 
+	// Third and final pass, validate + propagate again
 	if err := i.validate(); err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -272,6 +275,7 @@ func (i *IR) AddNode(node Node) error {
 					if !provider.Directive.Weak {
 						i.Require(node.NodeKey())
 					}
+
 				case i.required[old.NodeKey()]:
 					// Explicitly required provider wins
 					i.provides[providedType] = old
@@ -279,6 +283,7 @@ func (i *IR) AddNode(node Node) error {
 						i.defeated[node.NodeKey()] = true
 					}
 					shouldAddToGraph = false
+
 				case old.Directive.Weak && !provider.Directive.Weak:
 					// Strong provider defeats weak provider
 					delete(i.required, old.NodeKey())
@@ -287,11 +292,13 @@ func (i *IR) AddNode(node Node) error {
 					if !provider.Directive.Weak {
 						i.Require(node.NodeKey())
 					}
+
 				case !old.Directive.Weak && provider.Directive.Weak:
 					// Keep strong provider, defeat weak provider
 					i.provides[providedType] = old
 					i.defeated[node.NodeKey()] = true
 					shouldAddToGraph = false
+
 				default:
 					// Create an Ambiguous node instead of erroring
 					i.provides[providedType] = Ambiguous{old, provider}
@@ -424,19 +431,11 @@ func (i *IR) propagate() error {
 			}
 		}
 
-		deps := i.dependenciesForNode(node)
-		for _, require := range deps {
+		for _, require := range i.dependenciesForNode(node) {
 			if i.required[require] {
 				continue
 			}
 			queue = append(queue, require)
-		}
-
-		// Also mark any nodes that depend on this key as required
-		for _, dep := range i.dependencies[key] {
-			if !i.required[dep] {
-				queue = append(queue, dep)
-			}
 		}
 	}
 
@@ -474,7 +473,7 @@ func (i *IR) dependenciesForNode(node Node) []Key {
 	if node == nil {
 		panic("node is nil")
 	}
-	return i.dependencies[node.NodeKey()]
+	return append(i.dependencies[node.NodeKey()], i.dependencies[node.NodeProvides()]...)
 }
 
 func normaliseTypeToTypeKey(t types.Type) TypeKey {
