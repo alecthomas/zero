@@ -428,15 +428,8 @@ func main() {}
 	createGoMod(t, filepath.Join(cwd, "../.."), dir)
 	t.Chdir(dir)
 
-	graph, err := depgraph.Analyse(t.Context(), ".", depgraph.WithRoots("test.Config[test.HTTPClient]", "test.Service[test.XMLAPIGateway]"))
+	graph, err := depgraph.Analyse(t.Context(), ".", depgraph.WithTypes("test.Config[test.HTTPClient]", "test.Service[test.XMLAPIGateway]"))
 	assert.NoError(t, err)
-
-	// Verify generic config was detected
-	assert.Equal(t, 1, len(graph.GenericConfigs), "Should have exactly one generic config")
-	configProviders := graph.GenericConfigs["test.Config"]
-	assert.Equal(t, 1, len(configProviders), "Should have one Config generic config")
-	assert.True(t, configProviders[0].IsGeneric)
-	assert.Equal(t, "conf-${type}-", configProviders[0].Directive.Prefix)
 
 	// Verify concrete configs were resolved
 	httpConfigKey := "test.Config[test.HTTPClient]"

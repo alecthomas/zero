@@ -108,15 +108,14 @@ func WithTags(tags ...string) Option {
 }
 
 type Graph struct {
-	Dest           *types.Package
-	Providers      map[string][]*Provider // All providers including multi and generic
-	Configs        map[string]*Config
-	GenericConfigs map[string][]*Config // Generic configs by base type name
-	APIs           []*API
-	CronJobs       []*CronJob
-	Subscriptions  []*Subscription
-	Middleware     []*Middleware
-	Missing        map[*types.Func][]types.Type
+	Dest          *types.Package
+	Providers     map[string][]*Provider // All providers including multi and generic
+	Configs       map[string]*Config
+	APIs          []*API
+	CronJobs      []*CronJob
+	Subscriptions []*Subscription
+	Middleware    []*Middleware
+	Missing       map[*types.Func][]types.Type
 }
 
 // Analyse statically loads Go packages, then analyses them for //zero:... annotations in order to build the
@@ -214,15 +213,14 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 
 	// Build Graph from IR
 	graph := &Graph{
-		Dest:           destPkg.Types,
-		Providers:      make(map[string][]*Provider),
-		Configs:        make(map[string]*Config),
-		GenericConfigs: make(map[string][]*Config),
-		APIs:           make([]*API, 0),
-		CronJobs:       make([]*CronJob, 0),
-		Middleware:     make([]*Middleware, 0),
-		Subscriptions:  make([]*Subscription, 0),
-		Missing:        make(map[*types.Func][]types.Type),
+		Dest:          destPkg.Types,
+		Providers:     make(map[string][]*Provider),
+		Configs:       make(map[string]*Config),
+		APIs:          make([]*API, 0),
+		CronJobs:      make([]*CronJob, 0),
+		Middleware:    make([]*Middleware, 0),
+		Subscriptions: make([]*Subscription, 0),
+		Missing:       make(map[*types.Func][]types.Type),
 	}
 
 	// Populate from required nodes
@@ -232,7 +230,7 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 			key := string(n.NodeProvides())
 			graph.Providers[key] = append(graph.Providers[key], n)
 		case *Config:
-			key := types.TypeString(n.Type, nil)
+			key := string(normaliseTypeToTypeKey(n.Type))
 			graph.Configs[key] = n
 		case *API:
 			graph.APIs = append(graph.APIs, n)
@@ -432,14 +430,6 @@ func (g *Graph) Graph() map[string][]string {
 	for typeStr := range g.Configs {
 		if _, exists := result[typeStr]; !exists {
 			result[typeStr] = []string{}
-		}
-	}
-
-	// Add generic configs
-	for baseType := range g.GenericConfigs {
-		key := baseType + "[T]"
-		if _, exists := result[key]; !exists {
-			result[key] = []string{}
 		}
 	}
 

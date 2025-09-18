@@ -1,7 +1,6 @@
 package depgraph
 
 import (
-	"fmt"
 	"go/token"
 	"go/types"
 	"strings"
@@ -25,8 +24,6 @@ type Provider struct {
 	IsGeneric bool
 	// TypeParams holds the type parameters for generic providers
 	TypeParams *types.TypeParamList
-	// MaterialisedTypeParams holds the materialised type parameters for generic providers.
-	MaterialisedTypeParams []types.Type
 }
 
 func (p *Provider) Requires() []types.Type {
@@ -66,15 +63,4 @@ func (p *Provider) NodeRequires() []Key {
 	// but this created circular dependencies for multi-providers. Method node
 	// activation is now handled during propagation in IR.propagate().
 	return out
-}
-
-func (p *Provider) IsMaterialised() bool { return len(p.MaterialisedTypeParams) > 0 }
-
-// Materialise the provider with the given type parameters.
-func (p Provider) Materialise(params ...types.Type) *Provider {
-	if p.TypeParams.Len() != len(params) {
-		panic(fmt.Sprintf("%s: expected %d type parameters, got %d", p.NodeKey(), p.TypeParams.Len(), len(params)))
-	}
-	p.MaterialisedTypeParams = params
-	return &p
 }

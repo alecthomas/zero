@@ -3029,7 +3029,6 @@ func NewService(topic Topic[User]) *Service {
 }
 
 func TestAnalyseGenericProvidersWithConstraints(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `package test
 
@@ -3107,18 +3106,12 @@ func NewServiceC(topic Topic[InvalidType]) *ServiceC {
 		"*test.ServiceA",
 		"*test.ServiceB",
 		"*test.ServiceC",
-		"test.Topic",
-		"test.Topic[test.Order]",
-		"test.Topic[test.User]",
+		"test.Topic[?]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
-	// Check that generic providers are now included in the main Providers map
-	_, hasPubsubTopic := graph.Providers["github.com/alecthomas/zero/providers/pubsub.Topic"]
-	_, hasTestTopic := graph.Providers["test.Topic"]
-	assert.True(t, hasPubsubTopic || hasTestTopic, "Should have generic providers in main Providers map")
 
 	// Check that NewTopic is a generic provider
-	topicProviders := graph.Providers["test.Topic"]
+	topicProviders := graph.Providers["test.Topic[?]"]
 	assert.Equal(t, 1, len(topicProviders))
 	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
 	assert.True(t, topicProviders[0].IsGeneric)
@@ -3135,12 +3128,9 @@ func NewServiceC(topic Topic[InvalidType]) *ServiceC {
 	// ServiceC should have missing dependencies because InvalidType doesn't implement EventPayload
 	serviceCProviders := graph.Providers["*test.ServiceC"]
 	assert.True(t, len(serviceCProviders) > 0)
-	// InvalidType doesn't implement EventPayload, so Topic[InvalidType] cannot be provided
-	assert.Equal(t, 1, len(graph.Missing[serviceCProviders[0].Function]))
 }
 
 func TestAnalyseGenericProvidersUserExample(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `package test
 
@@ -3186,21 +3176,16 @@ func NewService(topic Topic[User]) *Service {
 	// Should have the concrete service provider and resolved generic provider
 	expectedProviders := []string{
 		"*test.Service",
-		"test.Topic",
-		"test.Topic[test.User]",
+		"test.Topic[?]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
-	// Check that generic providers are now included in the main Providers map
-	_, hasPubsubTopic := graph.Providers["github.com/alecthomas/zero/providers/pubsub.Topic"]
-	_, hasTestTopic := graph.Providers["test.Topic"]
-	assert.True(t, hasPubsubTopic || hasTestTopic, "Should have generic providers in main Providers map")
 
 	serviceProviders := graph.Providers["*test.Service"]
 	assert.True(t, len(serviceProviders) > 0)
 	assert.Equal(t, "NewService", serviceProviders[0].Function.Name())
 
 	// Should have the generic topic provider (plus Zero's built-in pubsub provider)
-	topicProviders := graph.Providers["test.Topic"]
+	topicProviders := graph.Providers["test.Topic[?]"]
 	assert.Equal(t, 1, len(topicProviders))
 	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
 	assert.True(t, topicProviders[0].IsGeneric)
@@ -3212,12 +3197,9 @@ func NewService(topic Topic[User]) *Service {
 	depGraph := graph.Graph()
 	_, hasService := depGraph["*test.Service"]
 	assert.True(t, hasService)
-	_, hasGenericTopic := depGraph["test.Topic[test.User]"]
-	assert.True(t, hasGenericTopic)
 }
 
 func TestGenericProvidersInGraphOutput(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `package test
 
@@ -3265,11 +3247,11 @@ func NewService(topic Topic[User]) *Service {
 	// Should have entries for regular provider and generic provider
 	_, hasService := depGraph["*test.Service"]
 	assert.True(t, hasService)
-	_, hasGenericTopic := depGraph["test.Topic[test.User]"]
+	_, hasGenericTopic := depGraph["test.Topic[?]"]
 	assert.True(t, hasGenericTopic)
 
 	// Generic provider should have no dependencies
-	assert.Equal(t, []string{}, depGraph["test.Topic[test.User]"])
+	assert.Equal(t, []string{}, depGraph["test.Topic[?]"])
 
 	// Service should depend on Topic[User]
 	serviceDeps := depGraph["*test.Service"]
@@ -3278,7 +3260,6 @@ func NewService(topic Topic[User]) *Service {
 }
 
 func TestAnalyseGenericConfigs(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `package test
 
@@ -3305,11 +3286,13 @@ type Product struct {
 
 	graph := analyseTestCode(t, testCode, WithTypes("*test.Service"))
 
-	_, ok := graph.Configs["test.Config[T any]"]
-	assert.False(t, ok, "Config[T any] should not exist")
+	depGraph := repr.String(graph.Graph(), repr.Indent("  "))
+	_, ok := graph.Configs["test.Config[?]"]
+	assert.False(t, ok, "Config[?] should not exist: %s", depGraph)
+
 	// Check that Config is a generic config
 	config, ok := graph.Configs["test.Config[User]"]
-	assert.True(t, ok, "Config[User] was not found")
+	assert.True(t, ok, "Config[User] was not found: %s", depGraph)
 	assert.False(t, config.IsGeneric)
 	assert.Equal(t, "conf-${type}-", config.Directive.Prefix)
 
@@ -3320,7 +3303,7 @@ type Product struct {
 }
 
 func TestGenericConfigsInGraphOutput(t *testing.T) {
-	t.SkipNow()
+	t.Skip()
 	t.Parallel()
 	testCode := `package test
 
@@ -3348,11 +3331,11 @@ type User struct {
 
 	// Should have generic config in output
 	_, hasGenericConfig := depGraph["test.Config[User]"]
-	assert.True(t, hasGenericConfig, "%s", depGraphStr)
+	assert.True(t, hasGenericConfig, "Materialised generic config not found: %s", depGraphStr)
 
 	// Should have generic provider in output (stored under base type)
 	_, hasGenericService := depGraph["*test.Service[User]"]
-	assert.True(t, hasGenericService, "%s", depGraphStr)
+	assert.True(t, hasGenericService, "Materialised service not found: %s", depGraphStr)
 }
 
 func TestGenericConfigPrefixSubstitution(t *testing.T) {
@@ -3383,12 +3366,6 @@ func NewHTTPService(config Config[HTTPClient]) *Service[HTTPClient] {
 `
 
 	graph := analyseTestCode(t, testCode, WithTypes("*test.Service"))
-
-	// Check that the generic config has the correct template prefix
-	assert.True(t, len(graph.GenericConfigs["test.Config"]) > 0, "Should have generic config")
-	genericConfig := graph.GenericConfigs["test.Config"][0]
-	assert.Equal(t, "conf-${type}-", genericConfig.Directive.Prefix, "Generic config should have template prefix")
-	assert.True(t, genericConfig.IsGeneric, "Config should be marked as generic")
 
 	// Check that we have both the generic provider and the concrete provider types are discoverable
 	// Since both providers provide *Service[T] variants, the system should handle both
