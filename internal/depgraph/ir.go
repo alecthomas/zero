@@ -372,10 +372,7 @@ func (i *IR) validate() error {
 	}
 
 	// Validate that all required types exist.
-	var nodeKeys []Key
-	for nodeKey := range i.nodes {
-		nodeKeys = append(nodeKeys, nodeKey)
-	}
+	nodeKeys := slices.Collect(maps.Keys(i.nodes))
 	slices.SortStableFunc(nodeKeys, func(a, b Key) int { return strings.Compare(a.String(), b.String()) })
 	for _, nodeKey := range nodeKeys {
 		node := i.nodes[nodeKey]

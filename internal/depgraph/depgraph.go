@@ -223,6 +223,9 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		Missing:       make(map[*types.Func][]types.Type),
 	}
 
+	// Collect all generic configs first
+	genericConfigs := make(map[string]*Config)
+
 	// Populate from required nodes
 	for node := range ir.RequiredNodes() {
 		switch n := node.(type) {
@@ -231,7 +234,13 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 			graph.Providers[key] = append(graph.Providers[key], n)
 		case *Config:
 			key := string(normaliseTypeToTypeKey(n.Type))
-			graph.Configs[key] = n
+			if n.IsGeneric {
+				// Store generic config for later materialization
+				baseType := getBaseTypeNameFromString(key)
+				genericConfigs[baseType] = n
+			} else {
+				graph.Configs[key] = n
+			}
 		case *API:
 			graph.APIs = append(graph.APIs, n)
 		case *CronJob:
@@ -240,6 +249,47 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 			graph.Middleware = append(graph.Middleware, n)
 		case *Subscription:
 			graph.Subscriptions = append(graph.Subscriptions, n)
+		}
+	}
+
+	// Materialize generic configs by examining provider parameter types
+	materializedTypes := make(map[string]bool)
+
+	// Look at all providers to find concrete config instances
+	for node := range ir.RequiredNodes() {
+		provider, ok := node.(*Provider)
+		if !ok {
+			continue
+		}
+		// Check each parameter type of the provider
+		for _, paramType := range provider.Requires() {
+			// Get the fully qualified base type for matching against genericConfigs
+			fullyQualifiedTypeStr := paramType.String()
+			baseType := getBaseTypeNameFromString(fullyQualifiedTypeStr)
+
+			// Check if this matches a generic config base type
+			genericConfig, exists := genericConfigs[baseType]
+			if !exists {
+				continue
+			}
+			// Create the config key with proper normalization:
+			// Base type stays fully qualified, but type arguments are normalized relative to dest package
+			configKey := normalizeConfigTypeString(paramType, graph.Dest)
+
+			if materializedTypes[configKey] {
+				continue
+			}
+			// Create materialized config directly from the parameter type
+			materializedConfig := &Config{
+				Position:   genericConfig.Position,
+				Package:    genericConfig.Package,
+				Type:       paramType.(*types.Named), // Safe cast since configs are named types
+				Directive:  genericConfig.Directive,
+				IsGeneric:  false,
+				TypeParams: nil,
+			}
+			graph.Configs[configKey] = materializedConfig
+			materializedTypes[configKey] = true
 		}
 	}
 
@@ -1258,26 +1308,6 @@ func importPathForDir(dir string) (string, error) {
 	return path.Join(mod.Module.Mod.Path, dir), nil
 }
 
-// getBaseTypeName extracts the base type name from a type, handling generic types.
-// For example, "Topic[T]" becomes "Topic", "*Service" becomes "*Service"
-func getBaseTypeName(t types.Type) string {
-	// Handle pointer types
-	if ptr, ok := t.(*types.Pointer); ok {
-		return "*" + getBaseTypeName(ptr.Elem())
-	}
-
-	// Handle named types (including generic instances)
-	if named, ok := t.(*types.Named); ok {
-		if named.Obj().Pkg() != nil {
-			return named.Obj().Pkg().Path() + "." + named.Obj().Name()
-		}
-		return named.Obj().Name()
-	}
-
-	// For other types, fall back to string representation
-	return types.TypeString(t, nil)
-}
-
 // getBaseTypeNameFromString extracts base type name from a type string
 // For example, "pkg.Topic[User]" becomes "pkg.Topic"
 func getBaseTypeNameFromString(typeStr string) string {
@@ -1296,4 +1326,36 @@ func toKebabCase(typeName string) string {
 		parts[i] = strings.ToLower(part)
 	}
 	return strings.Join(parts, "-")
+}
+
+// normalizeConfigTypeString normalizes a config type string for use as a key in graph.Configs
+// Base type remains fully qualified, but type arguments are normalized relative to dest package
+func normalizeConfigTypeString(t types.Type, destPkg *types.Package) string {
+	// Handle named types (including generic instances)
+	if named, ok := t.(*types.Named); ok {
+		baseName := named.Obj().Name()
+		if named.Obj().Pkg() != nil {
+			baseName = named.Obj().Pkg().Path() + "." + baseName
+		}
+
+		// Handle generic types with type arguments
+		if typeArgs := named.TypeArgs(); typeArgs != nil && typeArgs.Len() > 0 {
+			baseName += "["
+			for i := range typeArgs.Len() {
+				argType := typeArgs.At(i)
+				// Use types.TypeString with RelativeTo for type arguments
+				argString := types.TypeString(argType, types.RelativeTo(destPkg))
+				baseName += argString
+				if i < typeArgs.Len()-1 {
+					baseName += ", "
+				}
+			}
+			baseName += "]"
+		}
+
+		return baseName
+	}
+
+	// For non-named types, fall back to string representation
+	return t.String()
 }

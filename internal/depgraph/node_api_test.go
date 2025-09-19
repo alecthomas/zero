@@ -651,10 +651,10 @@ func createMockAPI(t *testing.T, funcSig string, pattern *directiveparser.Direct
 	}
 
 	return &API{
-		Directive:  pattern,
-		Function: funcType,
-		Package:  pkg,
-		Position: token.Position{Filename: "test.go", Line: 1},
+		Directive: pattern,
+		Function:  funcType,
+		Package:   pkg,
+		Position:  token.Position{Filename: "test.go", Line: 1},
 	}
 }
 

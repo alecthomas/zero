@@ -3298,7 +3298,7 @@ type Product struct {
 
 	// Check that New is a generic provider
 	serviceProviders := graph.Providers["*test.Service"]
-	assert.Equal(t, 1, len(serviceProviders))
+	assert.Equal(t, 1, len(serviceProviders), "Expected 1 provider for *test.Service: %s", depGraph)
 	assert.Equal(t, "New", serviceProviders[0].Function.Name())
 }
 
