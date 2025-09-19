@@ -384,6 +384,24 @@ func (i *IR) validate() error {
 			}
 		}
 	}
+
+	// Validate that all types with dependencies have providers.
+	// This catches cases where subscriptions depend on receiver types without providers.
+	dependencyKeys := slices.Collect(maps.Keys(i.dependencies))
+	slices.SortStableFunc(dependencyKeys, func(a, b Key) int { return strings.Compare(a.String(), b.String()) })
+	for _, depKey := range dependencyKeys {
+		if _, isTypeKey := depKey.(TypeKey); isTypeKey {
+			if i.lookup(depKey) == nil {
+				// Find what depends on this type to provide better error message
+				dependents := i.dependencies[depKey]
+				if len(dependents) > 0 {
+					dependent := dependents[0] // Use first dependent for error message
+					return errors.Errorf("there is no provider for %s %s, required by %s", depKey.Kind(), depKey, dependent)
+				}
+			}
+		}
+	}
+
 	if err := i.validateAmbiguity(); err != nil {
 		return errors.WithStack(err)
 	}

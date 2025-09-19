@@ -223,15 +223,22 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		Missing:       make(map[*types.Func][]types.Type),
 	}
 
-	// Collect all generic configs first
+	// Collect all generic configs and providers first
 	genericConfigs := make(map[string]*Config)
+	genericProviders := make(map[string]*Provider)
 
 	// Populate from required nodes
 	for node := range ir.RequiredNodes() {
 		switch n := node.(type) {
 		case *Provider:
 			key := string(n.NodeProvides())
-			graph.Providers[key] = append(graph.Providers[key], n)
+			if n.IsGeneric {
+				// Store generic provider for later materialization
+				baseType := getBaseTypeNameFromString(key)
+				genericProviders[baseType] = n
+			} else {
+				graph.Providers[key] = append(graph.Providers[key], n)
+			}
 		case *Config:
 			key := string(normaliseTypeToTypeKey(n.Type))
 			if n.IsGeneric {
@@ -290,6 +297,40 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 			}
 			graph.Configs[configKey] = materializedConfig
 			materializedTypes[configKey] = true
+		}
+	}
+
+	// Materialize generic providers by examining required types
+	materializedProviders := make(map[string]bool)
+
+	// Look at all nodes to find concrete provider instances needed
+	for node := range ir.RequiredNodes() {
+		for _, reqKey := range node.NodeRequires() {
+			reqTypeStr := reqKey.String()
+
+			// Skip if this is a generic requirement (contains ?)
+			if strings.Contains(reqTypeStr, "?") {
+				continue
+			}
+
+			// Skip if already has a provider
+			if _, exists := graph.Providers[reqTypeStr]; exists {
+				continue
+			}
+
+			baseType := getBaseTypeNameFromString(reqTypeStr)
+			genericProvider, exists := genericProviders[baseType]
+			if !exists {
+				continue
+			}
+
+			if materializedProviders[reqTypeStr] {
+				continue
+			}
+
+			// Materialize this specific concrete instance
+			graph.Providers[reqTypeStr] = append(graph.Providers[reqTypeStr], genericProvider)
+			materializedProviders[reqTypeStr] = true
 		}
 	}
 

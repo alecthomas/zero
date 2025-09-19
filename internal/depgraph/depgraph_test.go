@@ -2768,7 +2768,6 @@ func (s *SubscriptionService) InvalidSubscription(ctx context.Context, event pub
 }
 
 func TestAnalyseSubscriptionReceiverWithoutProvider(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `
 package main
@@ -2792,7 +2791,6 @@ func (s *SubscriptionService) HandleEvent(ctx context.Context, event pubsub.Even
 }
 
 func TestAnalyseMixedProvidersAPIsSubscriptions(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `
 package main
@@ -2830,7 +2828,6 @@ func (s *Service) HandleEvent(ctx context.Context, event pubsub.Event[Event]) er
 		"*test.Service",
 		"github.com/alecthomas/zero.ErrorEncoder",
 		"github.com/alecthomas/zero.ResponseEncoder",
-		"github.com/alecthomas/zero/providers/pubsub.Topic",
 		"github.com/alecthomas/zero/providers/pubsub.Topic[test.Event]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
@@ -2854,7 +2851,6 @@ func (s *Service) HandleEvent(ctx context.Context, event pubsub.Event[Event]) er
 }
 
 func TestAnalyseSubscriptionSyntheticTopicDependency(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `
 package main
@@ -3007,10 +3003,10 @@ func NewService(topic Topic[User]) *Service {
 
 	graph := analyseTestCode(t, testCode, WithTypes("*test.Service"))
 
-	// Should have NewService provider and resolved generic NewTopic provider
+	// Should have NewService provider and materialized NewTopic provider
 	expectedProviders := []string{
 		"*test.Service",
-		"test.Topic[?]",
+		"test.Topic[test.User]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 
@@ -3019,8 +3015,8 @@ func NewService(topic Topic[User]) *Service {
 	assert.True(t, len(serviceProviders) > 0)
 	assert.Equal(t, "NewService", serviceProviders[0].Function.Name())
 
-	// Check that NewTopic is a generic provider (now in main Providers map)
-	topicProviders := graph.Providers["test.Topic[?]"]
+	// Check that NewTopic is materialized as a concrete provider
+	topicProviders := graph.Providers["test.Topic[test.User]"]
 	assert.Equal(t, 1, len(topicProviders))
 	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
 
@@ -3101,20 +3097,32 @@ func NewServiceC(topic Topic[InvalidType]) *ServiceC {
 
 	graph := analyseTestCode(t, testCode, WithTypes("*test.ServiceA", "*test.ServiceB", "*test.ServiceC"))
 
-	// Should have regular providers (ServiceA, ServiceB, ServiceC) + resolved providers (Topic[User], Topic[Order])
+	// Should have regular providers (ServiceA, ServiceB, ServiceC) + materialized providers (Topic[User], Topic[Order], Topic[InvalidType])
 	expectedProviders := []string{
 		"*test.ServiceA",
 		"*test.ServiceB",
 		"*test.ServiceC",
-		"test.Topic[?]",
+		"test.Topic[test.InvalidType]",
+		"test.Topic[test.Order]",
+		"test.Topic[test.User]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 
-	// Check that NewTopic is a generic provider
-	topicProviders := graph.Providers["test.Topic[?]"]
-	assert.Equal(t, 1, len(topicProviders))
-	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
-	assert.True(t, topicProviders[0].IsGeneric)
+	// Check that NewTopic providers are materialized correctly
+	userTopicProviders := graph.Providers["test.Topic[test.User]"]
+	assert.Equal(t, 1, len(userTopicProviders))
+	assert.Equal(t, "NewTopic", userTopicProviders[0].Function.Name())
+	assert.True(t, userTopicProviders[0].IsGeneric)
+
+	orderTopicProviders := graph.Providers["test.Topic[test.Order]"]
+	assert.Equal(t, 1, len(orderTopicProviders))
+	assert.Equal(t, "NewTopic", orderTopicProviders[0].Function.Name())
+	assert.True(t, orderTopicProviders[0].IsGeneric)
+
+	invalidTopicProviders := graph.Providers["test.Topic[test.InvalidType]"]
+	assert.Equal(t, 1, len(invalidTopicProviders))
+	assert.Equal(t, "NewTopic", invalidTopicProviders[0].Function.Name())
+	assert.True(t, invalidTopicProviders[0].IsGeneric)
 
 	// ServiceA and ServiceB should have no missing dependencies
 	serviceAProviders := graph.Providers["*test.ServiceA"]
@@ -3173,10 +3181,10 @@ func NewService(topic Topic[User]) *Service {
 
 	graph := analyseTestCode(t, testCode, WithTypes("*test.Service"))
 
-	// Should have the concrete service provider and resolved generic provider
+	// Should have the concrete service provider and materialized provider
 	expectedProviders := []string{
 		"*test.Service",
-		"test.Topic[?]",
+		"test.Topic[test.User]",
 	}
 	assert.Equal(t, expectedProviders, stableKeys(graph.Providers))
 
@@ -3184,8 +3192,8 @@ func NewService(topic Topic[User]) *Service {
 	assert.True(t, len(serviceProviders) > 0)
 	assert.Equal(t, "NewService", serviceProviders[0].Function.Name())
 
-	// Should have the generic topic provider (plus Zero's built-in pubsub provider)
-	topicProviders := graph.Providers["test.Topic[?]"]
+	// Should have the materialized topic provider
+	topicProviders := graph.Providers["test.Topic[test.User]"]
 	assert.Equal(t, 1, len(topicProviders))
 	assert.Equal(t, "NewTopic", topicProviders[0].Function.Name())
 	assert.True(t, topicProviders[0].IsGeneric)
@@ -3244,14 +3252,14 @@ func NewService(topic Topic[User]) *Service {
 	// Check the dependency graph output
 	depGraph := graph.Graph()
 
-	// Should have entries for regular provider and generic provider
+	// Should have entries for regular provider and materialized provider
 	_, hasService := depGraph["*test.Service"]
 	assert.True(t, hasService)
-	_, hasGenericTopic := depGraph["test.Topic[?]"]
-	assert.True(t, hasGenericTopic)
+	_, hasMaterializedTopic := depGraph["test.Topic[test.User]"]
+	assert.True(t, hasMaterializedTopic)
 
-	// Generic provider should have no dependencies
-	assert.Equal(t, []string{}, depGraph["test.Topic[?]"])
+	// Materialized provider should have no dependencies
+	assert.Equal(t, []string{}, depGraph["test.Topic[test.User]"])
 
 	// Service should depend on Topic[User]
 	serviceDeps := depGraph["*test.Service"]
@@ -3303,7 +3311,7 @@ type Product struct {
 }
 
 func TestGenericConfigsInGraphOutput(t *testing.T) {
-	t.Skip()
+	t.SkipNow()
 	t.Parallel()
 	testCode := `package test
 
@@ -3339,7 +3347,6 @@ type User struct {
 }
 
 func TestGenericConfigPrefixSubstitution(t *testing.T) {
-	t.SkipNow()
 	t.Parallel()
 	testCode := `package test
 
@@ -3365,11 +3372,12 @@ func NewHTTPService(config Config[HTTPClient]) *Service[HTTPClient] {
 }
 `
 
-	graph := analyseTestCode(t, testCode, WithTypes("*test.Service"))
+	graph := analyseTestCode(t, testCode)
+	graphStr := repr.String(graph.Graph(), repr.Indent("  "))
 
 	// Check that we have both the generic provider and the concrete provider types are discoverable
 	// Since both providers provide *Service[T] variants, the system should handle both
-	assert.True(t, len(graph.Providers) > 0, "Should have discovered providers")
+	assert.True(t, len(graph.Providers) > 0, "Should have discovered providers: %s", graphStr)
 
 	// The main functionality being tested is that generic configs with prefix templates
 	// are correctly parsed and stored. The concrete instantiation happens when needed.
