@@ -198,7 +198,7 @@ var _ pubsub.Topic[string] = (*Topic[string])(nil)
 
 // New creates a new [pubsub.Topic] backed by Postgres.
 //
-//zero:provider weak require="github.com/alecthomas/zero/providers/pubsub/postgres/dashboard.New"
+//zero:provider weak require="dashboard.New","Migrations"
 func New[T any](
 	ctx context.Context,
 	logger *slog.Logger,

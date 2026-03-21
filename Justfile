@@ -1,39 +1,32 @@
 _help:
-  @just -l
+    @just -l
 
 # Generate Zero code for examples
 generate-examples:
-  zero -C ./_examples/service . && go test -C ./_examples/service .
+    zero -C ./_examples/service . && go test -C ./_examples/service .
 
 # Run tests
 test:
-  go test ./...
+    go test ./...
 
 # Run linter
 lint:
-  golangci-lint run
+    golangci-lint run
 
 # Tag and push a new release out
 release:
-  git diff --exit-code
-  git tag $(svu next)
-  git push --tags
+    git diff --exit-code
+    git tag $(svu next)
+    git push --tags
 
 # Run "go mod tidy" in all modules
 tidy:
-  git ls-files | grep go.mod | xargs dirname | xargs -I {} go mod -C {} tidy
+    git ls-files | grep go.mod | xargs dirname | xargs -I {} go mod -C {} tidy
 
 # Run the exemplar with hot reload
-hotreload:
-  #!/bin/bash
-  reflex -d fancy -c <(cat <<EOF
-  -r '\.sql$' -- sqlc generate
-  -s -r '\.(go|gohtml)$' -R 'zero.go$' -- sh -c 'zero && go run -C ./_examples/service . --log-level=debug'
-  EOF)
-
-# Run tests with hot reload
-hottest *flags:
-  #!/bin/bash
-  reflex -d none -c <(cat <<EOF
-  -r '\.go$' -R 'zero.go$' -- sh -c 'clear; go test {{flags}}'
-  EOF)
+dev:
+    #!/bin/bash
+    reflex -d fancy -c <(cat <<EOF
+    -r '\.sql$' -- sqlc generate
+    -s -r '\.(go|gohtml)$' -R 'zero.go$' -- sh -c 'zero && go run -C ./_examples/service . --log-level=debug'
+    EOF)

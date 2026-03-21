@@ -27,7 +27,7 @@ var _ Leaser = (*SQLLeaser)(nil)
 
 // NewSQLLeaser creates a [Leaser] backed by an SQL database.
 //
-//zero:provider weak require="github.com/alecthomas/zero/providers/leases/migrations.Migrations"
+//zero:provider weak require="migrations.Migrations"
 func NewSQLLeaser(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -97,9 +97,6 @@ func (s *SQLLeaser) renew(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
-			if err == nil {
-				return
-			}
 			s.log.Error("FATAL: failed to renew leases, terminating to avoid split brain", "error", err)
 			os.Exit(1)
 

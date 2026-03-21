@@ -111,7 +111,7 @@ func (s *Service) OnUserCreated(ctx context.Context, user pubsub.Event[UserCreat
 	return errors.New("bad")
 }
 
-// zero:cron 5s
+//zero:cron 5s
 func (s *Service) CheckUsersCron(ctx context.Context) error {
 	s.logger.Info("CheckUsers cron job")
 	time.Sleep(time.Second * 7)
@@ -128,7 +128,7 @@ func main() {
 	kctx := kong.Parse(&cli,
 		kong.Configuration(kongtoml.Loader, "zero-exemplar.toml"),
 		kong.Vars{
-			"sqldsn": "postgres://postgres:secret@localhost:5432/zero-exempler?sslmode=disable",
+			"sqldsn": "postgres://postgres:secret@localhost:5432/zero-exemplar?sslmode=disable",
 		},
 	)
 	ctx := context.Background()

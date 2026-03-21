@@ -3,6 +3,7 @@ package depgraph
 import (
 	"go/token"
 	"go/types"
+	"path"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -54,13 +55,34 @@ func (p *Provider) NodeRequires() []Key {
 		out = append(out, TypeKey(req.String()))
 	}
 	for _, req := range p.Directive.Require {
-		if !strings.Contains(req, ".") {
-			req = p.Package.PkgPath + "." + req
-		}
-		out = append(out, NodeKey(req))
+		out = append(out, NodeKey(resolveRequire(p.Package.PkgPath, req)))
 	}
 	// Note: Previously we required the type we provide to "activate method nodes",
 	// but this created circular dependencies for multi-providers. Method node
 	// activation is now handled during propagation in IR.propagate().
 	return out
+}
+
+// resolveRequire resolves a require= value relative to the provider's package.
+//
+// Supported forms:
+//   - "FuncName"           → <pkgPath>.FuncName  (same package)
+//   - "sub.FuncName"       → <pkgPath>/sub.FuncName  (sub-package)
+//   - "../other.FuncName"  → <parent>/other.FuncName  (relative)
+//   - "github.com/.../pkg.FuncName"  → as-is  (fully qualified)
+func resolveRequire(pkgPath, req string) string {
+	dot := strings.LastIndex(req, ".")
+	if dot == -1 {
+		// No dot — same package symbol
+		return pkgPath + "." + req
+	}
+	pkg := req[:dot]
+	symbol := req[dot+1:]
+	// If the package part contains "/" it's already fully qualified.
+	if strings.Contains(pkg, "/") {
+		return req
+	}
+	// Relative path: resolve against the current package.
+	resolved := path.Join(pkgPath, pkg)
+	return resolved + "." + symbol
 }

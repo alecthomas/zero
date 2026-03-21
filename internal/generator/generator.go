@@ -31,13 +31,13 @@ func WithTags(tags ...string) Option {
 }
 
 // Generate Zero's bootstrap code.
-func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
+func Generate(out io.Writer, graph *depgraph.IR, options ...Option) error {
 	opts := &generateOptions{}
 	for _, option := range options {
 		option(opts)
 	}
 
-	w := codewriter.New(graph.Dest.Name())
+	w := codewriter.New(graph.Dest().Name())
 	if len(opts.tags) > 0 {
 		pw := w.Prelude()
 		pw.L("//go:build %s", strings.Join(opts.tags, " "))
@@ -48,9 +48,9 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 	w.L("// Config contains combined Kong configuration for all types constructable by the [Injector].")
 	w.L("type ZeroConfig struct {")
 	w.In(func(w *codewriter.Writer) {
-		for key, config := range stableMapIter(graph.Configs) {
+		for key, config := range stableMapIter(graph.Configs()) {
 			alias := "Config" + hash(key)
-			ref := graph.TypeRef(config.Type)
+			ref := configRef(graph, key, config)
 			w.Import(ref.Import)
 			prefix := ""
 			if config.Directive.Prefix != "" {
@@ -82,9 +82,13 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 	w.L("// RegisterHandlers registers all Zero handlers with the injector's [http.ServeMux].")
 	w.L("func RegisterHandlers(ctx context.Context, injector *Injector) error {")
 	w.In(func(w *codewriter.Writer) {
+		if len(graph.APIs()) == 0 {
+			w.L("return nil")
+			return
+		}
 		receivers := map[depgraph.Ref]int{}
 		receiverIndex := 0
-		for _, api := range graph.APIs {
+		for _, api := range graph.APIs() {
 			receiver := api.Function.Signature().Recv().Type()
 			ref := graph.TypeRef(receiver)
 			w.Import(ref.Import)
@@ -109,10 +113,10 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 		writeZeroConstructSingletonByName(w, graph, "encodeResponse", "github.com/alecthomas/zero.ResponseEncoder", "")
 		w.L("_ = encodeError")
 		w.L("_ = encodeResponse")
-		for _, api := range graph.APIs {
+		for _, api := range graph.APIs() {
 			handler := "http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {"
 			closing := ""
-			for mi, middleware := range graph.Middleware {
+			for mi, middleware := range graph.Middleware() {
 				if !middleware.Match(api) {
 					continue
 				}
@@ -205,13 +209,13 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 	w.L("// RegisterSubscribers registers all Zero PubSub subscribers with their topics.")
 	w.L("func RegisterSubscribers(ctx context.Context, injector *Injector) error {")
 	w.In(func(w *codewriter.Writer) {
-		if len(graph.Subscriptions) == 0 {
+		if len(graph.Subscriptions()) == 0 {
 			w.L("return nil")
 		} else {
 			// First, collect the receiver types so we can construct them.
 			receivers := map[depgraph.Ref]int{}
 			receiverIndex := 0
-			for _, subscription := range graph.Subscriptions {
+			for _, subscription := range graph.Subscriptions() {
 				receiver := subscription.Function.Signature().Recv().Type()
 				key := graph.TypeRef(receiver)
 				w.Import(key.Import)
@@ -228,7 +232,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			}
 
 			// Register the subscribers with their topics
-			for _, subscription := range graph.Subscriptions {
+			for _, subscription := range graph.Subscriptions() {
 				ref := graph.TypeRef(subscription.Function.Signature().Recv().Type())
 				receiverIndex := receivers[ref]
 
@@ -271,7 +275,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 		w.L("}")
 		writeZeroConstructSingletonByName(w, graph, "server", "*net/http.Server", "")
 
-		if len(graph.CronJobs) > 0 {
+		if len(graph.CronJobs()) > 0 {
 			writeZeroConstructSingletonByName(w, graph, "cron", "*github.com/alecthomas/zero/providers/cron.Scheduler", "")
 			writeCronJobRegistration(w, graph)
 		}
@@ -312,9 +316,9 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 		})
 		w.W("\n")
 
-		for key, config := range stableMapIter(graph.Configs) {
+		for key, config := range stableMapIter(graph.Configs()) {
 			alias := "Config" + hash(key)
-			ref := graph.TypeRef(config.Type)
+			ref := configRef(graph, key, config)
 			w.Import(ref.Import)
 			w.L("case reflect.TypeOf((**%s)(nil)).Elem(): // Handle pointer to config.", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
@@ -328,64 +332,61 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 			w.W("\n")
 		}
 
-		for _, providers := range stableMapIter(graph.Providers) {
+		for key, providers := range stableMapIter(graph.Providers()) {
 			if len(providers) == 0 {
 				continue
 			}
 
-			// Skip base generic providers - only generate code for concrete types
-			if len(providers) > 0 && providers[0].IsGeneric {
-				// Check if this is a base generic provider (stored for lookup only)
-				firstProviderType := types.TypeString(providers[0].Provides, nil)
-				if strings.Contains(firstProviderType, "[T]") || strings.Contains(firstProviderType, "[T ") {
-					continue // Skip base generic providers
-				}
+			// Skip base generic providers (keys containing "?") - only generate code for concrete types
+			if strings.Contains(key, "?") {
+				continue
 			}
 
 			// For single providers, generate direct case
 			if len(providers) == 1 {
 				provider := providers[0]
-				ref := graph.TypeRef(provider.Provides)
+				ref := providerRef(graph, key, provider)
 				w.Import(ref.Import)
 				w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
 				w.In(func(w *codewriter.Writer) {
-					writeProviderCall(w, graph, provider, "p", "o")
+					writeProviderCall(w, graph, provider, key, "p", "o")
 					w.L("return any(o).(T), nil")
 				})
 				w.W("\n")
 				continue
 			}
 			// For multi-providers, handle as before
-			ref := graph.TypeRef(providers[0].Provides)
+			ref := providerRef(graph, key, providers[0])
 			w.Import(ref.Import)
 			w.L("case reflect.TypeOf((*%s)(nil)).Elem():", ref.Ref)
 			w.In(func(w *codewriter.Writer) {
-				// Construct all provider results
-				for pi, provider := range providers {
-					writeProviderCall(w, graph, provider, fmt.Sprintf("p%d_", pi), fmt.Sprintf("r%d", pi))
-				}
-
 				// Determine if it's a map or slice and merge accordingly
 				providedType := providers[0].Provides.Underlying()
-				switch t := providedType.(type) {
+				switch providedType.(type) {
 				case *types.Map:
+					for pi, provider := range providers {
+						writeProviderCall(w, graph, provider, key, fmt.Sprintf("p%d_", pi), fmt.Sprintf("r%d", pi))
+					}
 					w.Import("maps")
-					// Map merging
 					w.L("result := make(%s)", ref.Ref)
 					for pi := range providers {
 						w.L("maps.Copy(result, r%d)", pi)
 					}
+					w.L("return any(result).(T), nil")
 				case *types.Slice:
-					// Slice appending
+					for pi, provider := range providers {
+						writeProviderCall(w, graph, provider, key, fmt.Sprintf("p%d_", pi), fmt.Sprintf("r%d", pi))
+					}
 					w.L("var result %s", ref.Ref)
 					for pi := range providers {
 						w.L("result = append(result, r%d...)", pi)
 					}
+					w.L("return any(result).(T), nil")
 				default:
-					_ = t
-					w.L(`return out, fmt.Errorf("multi-provider type %s must be a map or slice", "%s")`, ref.Ref)
+					// For non-collection types with multiple providers, use the first one
+					writeProviderCall(w, graph, providers[0], key, "p", "o")
+					w.L("return any(o).(T), nil")
 				}
-				w.L("return any(result).(T), nil")
 			})
 			w.W("\n")
 		}
@@ -406,7 +407,7 @@ func Generate(out io.Writer, graph *depgraph.Graph, options ...Option) error {
 
 // writeParameterConstruction generates code to construct a parameter of the given type.
 // Returns the variable name that holds the constructed parameter.
-func writeParameterConstruction(w *codewriter.Writer, graph *depgraph.Graph, paramType types.Type, paramName string, varPrefix string, index int, isMiddleware bool, httpMethod string) {
+func writeParameterConstruction(w *codewriter.Writer, graph *depgraph.IR, paramType types.Type, paramName string, varPrefix string, index int, isMiddleware bool, httpMethod string) {
 	ref := graph.TypeRef(paramType)
 	w.Import(ref.Import)
 	typeName := types.TypeString(paramType, nil)
@@ -476,7 +477,7 @@ func writeParameterCall(w *codewriter.Writer, paramType types.Type, varPrefix st
 }
 
 // writeZeroConstructSingleton writes code to construct a dependency using ZeroConstructSingletons.
-func writeZeroConstructSingleton(w *codewriter.Writer, graph *depgraph.Graph, varName string, depType types.Type, errorWrapper string) {
+func writeZeroConstructSingleton(w *codewriter.Writer, graph *depgraph.IR, varName string, depType types.Type, errorWrapper string) {
 	ref := graph.TypeRef(depType)
 	if ref.Import != "" {
 		w.Import(ref.Import)
@@ -497,7 +498,7 @@ func writeZeroConstructSingleton(w *codewriter.Writer, graph *depgraph.Graph, va
 // writeZeroConstructSingletonByName writes code to construct a dependency using ZeroConstructSingletons by fully-qualified type reference.
 //
 // It also adds imports for the specified type.
-func writeZeroConstructSingletonByName(w *codewriter.Writer, g *depgraph.Graph, varName string, typeRef string, errorWrapper string) {
+func writeZeroConstructSingletonByName(w *codewriter.Writer, g *depgraph.IR, varName string, typeRef string, errorWrapper string) {
 	ref := g.ParseTypeRef(typeRef)
 	if ref.Import != "" {
 		w.Import(ref.Import)
@@ -516,10 +517,35 @@ func writeZeroConstructSingletonByName(w *codewriter.Writer, g *depgraph.Graph, 
 }
 
 // writeProviderCall generates code to call a provider function with its dependencies.
-func writeProviderCall(w *codewriter.Writer, graph *depgraph.Graph, provider *depgraph.Provider, depVarPrefix string, resultVar string) {
-	// Construct all dependencies
+// typeKey is the materialized type key (used for generic type instantiation).
+func writeProviderCall(w *codewriter.Writer, graph *depgraph.IR, provider *depgraph.Provider, typeKey string, depVarPrefix string, resultVar string) {
+	// For generic providers, build a type param substitution map from the concrete type key.
+	var typeParamSubst map[string]string
+	if provider.IsGeneric && provider.TypeParams != nil {
+		typeParamSubst = buildTypeParamSubst(provider, typeKey)
+	}
+
+	// Construct all dependencies, substituting type params for generic providers.
 	for i, require := range provider.Requires() {
-		writeZeroConstructSingleton(w, graph, fmt.Sprintf("%s%d", depVarPrefix, i), require, "")
+		varName := fmt.Sprintf("%s%d", depVarPrefix, i)
+		if typeParamSubst != nil {
+			ts := types.TypeString(require, nil)
+			substituted := substituteTypeParams(ts, typeParamSubst)
+			if substituted != ts {
+				ref := graph.ParseTypeRef(substituted)
+				if ref.Import != "" {
+					w.Import(ref.Import)
+				}
+				w.L("%s, err := ZeroConstructSingletons[%s](ctx, injector)", varName, ref.Ref)
+				w.L("if err != nil {")
+				w.In(func(w *codewriter.Writer) {
+					w.L(`return out, err`)
+				})
+				w.L("}")
+				continue
+			}
+		}
+		writeZeroConstructSingleton(w, graph, varName, require, "")
 	}
 
 	// Get function reference and call it
@@ -537,21 +563,9 @@ func writeProviderCall(w *codewriter.Writer, graph *depgraph.Graph, provider *de
 
 	// Add type instantiation for generic providers
 	if provider.IsGeneric {
-		// Extract type arguments from the concrete type that this provider provides
-		typeArgs := extractTypeArguments(provider.Provides)
-		if len(typeArgs) > 0 {
-			w.W("[")
-			for i, typeArg := range typeArgs {
-				argRef := graph.TypeRef(typeArg)
-				if argRef.Import != "" {
-					w.Import(argRef.Import)
-				}
-				w.W("%s", argRef.Ref)
-				if i < len(typeArgs)-1 {
-					w.W(", ")
-				}
-			}
-			w.W("]")
+		ref := graph.ParseTypeRef(typeKey)
+		if bracket := strings.Index(ref.Ref, "["); bracket != -1 {
+			w.W("%s", ref.Ref[bracket:])
 		}
 	}
 
@@ -564,7 +578,7 @@ func writeProviderCall(w *codewriter.Writer, graph *depgraph.Graph, provider *de
 	}
 	w.W(")\n")
 	if returnsErr {
-		ref := graph.TypeRef(provider.Provides)
+		ref := providerRef(graph, typeKey, provider)
 		w.L("if err != nil {")
 		w.In(func(w *codewriter.Writer) {
 			w.L(`return out, fmt.Errorf("%s: %%w", err)`, ref.Ref)
@@ -573,18 +587,71 @@ func writeProviderCall(w *codewriter.Writer, graph *depgraph.Graph, provider *de
 	}
 }
 
-// extractTypeArguments extracts type arguments from a concrete generic type
-func extractTypeArguments(t types.Type) []types.Type {
-	if named, ok := t.(*types.Named); ok {
-		if typeArgs := named.TypeArgs(); typeArgs != nil {
-			result := make([]types.Type, typeArgs.Len())
-			for i := range typeArgs.Len() {
-				result[i] = typeArgs.At(i)
-			}
-			return result
+// buildTypeParamSubst builds a map from type parameter names to concrete type strings
+// by matching the provider's return type params against the concrete type key.
+func buildTypeParamSubst(provider *depgraph.Provider, typeKey string) map[string]string {
+	subst := make(map[string]string)
+	// Extract concrete type args from the key (e.g. "pkg.Topic[pkg.UserCreatedEvent]")
+	bracket := strings.Index(typeKey, "[")
+	if bracket == -1 || provider.TypeParams == nil {
+		return subst
+	}
+	argsStr := typeKey[bracket+1 : len(typeKey)-1]
+	concreteArgs := splitOutsideBrackets(argsStr, ',')
+	for i := range provider.TypeParams.Len() {
+		if i < len(concreteArgs) {
+			subst[provider.TypeParams.At(i).Obj().Name()] = strings.TrimSpace(concreteArgs[i])
 		}
 	}
-	return nil
+	return subst
+}
+
+// substituteTypeParams replaces type parameters in a type string with their concrete substitutions.
+func substituteTypeParams(ts string, subst map[string]string) string {
+	for param, concrete := range subst {
+		ts = replaceTypeParam(ts, param, concrete)
+	}
+	return ts
+}
+
+// replaceTypeParam replaces a type parameter name in a type string with a concrete type.
+func replaceTypeParam(typeStr, param, concrete string) string {
+	bracket := strings.Index(typeStr, "[")
+	if bracket == -1 {
+		return typeStr
+	}
+	base := typeStr[:bracket]
+	argsStr := typeStr[bracket+1 : len(typeStr)-1]
+	args := splitOutsideBrackets(argsStr, ',')
+	for i, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == param {
+			args[i] = concrete
+		}
+	}
+	return base + "[" + strings.Join(args, ", ") + "]"
+}
+
+// splitOutsideBrackets splits s by sep, respecting bracket nesting.
+func splitOutsideBrackets(s string, sep byte) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	for i := range len(s) {
+		switch s[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+		case sep:
+			if depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
 }
 
 func hash(s string) string {
@@ -593,11 +660,11 @@ func hash(s string) string {
 	return fmt.Sprintf("%x", h.Sum64())
 }
 
-func writeCronJobRegistration(w *codewriter.Writer, graph *depgraph.Graph) {
+func writeCronJobRegistration(w *codewriter.Writer, graph *depgraph.IR) {
 	// First, collect the receiver types so we can construct them.
 	receivers := map[depgraph.Ref]int{}
 	receiverIndex := 0
-	for _, cronJob := range graph.CronJobs {
+	for _, cronJob := range graph.CronJobs() {
 		receiver := cronJob.Function.Signature().Recv().Type()
 		key := graph.TypeRef(receiver)
 		w.Import(key.Import)
@@ -614,7 +681,7 @@ func writeCronJobRegistration(w *codewriter.Writer, graph *depgraph.Graph) {
 	}
 
 	// Register each cron job
-	for _, cronJob := range graph.CronJobs {
+	for _, cronJob := range graph.CronJobs() {
 		receiver := cronJob.Function.Signature().Recv().Type()
 		ref := graph.TypeRef(receiver)
 		receiverIndex := receivers[ref]
@@ -639,6 +706,22 @@ func writeCronJobRegistration(w *codewriter.Writer, graph *depgraph.Graph) {
 		})
 		w.L("}")
 	}
+}
+
+// configRef returns the Ref for a config, using the key for materialized generic configs.
+func configRef(graph *depgraph.IR, key string, config *depgraph.Config) depgraph.Ref {
+	if config.IsGeneric {
+		return graph.ParseTypeRef(key)
+	}
+	return graph.TypeRef(config.Type)
+}
+
+// providerRef returns the Ref for a provider, using the key for materialized generic providers.
+func providerRef(graph *depgraph.IR, key string, provider *depgraph.Provider) depgraph.Ref {
+	if provider.IsGeneric {
+		return graph.ParseTypeRef(key)
+	}
+	return graph.TypeRef(provider.Provides)
 }
 
 func stableMapIter[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,20 +18,17 @@ import (
 )
 
 var cli struct {
-	Config         kong.ConfigFlag    `help:"Path to the configuration file." placeholder:"FILE" short:"c"`
-	Version        kong.VersionFlag   `help:"Print the version and exit."`
-	Chdir          kong.ChangeDirFlag `help:"Change to this directory before running." placeholder:"DIR" short:"C"`
-	Debug          bool               `help:"Enable debug logging." short:"d"`
-	Tags           []string           `help:"Tags to enable during type analysis (will also be read from $GOFLAGS)." placeholder:"TAG" short:"t"`
-	OutputTags     []string           `help:"Tags to add to generated code." placeholder:"TAG" short:"T"`
-	Resolve        []string           `help:"Resolve an ambiguous type with this provider." placeholder:"REF" short:"r"`
-	List           bool               `group:"Actions:" help:"List all dependencies." xor:"action"`
-	OpenAPI        bool               `group:"Actions:" name:"openapi" help:"Generate OpenAPI specification." xor:"action"`
-	OpenAPITitle   string             `help:"Title for the OpenAPI specification." placeholder:"TITLE" name:"openapi-title" default:"My Zero Service"`
-	OpenAPIVersion string             `help:"Version for the OpenAPI specification." placeholder:"VERSION" name:"openapi-version" default:"dev"`
-	Root           []string           `help:"Prune dependencies outside these root types."  placeholder:"REF" short:"R"`
-	Dest           string             `help:"Destination package directory for generated files." default:"."`
-	Patterns       []string           `help:"Additional packages pattern to scan." arg:"" optional:""`
+	Config     kong.ConfigFlag    `help:"Path to the configuration file." placeholder:"FILE" short:"c"`
+	Version    kong.VersionFlag   `help:"Print the version and exit."`
+	Chdir      kong.ChangeDirFlag `help:"Change to this directory before running." placeholder:"DIR" short:"C"`
+	Debug      bool               `help:"Enable debug logging." short:"d"`
+	Tags       []string           `help:"Tags to enable during type analysis (will also be read from $GOFLAGS)." placeholder:"TAG" short:"t"`
+	OutputTags []string           `help:"Tags to add to generated code." placeholder:"TAG" short:"T"`
+	Resolve    []string           `help:"Resolve an ambiguous type with this provider." placeholder:"REF" short:"r"`
+	List       bool               `group:"Actions:" help:"List all dependencies." xor:"action"`
+	Root       []string           `help:"Prune dependencies outside these root types."  placeholder:"REF" short:"R"`
+	Dest       string             `help:"Destination package directory for generated files." default:"."`
+	Patterns   []string           `help:"Additional packages pattern to scan." arg:"" optional:""`
 }
 
 func main() {
@@ -66,34 +62,14 @@ func main() {
 	)
 	kctx.FatalIfErrorf(err)
 
-	if len(graph.Missing) > 0 {
-		for fn, missing := range graph.Missing {
-			missingStr := []string{}
-			for _, typ := range missing {
-				missingStr = append(missingStr, typ.String())
-			}
-			kctx.Errorf("%s() is missing a provider for %s", fn.FullName(), strings.Join(missingStr, ", "))
-		}
-		kctx.Exit(1)
-	}
-
 	// Run actions if any
-	switch {
-	case cli.List:
+	if cli.List {
 		g := graph.Graph()
 		for root, deps := range g {
 			fmt.Printf("%s\n", root)
 			for _, dep := range deps {
 				fmt.Printf("  %s\n", dep)
 			}
-		}
-		kctx.Exit(0)
-
-	case cli.OpenAPI:
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(graph.GenerateOpenAPISpec(cli.OpenAPITitle, cli.OpenAPIVersion)); err != nil {
-			kctx.Fatalf("failed to encode OpenAPI spec: %v", err)
 		}
 		kctx.Exit(0)
 	}

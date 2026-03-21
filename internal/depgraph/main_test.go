@@ -1,4 +1,4 @@
-package depgraph
+package depgraph_test
 
 import (
 	"testing"

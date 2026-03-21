@@ -3,11 +3,9 @@ package depgraph
 
 import (
 	"context"
-	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
-	"hash/fnv"
 	"log"
 	"os"
 	"os/exec"
@@ -18,7 +16,6 @@ import (
 	"github.com/alecthomas/errors"
 	"github.com/alecthomas/zero/internal/directiveparser"
 	"github.com/alecthomas/zero/internal/strcase"
-	"github.com/go-openapi/spec"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
 )
@@ -71,6 +68,26 @@ func WithNodes(key ...NodeKey) Option {
 	}
 }
 
+// WithRoots requires the given type references as roots.
+func WithRoots(refs ...string) Option {
+	return func(o *graphOptions) error {
+		for _, ref := range refs {
+			o.require = append(o.require, TypeKey(ref))
+		}
+		return nil
+	}
+}
+
+// WithProviders requires the given provider references.
+func WithProviders(refs ...string) Option {
+	return func(o *graphOptions) error {
+		for _, ref := range refs {
+			o.require = append(o.require, NodeKey(ref))
+		}
+		return nil
+	}
+}
+
 // WithPatterns adds additional package patterns to search for annotations.
 func WithPatterns(patterns ...string) Option {
 	return func(o *graphOptions) error {
@@ -107,20 +124,9 @@ func WithTags(tags ...string) Option {
 	}
 }
 
-type Graph struct {
-	Dest          *types.Package
-	Providers     map[string][]*Provider // All providers including multi and generic
-	Configs       map[string]*Config
-	APIs          []*API
-	CronJobs      []*CronJob
-	Subscriptions []*Subscription
-	Middleware    []*Middleware
-	Missing       map[*types.Func][]types.Type
-}
-
 // Analyse statically loads Go packages, then analyses them for //zero:... annotations in order to build the
 // Zero's dependency injection graph.
-func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error) {
+func Analyse(ctx context.Context, dest string, options ...Option) (*IR, error) {
 	var nodes []Node
 	opts := &graphOptions{}
 	for _, opt := range options {
@@ -205,399 +211,7 @@ func Analyse(ctx context.Context, dest string, options ...Option) (*Graph, error
 		return nil, errors.Errorf("destination package %q not found", destImport)
 	}
 
-	// Create IR
-	ir, err := NewIR(nodes, options...)
-	if err != nil {
-		return nil, err
-	}
-
-	// Build Graph from IR
-	graph := &Graph{
-		Dest:          destPkg.Types,
-		Providers:     make(map[string][]*Provider),
-		Configs:       make(map[string]*Config),
-		APIs:          make([]*API, 0),
-		CronJobs:      make([]*CronJob, 0),
-		Middleware:    make([]*Middleware, 0),
-		Subscriptions: make([]*Subscription, 0),
-		Missing:       make(map[*types.Func][]types.Type),
-	}
-
-	// Collect all generic configs and providers first
-	genericConfigs := make(map[string]*Config)
-	genericProviders := make(map[string]*Provider)
-
-	// Populate from required nodes
-	for node := range ir.RequiredNodes() {
-		switch n := node.(type) {
-		case *Provider:
-			key := string(n.NodeProvides())
-			if n.IsGeneric {
-				// Store generic provider for later materialization
-				baseType := getBaseTypeNameFromString(key)
-				genericProviders[baseType] = n
-			} else {
-				graph.Providers[key] = append(graph.Providers[key], n)
-			}
-		case *Config:
-			key := string(normaliseTypeToTypeKey(n.Type))
-			if n.IsGeneric {
-				// Store generic config for later materialization
-				baseType := getBaseTypeNameFromString(key)
-				genericConfigs[baseType] = n
-			} else {
-				graph.Configs[key] = n
-			}
-		case *API:
-			graph.APIs = append(graph.APIs, n)
-		case *CronJob:
-			graph.CronJobs = append(graph.CronJobs, n)
-		case *Middleware:
-			graph.Middleware = append(graph.Middleware, n)
-		case *Subscription:
-			graph.Subscriptions = append(graph.Subscriptions, n)
-		}
-	}
-
-	// Materialize generic configs by examining provider parameter types
-	materializedTypes := make(map[string]bool)
-
-	// Look at all providers to find concrete config instances
-	for node := range ir.RequiredNodes() {
-		provider, ok := node.(*Provider)
-		if !ok {
-			continue
-		}
-		// Check each parameter type of the provider
-		for _, paramType := range provider.Requires() {
-			// Get the fully qualified base type for matching against genericConfigs
-			fullyQualifiedTypeStr := paramType.String()
-			baseType := getBaseTypeNameFromString(fullyQualifiedTypeStr)
-
-			// Check if this matches a generic config base type
-			genericConfig, exists := genericConfigs[baseType]
-			if !exists {
-				continue
-			}
-			// Create the config key with proper normalization:
-			// Base type stays fully qualified, but type arguments are normalized relative to dest package
-			configKey := normalizeConfigTypeString(paramType, graph.Dest)
-
-			if materializedTypes[configKey] {
-				continue
-			}
-			// Create materialized config directly from the parameter type
-			materializedConfig := &Config{
-				Position:   genericConfig.Position,
-				Package:    genericConfig.Package,
-				Type:       paramType.(*types.Named), // Safe cast since configs are named types
-				Directive:  genericConfig.Directive,
-				IsGeneric:  false,
-				TypeParams: nil,
-			}
-			graph.Configs[configKey] = materializedConfig
-			materializedTypes[configKey] = true
-		}
-	}
-
-	// Materialize generic providers by examining required types
-	materializedProviders := make(map[string]bool)
-
-	// Look at all nodes to find concrete provider instances needed
-	for node := range ir.RequiredNodes() {
-		for _, reqKey := range node.NodeRequires() {
-			reqTypeStr := reqKey.String()
-
-			// Skip if this is a generic requirement (contains ?)
-			if strings.Contains(reqTypeStr, "?") {
-				continue
-			}
-
-			// Skip if already has a provider
-			if _, exists := graph.Providers[reqTypeStr]; exists {
-				continue
-			}
-
-			baseType := getBaseTypeNameFromString(reqTypeStr)
-			genericProvider, exists := genericProviders[baseType]
-			if !exists {
-				continue
-			}
-
-			if materializedProviders[reqTypeStr] {
-				continue
-			}
-
-			// Materialize this specific concrete instance
-			graph.Providers[reqTypeStr] = append(graph.Providers[reqTypeStr], genericProvider)
-			materializedProviders[reqTypeStr] = true
-		}
-	}
-
-	return graph, nil
-}
-
-// ParseTypeRef parses a type reference string into a Ref.
-//
-// A type reference string is in the form [*]<pkg>.<type>, eg. *net/http.ServeMux
-func (g *Graph) ParseTypeRef(ref string) Ref {
-	ptr := strings.HasPrefix(ref, "*")
-	cut := strings.LastIndex(ref, ".")
-	if cut == -1 {
-		panic(fmt.Sprintf("invalid type reference: %s", ref))
-	}
-	pkg := strings.TrimPrefix(ref[:cut], "*")
-	typ := ref[cut+1:]
-	alias := g.ImportAlias(pkg)
-	if pkg == g.Dest.Path() {
-		if ptr {
-			typ = "*" + typ
-		}
-		return Ref{
-			Ref: typ,
-		}
-	}
-	imp := pkg
-	if alias != "" {
-		imp = fmt.Sprintf("%s %q", alias, imp)
-		typ = alias + "." + typ
-	} else {
-		typ = path.Base(pkg) + "." + typ
-	}
-	if ptr {
-		typ = "*" + typ
-	}
-	return Ref{
-		Pkg:    pkg,
-		Import: imp,
-		Ref:    typ,
-	}
-}
-
-// TypeRef splits a type into its import alias+path and type reference.
-//
-// eg. *database/sql.DB would become
-//
-//	impc112c3711fba7de3 "database/sql"
-//	*sql.DB
-func (g *Graph) TypeRef(t types.Type) Ref {
-	// Handle pointer types
-	pointer := false
-	if ptr, ok := t.(*types.Pointer); ok {
-		pointer = true
-		t = ptr.Elem()
-	}
-
-	var pkg, typeName string
-	var imp, ref string
-
-	// Extract package and type name directly from the type
-	if named, ok := t.(*types.Named); ok {
-		if named.Obj().Pkg() != nil {
-			pkg = named.Obj().Pkg().Path()
-			typeName = named.Obj().Name()
-
-			// Handle generic types with type arguments
-			if typeArgs := named.TypeArgs(); typeArgs != nil && typeArgs.Len() > 0 {
-				typeName += "["
-				for i := range typeArgs.Len() {
-					argType := typeArgs.At(i)
-					// Use types.TypeString for type arguments to avoid recursion
-					argString := types.TypeString(argType, types.RelativeTo(g.Dest))
-					typeName += argString
-					if i < typeArgs.Len()-1 {
-						typeName += ", "
-					}
-				}
-				typeName += "]"
-			}
-		} else {
-			// Built-in type
-			typeName = named.Obj().Name()
-		}
-	} else {
-		// For non-named types, fall back to string representation
-		typ := types.TypeString(t, types.RelativeTo(g.Dest))
-		typeName = typ
-	}
-
-	if pkg != "" {
-		alias := g.ImportAlias(pkg)
-		if alias != "" {
-			imp = fmt.Sprintf("%s %q", alias, pkg)
-			ref = alias + "." + typeName
-		} else {
-			// Standard library or same package
-			if pkg == g.Dest.Path() {
-				ref = typeName
-			} else {
-				// Standard library package - need to import it
-				imp = fmt.Sprintf("%q", pkg)
-				pkgName := path.Base(pkg)
-				ref = pkgName + "." + typeName
-			}
-		}
-	} else {
-		ref = typeName
-	}
-
-	if pointer {
-		ref = "*" + ref
-	}
-
-	return Ref{
-		Pkg:    pkg,
-		Import: imp,
-		Ref:    ref,
-	}
-}
-
-// FunctionRef returns a reference to a function, including import information if needed.
-func (g *Graph) FunctionRef(fn *types.Func) Ref {
-	name := fn.Name()
-	pkg := fn.Pkg().Path()
-
-	var imp, ref string
-	if alias := g.ImportAlias(pkg); alias != "" {
-		imp = fmt.Sprintf("%s %q", alias, pkg)
-		ref = alias + "." + name
-	} else {
-		ref = name
-	}
-
-	return Ref{
-		Pkg:    pkg,
-		Import: imp,
-		Ref:    ref,
-	}
-}
-
-// ImportAlias returns an alias for the given package path, or "" if the package is the destination package.
-func (g *Graph) ImportAlias(pkg string) string {
-	if pkg == g.Dest.Path() {
-		return ""
-	}
-	if _, isStdlib := stdlib[pkg]; isStdlib {
-		return ""
-	}
-	aliasID := fnv.New64a()
-	aliasID.Write([]byte(pkg))
-	return fmt.Sprintf("imp%x", aliasID.Sum64())
-}
-
-// GetProviders returns all providers for a given type (both single and multi).
-func (g *Graph) GetProviders(typeStr string) []*Provider {
-	if providers, exists := g.Providers[typeStr]; exists {
-		return providers
-	}
-
-	// Check generic providers by base type
-	baseType := getBaseTypeNameFromString(typeStr)
-	if genericProviders, exists := g.Providers[baseType]; exists {
-		return genericProviders
-	}
-
-	return nil
-}
-
-// Graph returns the dependency graph as a map where keys are type strings
-// and values are slices of their dependency type strings.
-func (g *Graph) Graph() map[string][]string {
-	result := make(map[string][]string)
-
-	// Add all providers and their dependencies
-	for typeStr, providers := range g.Providers {
-		deps := make([]string, 0)
-		for _, provider := range providers {
-			for _, reqType := range provider.Requires() {
-				depTypeStr := types.TypeString(reqType, types.RelativeTo(g.Dest))
-				deps = append(deps, depTypeStr)
-			}
-		}
-		result[typeStr] = deps
-	}
-
-	// Add configs (they have no dependencies)
-	for typeStr := range g.Configs {
-		if _, exists := result[typeStr]; !exists {
-			result[typeStr] = []string{}
-		}
-	}
-
-	return result
-}
-
-// GenerateOpenAPISpec creates a complete OpenAPI specification from all API endpoints
-func (g *Graph) GenerateOpenAPISpec(title, version string) *spec.Swagger {
-	swagger := &spec.Swagger{
-		SwaggerProps: spec.SwaggerProps{
-			Swagger: "2.0",
-			Info: &spec.Info{
-				InfoProps: spec.InfoProps{
-					Title:   title,
-					Version: version,
-				},
-			},
-			Paths: &spec.Paths{
-				Paths: make(map[string]spec.PathItem),
-			},
-			Definitions: make(spec.Definitions),
-		},
-	}
-
-	// Group APIs by path and generate operations with shared definitions
-	pathOperations := make(map[string]map[string]*spec.Operation)
-
-	for _, api := range g.APIs {
-		if api.Directive == nil {
-			continue
-		}
-
-		path := api.Directive.Path()
-		method := strings.ToLower(api.Directive.Method)
-		if method == "" {
-			method = "get"
-		}
-
-		if pathOperations[path] == nil {
-			pathOperations[path] = make(map[string]*spec.Operation)
-		}
-
-		// Generate operation with shared definitions
-		operation := api.GenerateOpenAPIOperation(swagger.Definitions)
-		pathOperations[path][method] = operation
-	}
-
-	// Convert to PathItems
-	for path, operations := range pathOperations {
-		pathItem := spec.PathItem{}
-
-		if op, exists := operations["get"]; exists {
-			pathItem.Get = op
-		}
-		if op, exists := operations["post"]; exists {
-			pathItem.Post = op
-		}
-		if op, exists := operations["put"]; exists {
-			pathItem.Put = op
-		}
-		if op, exists := operations["patch"]; exists {
-			pathItem.Patch = op
-		}
-		if op, exists := operations["delete"]; exists {
-			pathItem.Delete = op
-		}
-		if op, exists := operations["head"]; exists {
-			pathItem.Head = op
-		}
-		if op, exists := operations["options"]; exists {
-			pathItem.Options = op
-		}
-
-		swagger.Paths.Paths[path] = pathItem
-	}
-
-	return swagger
+	return NewIR(destPkg.Types, nodes, options...)
 }
 
 // Parse a directive from a comment. Will return (nil, nil) if a directive is not found.
@@ -1359,8 +973,7 @@ func getBaseTypeNameFromString(typeStr string) string {
 	return typeStr
 }
 
-// toKebabCase converts a type name to kebab-case using strcase.
-// For example: "MyService" -> "my-service", "HTTPClient" -> "http-client"
+// toKebabCase converts a type name to kebab-case.
 func toKebabCase(typeName string) string {
 	parts := strcase.Split(typeName)
 	for i, part := range parts {
