@@ -12,13 +12,16 @@ import (
   imp3a230651a6adde60 "github.com/alecthomas/zero/providers/pubsub/postgres/dashboard"
   imp57144815321973d3 "github.com/alecthomas/zero/providers/pubsub"
   imp610fef263c076d55 "github.com/alecthomas/zero/providers/leases/migrations"
+  imp71bef56b62085424 "github.com/alecthomas/zero/providers/cron"
   imp897f1a742b20547b "github.com/alecthomas/zero/providers/pubsub/postgres"
   imp9559a323b07c72c "github.com/alecthomas/zero/providers/dashboard"
+  imp9b258f273adc01df "github.com/alecthomas/zero/providers/leases"
   imp9c34c006eb3c10fa "github.com/alecthomas/zero"
   impc24ab568b6f3f934 "github.com/alecthomas/zero/providers/sql"
   "log/slog"
   "net/http"
   "reflect"
+  "time"
 )
 
 // Config contains combined Kong configuration for all types constructable by the [Injector].
@@ -42,13 +45,9 @@ func NewInjector(ctx context.Context, config ZeroConfig) *Injector {
 
 // RegisterHandlers registers all Zero handlers with the injector's [http.ServeMux].
 func RegisterHandlers(ctx context.Context, injector *Injector) error {
-	r2, err := ZeroConstructSingletons[*Service](ctx, injector)
+	r0, err := ZeroConstructSingletons[*Service](ctx, injector)
 	if err != nil {
 		return fmt.Errorf("*github.com/alecthomas/zero/_examples/service.Service: %w", err)
-	}
-	r0, err := ZeroConstructSingletons[*imp9559a323b07c72c.Dashboard](ctx, injector)
-	if err != nil {
-		return fmt.Errorf("*github.com/alecthomas/zero/providers/dashboard.Dashboard: %w", err)
 	}
 	r1, err := ZeroConstructSingletons[*imp3a230651a6adde60.Component](ctx, injector)
 	if err != nil {
@@ -74,8 +73,24 @@ func RegisterHandlers(ctx context.Context, injector *Injector) error {
 	}
 	_ = encodeError
 	_ = encodeResponse
-	mux.Handle("/_admin/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		out, herr := r0.Admin(r.Context())
+	mux.Handle("GET /users", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		out, herr := r0.ListUsers()
+		encodeResponse(logger, r, w, encodeError, out, herr)
+	}))
+	// Parameters for the Authenticate middleware
+	m0p0 := "admin"
+	mux.Handle("POST /users", Authenticate(m0p0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p1, err := zero.DecodeRequest[User]("POST", r)
+		if err != nil {
+			encodeError(logger, w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+			return
+		}
+		herr := r0.CreateUser(r.Context(), p1)
+		encodeResponse(logger, r, w, encodeError, nil, herr)
+	})))
+	mux.Handle("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p0 := r.PathValue("id")
+		out, herr := r0.GetUser(p0)
 		encodeResponse(logger, r, w, encodeError, out, herr)
 	}))
 	mux.Handle("GET /_admin/dlq/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,26 +111,6 @@ func RegisterHandlers(ctx context.Context, injector *Injector) error {
 		p1 := r.PathValue("cloudEventID")
 		herr := r1.ReenqueueDeadLetter(r.Context(), p1)
 		encodeResponse(logger, r, w, encodeError, nil, herr)
-	}))
-	mux.Handle("GET /users", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		out, herr := r2.ListUsers()
-		encodeResponse(logger, r, w, encodeError, out, herr)
-	}))
-	// Parameters for the Authenticate middleware
-	m0p0 := "admin"
-	mux.Handle("POST /users", Authenticate(m0p0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p1, err := zero.DecodeRequest[User]("POST", r)
-		if err != nil {
-			encodeError(logger, w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
-			return
-		}
-		herr := r2.CreateUser(r.Context(), p1)
-		encodeResponse(logger, r, w, encodeError, nil, herr)
-	})))
-	mux.Handle("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p0 := r.PathValue("id")
-		out, herr := r2.GetUser(p0)
-		encodeResponse(logger, r, w, encodeError, out, herr)
 	}))
 	return nil
 }
@@ -149,6 +144,18 @@ func Run(ctx context.Context, config ZeroConfig) error {
 	server, err := ZeroConstructSingletons[*http.Server](ctx, injector)
 	if err != nil {
 		return err
+	}
+	cron, err := ZeroConstructSingletons[*imp71bef56b62085424.Scheduler](ctx, injector)
+	if err != nil {
+		return err
+	}
+	r0, err := ZeroConstructSingletons[*Service](ctx, injector)
+	if err != nil {
+		return err
+	}
+	err = cron.Register("*github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron", time.Duration(5000000000), r0.CheckUsersCron)
+	if err != nil {
+		return fmt.Errorf("failed to register cron job *github.com/alecthomas/zero/_examples/service.Service.CheckUsersCron: %w", err)
 	}
 	wg, ctx := errgroup.WithContext(ctx)
 	logger, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
@@ -250,20 +257,20 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 		}
 		return any(o).(T), nil
 
-	case reflect.TypeOf((**imp9559a323b07c72c.Dashboard)(nil)).Elem():
-		p0, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
+	case reflect.TypeOf((**imp71bef56b62085424.Scheduler)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[context.Context](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p1, err := ZeroConstructSingletons[imp3773070ca4e7a2b8.Config](ctx, injector)
+		p1, err := ZeroConstructSingletons[*slog.Logger](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		p2, err := ZeroConstructSingletons[imp9559a323b07c72c.Components](ctx, injector)
+		p2, err := ZeroConstructSingletons[imp9b258f273adc01df.Leaser](ctx, injector)
 		if err != nil {
 			return out, err
 		}
-		o := imp9559a323b07c72c.New(p0, p1, p2)
+		o := imp71bef56b62085424.NewScheduler(p0, p1, p2)
 		return any(o).(T), nil
 
 	case reflect.TypeOf((**imp897f1a742b20547b.Listener)(nil)).Elem():
@@ -326,7 +333,7 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 		if err != nil {
 			return out, err
 		}
-		o := imp3773070ca4e7a2b8.DefaultServer(p0, p1, p2, p3)
+		o := imp3773070ca4e7a2b8.NewServer(p0, p1, p2, p3)
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp9c34c006eb3c10fa.ErrorEncoder)(nil)).Elem():
@@ -343,6 +350,10 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 			return out, err
 		}
 		o := imp3a230651a6adde60.Provide(p0)
+		return any(o).(T), nil
+
+	case reflect.TypeOf((*imp9b258f273adc01df.Leaser)(nil)).Elem():
+		o := imp9b258f273adc01df.NewMemoryLeaser()
 		return any(o).(T), nil
 
 	case reflect.TypeOf((*imp57144815321973d3.Topic[UserCreatedEvent])(nil)).Elem():
@@ -372,10 +383,21 @@ func ZeroConstructSingletons[T any](ctx context.Context, injector *Injector) (ou
 		}
 		return any(o).(T), nil
 
+	case reflect.TypeOf((*impc24ab568b6f3f934.Driver)(nil)).Elem():
+		p0, err := ZeroConstructSingletons[impc24ab568b6f3f934.Config](ctx, injector)
+		if err != nil {
+			return out, err
+		}
+		o, err := impc24ab568b6f3f934.DriverForConfig(p0)
+		if err != nil {
+			return out, fmt.Errorf("impc24ab568b6f3f934.Driver: %w", err)
+		}
+		return any(o).(T), nil
+
 	case reflect.TypeOf((*impc24ab568b6f3f934.Migrations)(nil)).Elem():
-		r0 := imp610fef263c076d55.Migrations()
-		r1 := imp897f1a742b20547b.Migrations()
-		r2 := Migrations()
+		r0 := Migrations()
+		r1 := imp610fef263c076d55.Migrations()
+		r2 := imp897f1a742b20547b.Migrations()
 		var result impc24ab568b6f3f934.Migrations
 		result = append(result, r0...)
 		result = append(result, r1...)

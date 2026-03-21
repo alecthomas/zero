@@ -49,7 +49,7 @@ require (
 
 require (
 	github.com/alecthomas/errors v0.8.2
-	github.com/alecthomas/repr v0.5.0 // indirect
+	github.com/alecthomas/repr v0.5.1 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jpillora/backoff v1.0.0

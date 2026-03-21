@@ -15,7 +15,7 @@ require (
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/alecthomas/errors v0.8.2 // indirect
-	github.com/alecthomas/repr v0.5.0 // indirect
+	github.com/alecthomas/repr v0.5.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/dyninc/qstring v0.0.0-20160719172318-ab5840a88e81 // indirect
 	github.com/go-sql-driver/mysql v1.9.3 // indirect
