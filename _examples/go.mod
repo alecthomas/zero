@@ -2,20 +2,20 @@ module github.com/alecthomas/zero/_examples
 
 replace github.com/alecthomas/zero => ../
 
-go 1.24.5
+go 1.26.0
 
 require (
 	github.com/alecthomas/assert/v2 v2.11.0
-	github.com/alecthomas/kong v1.12.1
+	github.com/alecthomas/kong v1.16.1
 	github.com/alecthomas/kong-toml v0.4.0
 	github.com/alecthomas/zero v0.0.0-00010101000000-000000000000
-	golang.org/x/sync v0.16.0
+	golang.org/x/sync v0.23.0
 )
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/alecthomas/errors v0.8.2 // indirect
-	github.com/alecthomas/repr v0.5.0 // indirect
+	github.com/alecthomas/repr v0.5.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/dyninc/qstring v0.0.0-20160719172318-ab5840a88e81 // indirect
 	github.com/go-sql-driver/mysql v1.9.3 // indirect
