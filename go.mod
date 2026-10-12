@@ -51,7 +51,7 @@ require (
 	github.com/alecthomas/errors v0.8.2
 	github.com/alecthomas/repr v0.5.0 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
-	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
+	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6
 	github.com/jpillora/backoff v1.0.0
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/lmittmann/tint v1.1.2
