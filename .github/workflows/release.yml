@@ -28,7 +28,7 @@ jobs:
           ref: "master"
           token: ${{ secrets.ALECTHOMAS_HERMIT_AUTOVERSION_TOKEN }}
       - name: Init Hermit
-        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # ratchet:cashapp/activate-hermit@v1.1.4
+        uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1.1.5
       - name: Setup Git Config
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
